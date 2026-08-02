@@ -31,7 +31,7 @@ export default function Account() {
           Manage your ESPN cookies on the <Link to="/setup">ESPN connection</Link> page.
         </p>
       </div>
-      <div className="card" style={{ borderColor: "var(--bad)" }}>
+      <div className="card" style={{ border: "1px solid var(--color-accent-400)" }}>
         <h2>Delete account</h2>
         <p className="muted">
           Permanently removes your account, stored ESPN cookies, and every connected league from

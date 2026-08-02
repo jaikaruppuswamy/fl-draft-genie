@@ -87,10 +87,13 @@ either way).
 
 ## 6. Email delivery
 
-**Decision**: A one-method `EmailSender` interface with two adapters:
-`console` (dev/test — code printed to `wrangler dev` logs) and **Resend**
-(production; single HTTPS POST, API key as Worker secret). Provider choice
-is config, not code.
+**Decision** *(amended 2026-08-02 post-deploy)*: A one-method `EmailSender`
+interface with three adapters: `console` (dev/test — code printed to
+`wrangler dev` logs), **Cloudflare Email Service** (production — native
+`send_email` Workers binding, no API key; `neelamjai.com` onboarded with
+auto-managed SPF/DKIM/DMARC; requires a paid plan and the dashboard for
+domain onboarding), and `resend` (kept as a swappable alternative). Provider
+choice is config (`EMAIL_PROVIDER`), not code.
 
 **Rationale**: Magic-link mail is one templated message; a thin adapter
 keeps the only third-party service swappable (e.g. to Cloudflare Email

@@ -15,10 +15,11 @@ via a league setup page (no hardcoded leagues).
 **Feature 001 (league onboarding) implemented and deployed** to
 **https://draft.neelamjai.com** (Cloudflare Workers + D1) — passwordless email
 sign-in, encrypted ESPN cookie storage, multi-league connect with settings
-sync, and the pre-draft auto-sync cron. 65 tests green. Remaining before 001
-closes: live validation against real ESPN leagues (task T045, quickstart
-scenarios) and a `RESEND_API_KEY` for production email (until then sign-in
-codes are read via `npx wrangler tail draft-genie`).
+sync, and the pre-draft auto-sync cron. 68 tests green, all 46 tasks
+complete, live-validated with real leagues (see
+specs/001-league-onboarding/quickstart-results.md). Sign-in emails are
+delivered via Cloudflare Email Service. Styled with the "Organic" design
+system from Claude Design. Next up: 002-projections-pipeline.
 
 This repo is driven by [Spec Kit](https://github.com/github/spec-kit):
 

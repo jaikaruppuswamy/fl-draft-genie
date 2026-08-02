@@ -93,7 +93,7 @@ export default function LeagueDetail() {
               <h2>Draft order</h2>
               <ol>
                 {orderNames.map((name, i) => (
-                  <li key={i} style={name === league.my_team.name ? { color: "var(--accent)", fontWeight: 600 } : {}}>
+                  <li key={i} style={name === league.my_team.name ? { color: "var(--color-accent-700)", fontWeight: 600 } : {}}>
                     {name}
                   </li>
                 ))}

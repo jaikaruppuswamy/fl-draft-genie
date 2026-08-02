@@ -117,6 +117,15 @@ deliberately its own future spec session(s).
 
 ## 006 — draft-room-ui
 
+**Ratified design (2026-08-02)**: The visual design is set — Claude Design
+project `3fc40045-01d4-49a7-af1e-58a2fd7f74cd`, screen "Draft Genie Draft
+Screen.dc.html", built on the "Organic" design system (cream/sand ground,
+terracotta + sage accents, Caprasimo/Figtree, pill controls, tonal ramps).
+The system's tokens now style the whole app (`web/src/styles.css`), and a
+faithful mock-data port of the draft screen ships at `/design/draft`
+(`web/src/pages/DraftBoard.tsx`) as the reference this feature must match
+when it wires in real draft state.
+
 **Summary**: The screen open on the iPad/laptop during the draft. Pre-draft:
 league picker, preferred-player list management (search, add, rank), draft
 countdown, draft-order display once known. Live: real-time pick feed, my
