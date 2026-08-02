@@ -6,75 +6,65 @@ you're on the clock, using a proprietary rule set (value-based drafting, team
 offensive potential, strength of schedule, bye weeks, O-line ranking, and a
 user-maintained preferred-player list).
 
-Each feature below is one Spec Kit cycle. Start a feature by running
-`/speckit-specify` with the feature's summary paragraph, debate the open
-questions during `/speckit-clarify`, then `/speckit-plan` → `/speckit-tasks` →
-`/speckit-implement`. Work them roughly in order — the dependency graph is:
+Feature numbers match the spec directories under `specs/` (renumbered
+2026-08-02 after inserting 003-board-refinements). Each feature is one Spec
+Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
+`/speckit-tasks` → `/speckit-implement`. Dependency order:
 
 ```
-001 league-onboarding
- ├─→ 002 projections-pipeline ─┐
- ├─→ 003 context-signals ──────┼─→ 005 recommendation-engine ─┐
- └─→ 004 draft-monitor ────────┘                              ├─→ 006 draft-room-ui
-                               └──────────────────────────────┴─→ 007 draft-replay-lab
-008 deployment-ops (hosting decision made in 001's plan; hardening at the end)
+001 league-onboarding ✅
+ ├─→ 002 projections-pipeline ✅ ─→ 003 board-refinements ✅
+ ├─→ 004 context-signals ──────────┬─→ 006 recommendation-engine ─┐
+ └─→ 005 draft-monitor ────────────┘                              ├─→ 007 draft-room-ui
+                                   └──────────────────────────────┴─→ 008 draft-replay-lab
+009 deployment-ops (exercised continuously since 001; hardening at the end)
 ```
 
 ---
 
-## 001 — league-onboarding
+## 001 — league-onboarding ✅ SHIPPED (2026-08-02)
 
-**Summary**: Account + league setup. A user signs in to Draft Genie, connects
-their ESPN account by pasting their `espn_s2` and `SWID` cookies (with in-app
-instructions), and adds one or more leagues. The app validates each league,
-pulls and stores its settings (scoring rules, roster slots, team count, draft
-type and scheduled time), identifies which team belongs to the user, and shows
-a league dashboard. Settings re-sync on demand and automatically shortly before
-draft time (draft order is only published ~1 hour before the draft).
+Account + league setup: passwordless email sign-in, encrypted ESPN cookie
+storage (`espn_s2`/`SWID` with in-app instructions), multi-league connect
+with settings sync (scoring rules, roster slots, draft type/time), dashboard,
+and automatic repeated re-sync in the ~75-minute pre-draft window (captures
+the late-published draft order). Deployed to https://draft.neelamjai.com and
+live-validated with the owner's three leagues.
 
-**Open questions — RESOLVED (2026-08-02, `/speckit-clarify`)**:
-- App identity: multi-user shared service; passwordless email sign-in (magic
-  link / one-time code), no passwords stored.
-- Public leagues / observer mode: NOT supported — every connection requires
-  ESPN credentials and a team identified as the user's.
-- Re-sync: manual "sync now" + automatic repeated refresh every few minutes
-  during the pre-draft window (from ~75 min before draft time until start).
-- ESPN identities: exactly one cookie pair per account; multiple ESPN
-  accounts → multiple Draft Genie accounts.
+**Ratified decisions**: Cloudflare hosting (Workers + D1; Fly.io off the
+table); WebSockets for future real-time delivery; multi-user shared service
+with passwordless email sign-in (no passwords stored); every league
+connection requires ESPN credentials and a team identified as the user's (no
+public/observer modes); exactly one ESPN cookie pair per account; sign-in
+email via Cloudflare Email Service (`neelamjai.com` onboarded; Resend kept as
+a swappable adapter).
 
-**Ratified decisions (2026-08-02, during 001 specify)**:
-- **Hosting: Cloudflare** (Workers platform). Fly.io is off the table.
-- **Real-time delivery: WebSockets** (server → client push for draft events).
-- Stack details (Durable Objects for draft rooms, D1/KV for storage, etc.) are
-  settled in 001's `/speckit-plan`.
-- Spec status: `specs/001-league-onboarding/spec.md` drafted; defaults chosen
-  there pending `/speckit-clarify` debate — multi-user shared service,
-  passwordless email sign-in, one ESPN identity per account, public leagues
-  connectable without cookies.
+## 002 — projections-pipeline ✅ SHIPPED (2026-08-02)
 
-## 002 — projections-pipeline
+Global player universe + ESPN season projections (raw per-category stat lines
+from the public `kona_player_info` view — no credentials in the global
+refresh), re-scored per league at read time from 001's lossless scoring maps.
+Per-league **Player board** (projected points, positional rank, ADP, byes,
+filter/search) and a per-player projection-detail breakdown (stat × value →
+points). Immutable projection sets with atomic publish; refresh daily in
+Aug–Sep / weekly otherwise, plus a draft-day top-up and rate-limited
+on-demand refresh.
 
-**Summary**: The player universe and season projections. Pull the full NFL
-player list and ESPN's season-long projections, convert projected stat lines
-into points **per league** using that league's scoring settings (Principle III),
-store ADP/rank data, and refresh on a schedule and on demand. Output: for any
-connected league, a queryable board of every draftable player with projected
-points, position, NFL team, and ADP.
+**Ratified decisions**: ESPN as sole projection source behind one module;
+season-long projections only; every season's projection sets retained as
+history for future trend signals; positional ranks on the board; draft-day
+top-up guarantees same-morning projections.
 
-**Open questions**: which ESPN views/endpoints provide stat-line-level
-projections (needed to re-score per league) vs. only pre-scored points; how
-often to refresh in draft season; what to do about rookies/missing projections.
+## 003 — board-refinements ✅ SHIPPED (2026-08-02)
 
-## (inserted) spec 003 — board-refinements
+Owner-requested refinements after production use of 002: the projection
+detail lists only covered categories (uncovered ones collapse into a count
+note); player tiers from Boris Chen's public feeds (matched to each league's
+scoring format with normalized names, tier groupings under single-position
+filters, graceful degradation when the source is down); centered board
+column headers.
 
-**Added 2026-08-02** (owner request after using 002 in production): streamline
-the projection detail (hide uncovered categories behind a count note), add
-player tiers from Boris Chen's public feeds (per league scoring format, with
-tier groupings on filtered views), center the board's column headers. Small
-UI/data feature; spec dir `specs/003-board-refinements/`. Note: spec-dir
-numbering now runs one ahead of the roadmap ids below.
-
-## 003 — context-signals
+## 004 — context-signals
 
 **Summary**: The non-projection signals the secret sauce needs, one ingestion
 job per signal: team offensive potential for the season (e.g. projected team
@@ -86,9 +76,11 @@ without touching the engine's interface.
 **Open questions**: source per signal (derivable from ESPN data vs. an external
 free source vs. manually seeded table updated once per preseason — simplest
 wins per Principle VIII); whether O-line ranking starts as a hand-maintained
-table; how SoS is computed (full season vs. fantasy-playoff weeks weighted).
+table; how SoS is computed (full season vs. fantasy-playoff weeks weighted);
+how much 003's Boris Chen tiers (already an expert-consensus signal) trim
+this feature's scope.
 
-## 004 — draft-monitor
+## 005 — draft-monitor
 
 **Summary**: The real-time nerve center. For a connected league with a live
 draft scheduled, Draft Genie opens a draft session that: detects when the draft
@@ -101,14 +93,14 @@ connected clients in real time. Emits the events the engine and UI consume:
 
 **Open questions**: poll cadence (and whether to tighten near the user's turn);
 snake vs. auction vs. linear draft support in v1 (recommend snake-only first);
-what "connected in real time" means concretely (WebSocket vs. SSE vs. client
-polling our own API); autodraft/keeper edge cases.
+transport details for the ratified WebSocket push (Durable Object per draft
+room per 001's plan notes); autodraft/keeper edge cases.
 
-## 005 — recommendation-engine
+## 006 — recommendation-engine
 
 **Summary**: The secret sauce. A pure, deterministic, offline-testable module:
 input = league context (scoring, roster needs), draft state (available players,
-my roster, current round/pick), player board (002) and signals (003), plus the
+my roster, current round/pick), player board (002) and signals (004), plus the
 user's preferred list; output = a ranked shortlist with an explanation per
 player (Principle VII). Core is value-based drafting (replacement-level value
 by position, round-value awareness so we know what a player "should" cost),
@@ -124,13 +116,13 @@ recommendations in late rounds (K/DST timing); whether the engine also produces
 a full "best available" board or only a shortlist. The detailed rule tuning is
 deliberately its own future spec session(s).
 
-## 006 — draft-room-ui
+## 007 — draft-room-ui
 
 **Ratified design (2026-08-02)**: The visual design is set — Claude Design
 project `3fc40045-01d4-49a7-af1e-58a2fd7f74cd`, screen "Draft Genie Draft
 Screen.dc.html", built on the "Organic" design system (cream/sand ground,
 terracotta + sage accents, Caprasimo/Figtree, pill controls, tonal ramps).
-The system's tokens now style the whole app (`web/src/styles.css`), and a
+The system's tokens style the whole app (`web/src/styles.css`), and a
 faithful mock-data port of the draft screen ships at `/design/draft`
 (`web/src/pages/DraftBoard.tsx`) as the reference this feature must match
 when it wires in real draft state.
@@ -147,7 +139,7 @@ survives a page reload mid-draft.
 audio/visual alert when the user is on the clock or on deck; whether preferred
 lists are per-league or shared across leagues (recommend per-league).
 
-## 007 — draft-replay-lab
+## 008 — draft-replay-lab
 
 **Summary**: The test harness that makes the secret sauce trustworthy. Record
 every live draft the monitor observes; import past ESPN drafts; replay any
@@ -160,22 +152,24 @@ tuning sessions (Principle IV) validate their changes.
 for "the engine did well" (projected points of resulting roster vs. actuals);
 CLI or UI.
 
-## 008 — deployment-ops
+## 009 — deployment-ops
 
-**Summary**: Production hardening on the platform ratified in 001: environments,
-secret management for ESPN cookies, scheduled jobs for data refresh, logging
-and alerting (especially "draft session died mid-draft"), backups, and a
-draft-day runbook. Small by design — most deployment reality is exercised
-continuously from 001 onward.
+**Summary**: Production hardening on Cloudflare: environments, secret
+management, scheduled jobs, logging and alerting (especially "draft session
+died mid-draft"), backups, and a draft-day runbook. Much is already exercised
+continuously (deployed since 001: custom domain, D1 migrations, secrets,
+cron, Email Service); this feature closes the remaining gaps at the end.
 
 ---
 
 ### Notes
 
-- ESPN access pattern (shared by 001/002/004): ESPN's fantasy API v3
-  (`lm-api-reads.fantasy.espn.com`) with `espn_s2`/`SWID` cookies for private
-  leagues; draft picks via the `mDraftDetail` view. No public push API —
-  polling is the baseline assumption. Verify current endpoints during 001's
-  plan phase; ESPN changes them between seasons.
-- Priority order for a usable draft-day v1: 001 → 002 → 004 → 005 (VBD core
-  only) → 006, then 003 signals and 007 replay lab deepen the sauce, 008 wraps.
+- ESPN access pattern (001/002/005): ESPN's fantasy API v3
+  (`lm-api-reads.fantasy.espn.com`) — cookie-authenticated for private league
+  data, public/unauthenticated for the global projection views; draft picks
+  via the `mDraftDetail` view. No public push API — polling is the baseline
+  assumption. ESPN changes endpoints between seasons; every external source
+  lives behind a single module.
+- Priority order for a usable draft-day v1: ~~001 → 002 → 003~~ (shipped) →
+  **005** → 006 (VBD core only) → 007, then 004 signals and 008 replay lab
+  deepen the sauce, 009 wraps.

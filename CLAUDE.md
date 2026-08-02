@@ -5,7 +5,7 @@ This project is spec-driven via Spec Kit. Before doing anything else, read:
 1. `.specify/memory/constitution.md` — binding principles (spec-first,
    any-league design, league-currency scoring, rules-are-code, draft-day
    resilience, read-only vs ESPN, explainable recommendations, simplicity).
-2. `ROADMAP.md` — the feature breakdown (001–008), dependency order, and each
+2. `ROADMAP.md` — the feature breakdown (001–009, ids match specs/ dirs), dependency order, and each
    feature's open questions to debate during clarify.
 
 ## Rules of engagement

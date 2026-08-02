@@ -81,7 +81,7 @@ complexity), one hosting platform, no speculative configurability (YAGNI).
 - One feature per spec-kit cycle, on its own git branch, merged when its tasks
   are complete and tested.
 - The recommendation engine MUST be testable offline via recorded/replayed
-  drafts (see ROADMAP.md feature 007) — rule changes are validated against
+  drafts (see ROADMAP.md feature 008) — rule changes are validated against
   replays before draft day.
 - Cross-feature contracts (data models, API shapes) are written down in the
   owning feature's spec and referenced, not duplicated.
@@ -94,4 +94,7 @@ this file in its own commit with a version bump and rationale. All
 principles; violations require an explicit, documented justification or a
 constitution amendment.
 
-**Version**: 1.0.0 | **Ratified**: 2026-08-02 | **Last Amended**: 2026-08-02
+**Version**: 1.0.1 | **Ratified**: 2026-08-02 | **Last Amended**: 2026-08-02
+
+<!-- 1.0.1: cross-reference fix — replay lab renumbered 007→008 in the
+     2026-08-02 roadmap renumbering. No principle changes. -->

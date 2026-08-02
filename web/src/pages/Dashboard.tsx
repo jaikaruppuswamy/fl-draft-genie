@@ -116,7 +116,7 @@ export default function Dashboard() {
         ))
       )}
       <p className="muted small" style={{ marginTop: "var(--space-4)" }}>
-        Design preview: <Link to="/design/draft">draft-day screen</Link> (feature 006)
+        Design preview: <Link to="/design/draft">draft-day screen</Link> (feature 007)
       </p>
     </div>
   );

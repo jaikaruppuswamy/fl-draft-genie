@@ -1,4 +1,4 @@
-// Design reference for the draft-day screen (feature 006), ported faithfully
+// Design reference for the draft-day screen (roadmap feature 007), ported faithfully
 // from the Claude Design artifact "Draft Genie Draft Screen.dc.html"
 // (project 3fc40045). Renders the design's mock data — the live draft feed,
 // recommendations, and roster state arrive with features 004/005/006.
@@ -137,7 +137,7 @@ export default function DraftBoard() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--color-neutral-300)", padding: "var(--space-3)", fontFamily: "var(--font-body)" }}>
       <div className="banner warn" style={{ maxWidth: 1440, margin: "0 auto var(--space-3)" }}>
-        Design preview (feature 006) — mock data from the ratified Claude Design artifact. The live
+        Design preview (feature 007) — mock data from the ratified Claude Design artifact. The live
         draft feed and recommendations arrive with the draft monitor and engine.{" "}
         <Link to="/">Back to dashboard</Link>
       </div>
