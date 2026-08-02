@@ -68,7 +68,7 @@ US3 (uniform shape contract).
 ## Phase 6: Polish & Cross-Cutting
 
 - [x] T017 [P] Full sweep: `npm test`, both tsc configs, eslint, build — all clean; 002 perf budget re-checked with signals attached (SC-006)
-- [ ] T018 Deploy (migrate remote + deploy), verify production signals populate on the next refresh cycle, spot-check plausibility (SC-002) on the live board, record results in `specs/004-context-signals/quickstart-results.md`
+- [x] T018 Deploy (migrate remote + deploy), verify production signals populate on the next refresh cycle, spot-check plausibility (SC-002) on the live board, record results in `specs/004-context-signals/quickstart-results.md`
 
 ## Dependencies & Execution Order
 

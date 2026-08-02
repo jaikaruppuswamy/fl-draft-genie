@@ -18,4 +18,6 @@
   this honestly. **Owner action**: review/replace with PFF's full 2026
   preseason order when accessible, set provisional: false.
 - **Production**: migration 0004 applied; deployed; signals computed by the
-  cron (empty-table trigger) — verified via remote D1 (see below).
+  cron (empty-table trigger) — verified via remote D1: offense/sos/oline each
+  cover 32/32 teams with distinct ranks 1–32 (SC-001); computed top-5
+  offenses LAR, DET, BUF, CIN, DAL (SC-002 plausible).
