@@ -8,15 +8,24 @@
 
 **Input**: User description: "002" (ROADMAP.md feature 002 — projections-pipeline: the player universe and season projections, re-scored per league)
 
+## Clarifications
+
+### Session 2026-08-02
+
+- Q: How often should projections refresh automatically, and should draft day get special treatment? → A: Daily during August–September (weekly otherwise), plus a draft-day top-up: one extra refresh when any connected league enters its pre-draft window (~75 minutes before its draft), so drafts run on same-morning projections.
+- Q: Should older projection sets be retained as history after a new refresh, or only the latest kept? → A: Keep every successful refresh for the current season (season history, ~60 sets); pruned at season end. Enables projection-trend signals for the future recommendation engine.
+- Q: Should the board show positional rank (e.g., RB12) computed in each league's scoring? → A: Yes — each projected player shows rank within their primary position, derived from projected points in that league's scoring.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Browse my league's player board (Priority: P1)
 
 A manager with a connected league opens that league's player board and sees
 every draftable NFL player with a season projection **in that league's own
-scoring** (constitution III): projected points, position, NFL team, bye week,
-and average draft position (ADP). The board is sorted by projected points by
-default, filterable by position, and searchable by player name.
+scoring** (constitution III): projected points, positional rank (e.g.,
+RB12) in that same scoring, position, NFL team, bye week, and average draft
+position (ADP). The board is sorted by projected points by default,
+filterable by position, and searchable by player name.
 
 **Why this priority**: The board is the product's first look at "who is worth
 what, in my league" — the raw material every later feature (recommendations,
@@ -32,8 +41,8 @@ descending.
 
 1. **Given** a connected league with synced scoring settings, **When** the
    user opens its player board, **Then** they see a list of draftable players
-   with projected season points, position, NFL team, bye week, and ADP,
-   sorted by projected points descending.
+   with projected season points, positional rank (league currency), position,
+   NFL team, bye week, and ADP, sorted by projected points descending.
 2. **Given** the board is open, **When** the user filters by a position
    (e.g., RB), **Then** only players eligible at that position are listed and
    the ordering within the filter remains by projected points.
@@ -181,8 +190,9 @@ reception points.
 
 - **FR-011**: The system MUST provide, for any connected league, a player
   board listing draftable players with projected points (league currency),
-  primary position, NFL team, bye week, and ADP, sorted by projected points
-  descending by default.
+  positional rank within their primary position (derived from those same
+  points, e.g., RB12), primary position, NFL team, bye week, and ADP, sorted
+  by projected points descending by default.
 - **FR-012**: The board MUST support filtering by position (including FLEX-
   eligible groupings the league uses) and searching by player name, composably.
 - **FR-013**: Players without projections MUST appear at the bottom of the
@@ -192,16 +202,21 @@ reception points.
   league's per-unit point value, the resulting category points, and the
   total (FR-008's sum), including zero-contribution uncovered categories.
 
-**Refresh**
+**Refresh & retention**
 
 - **FR-015**: The system MUST refresh the player universe and projections
-  automatically on a schedule — at least daily during draft season (August–
-  September) — without user action.
+  automatically without user action: at least daily during draft season
+  (August–September), weekly otherwise, plus a draft-day top-up — one extra
+  refresh when any connected league enters its pre-draft window (~75 minutes
+  before its scheduled draft).
 - **FR-016**: Any signed-in user MUST be able to trigger an on-demand global
   refresh, rate-limited to prevent hammering the source.
 - **FR-017**: A failed refresh MUST leave the previous projection set fully
   intact and labeled with its age; partial updates MUST NOT be exposed
   (all-or-nothing per refresh cycle).
+- **FR-018**: Every successful projection set for the current season MUST be
+  retained (history for future trend analysis); sets from prior seasons MAY
+  be pruned. Only the latest complete set is ever served to boards.
 
 ### Key Entities
 
@@ -210,13 +225,16 @@ reception points.
   active status.
 - **Projection Set**: One successfully completed refresh of season
   projections: fetch timestamp, season, source identifier, and status. The
-  latest complete set is the serving set.
+  latest complete set is the serving set; all successful sets for the
+  current season are retained as history (for future trend signals) and
+  pruned when the season ends.
 - **Player Projection**: A player's projected season stat line within a
   projection set: map of stat category → projected amount, plus ADP and
   overall rank where available.
 - **League Board Entry** *(derived, not stored source data)*: a player's
-  projected points in one league's currency — computed from Player
-  Projection × the league's scoring map (001's League Settings Snapshot).
+  projected points and positional rank in one league's currency — computed
+  from Player Projection × the league's scoring map (001's League Settings
+  Snapshot).
 
 ## Success Criteria *(mandatory)*
 
@@ -233,6 +251,10 @@ reception points.
 - **SC-004**: During August–September, projections refresh without user
   action at least once per 24 hours, and the board's freshness label never
   shows data older than 25 hours while the source is reachable.
+- **SC-007**: On a day a connected league drafts, the serving projections
+  were fetched (or refreshed) after that league's pre-draft window opened —
+  i.e., draft-day recommendations never run on projections older than the
+  same morning while the source is reachable.
 - **SC-005**: A user can go from the dashboard to finding a specific
   player's projected points in their league in under 15 seconds (open board,
   search, read).
@@ -253,9 +275,9 @@ reception points.
   player, the board shows a dash rather than a synthetic value.
 - **Draftable universe** means offense skill positions + K + D/ST as covered
   by the source; IDP coverage is partial-if-available (edge case above).
-- **Refresh cadence default**: daily during August–September, weekly
-  otherwise; on-demand refresh available year-round. Exact cadence is
-  debatable in `/speckit-clarify`.
+- **Refresh cadence** *(ratified in clarification)*: daily during August–
+  September, weekly otherwise, plus the FR-015 draft-day top-up; on-demand
+  refresh available year-round.
 - **The board lives inside the existing app** as a per-league page reachable
   from the league detail (001's UI), using the ratified Organic design
   system.
