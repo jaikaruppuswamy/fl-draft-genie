@@ -11,6 +11,8 @@ import { logInfo } from "../api/logging";
 import { dueForDraftDayTopUp, isStale } from "../projections/freshness";
 import { ingestProjections } from "../projections/ingest";
 import { getServingSet, pruneSets } from "../db/projections";
+import { ingestTiers } from "../tiers/borischen";
+import { tierTableEmpty } from "../db/tiers";
 import { currentSeason } from "../espn/leagueRef";
 
 export async function scanPreDraftWindow(env: Env, now: Date): Promise<number> {
@@ -30,11 +32,19 @@ export async function runScheduledMaintenance(env: Env, now: Date): Promise<void
   const windows = await findPreDraftWindowConnections(env.DB, now);
   const draftTimes = windows.map(({ snapshot }) => snapshot.draft_at);
 
+  let refreshed = false;
   if (windows.length > 0 && dueForDraftDayTopUp(draftTimes, serving?.fetched_at ?? null, now)) {
     logInfo("projection draft-day top-up triggered");
     await ingestProjections(env, season, "draft_day", now);
+    refreshed = true;
   } else if (isStale(serving?.fetched_at ?? null, now)) {
     await ingestProjections(env, season, "scheduled", now);
+    refreshed = true;
+  }
+
+  // Tiers ride the same cadence events; failures never block (003 FR-002).
+  if (refreshed || (await tierTableEmpty(env.DB))) {
+    await ingestTiers(env, now);
   }
 
   await pruneSets(env.DB, season, now);

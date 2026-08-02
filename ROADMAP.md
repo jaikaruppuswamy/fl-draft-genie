@@ -65,6 +65,15 @@ points, position, NFL team, and ADP.
 projections (needed to re-score per league) vs. only pre-scored points; how
 often to refresh in draft season; what to do about rookies/missing projections.
 
+## (inserted) spec 003 — board-refinements
+
+**Added 2026-08-02** (owner request after using 002 in production): streamline
+the projection detail (hide uncovered categories behind a count note), add
+player tiers from Boris Chen's public feeds (per league scoring format, with
+tier groupings on filtered views), center the board's column headers. Small
+UI/data feature; spec dir `specs/003-board-refinements/`. Note: spec-dir
+numbering now runs one ahead of the roadmap ids below.
+
 ## 003 — context-signals
 
 **Summary**: The non-projection signals the secret sauce needs, one ingestion

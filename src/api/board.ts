@@ -5,15 +5,16 @@ import { jsonError } from "./app";
 import { getConnectionById, getSnapshot } from "../db/leagues";
 import { getActivePlayer, listBoardUniverse } from "../db/players";
 import { getServingSet, getSetRowForPlayer, getSetRows } from "../db/projections";
-import { buildLeagueBoard, round1, scoreStatLine, type ScoringItemLike } from "../projections/scoring";
+import { buildLeagueBoard, round1, scoreStatLine } from "../projections/scoring";
 import { isStale } from "../projections/freshness";
+import { getTierMap } from "../db/tiers";
+import { normalizeName, tierFormatForLeague } from "../tiers/borischen";
 import { currentSeason } from "../espn/leagueRef";
 import type { ScoringSnapshot } from "../espn/parsers";
 
-async function leagueScoring(db: D1Database, connectionId: string): Promise<ScoringItemLike[]> {
+async function leagueScoringFull(db: D1Database, connectionId: string): Promise<ScoringSnapshot> {
   const snapshot = await getSnapshot(db, connectionId);
-  const scoring = JSON.parse(snapshot!.scoring_json) as ScoringSnapshot;
-  return scoring.items;
+  return JSON.parse(snapshot!.scoring_json) as ScoringSnapshot;
 }
 
 export function boardRoutes() {
@@ -33,11 +34,17 @@ export function boardRoutes() {
       );
     }
 
-    const [items, universe, rows] = await Promise.all([
-      leagueScoring(c.env.DB, connection.id),
+    const [scoring, universe, rows] = await Promise.all([
+      leagueScoringFull(c.env.DB, connection.id),
       listBoardUniverse(c.env.DB),
       getSetRows(c.env.DB, serving.id),
     ]);
+    const tierMap = await getTierMap(c.env.DB, tierFormatForLeague(scoring.reception_points));
+    const players = buildLeagueBoard(universe, rows, scoring.items).map((p) => ({
+      ...p,
+      // Additive to the 002 contract (003 plan): positional tier or null.
+      tier: tierMap.get(`${p.position}:${normalizeName(p.name, p.position)}`) ?? null,
+    }));
 
     return c.json({
       freshness: {
@@ -45,7 +52,7 @@ export function boardRoutes() {
         season: serving.season,
         stale: isStale(serving.fetched_at, t),
       },
-      players: buildLeagueBoard(universe, rows, items),
+      players,
     });
   });
 
@@ -64,14 +71,20 @@ export function boardRoutes() {
       return jsonError(409, "no_projections", "Projections haven't been fetched yet.");
     }
 
-    const items = await leagueScoring(c.env.DB, connection.id);
+    const scoring = await leagueScoringFull(c.env.DB, connection.id);
+    const items = scoring.items;
     // Board recompute keeps points/ranks consistent with the board view.
     const [universe, rows] = await Promise.all([
       listBoardUniverse(c.env.DB),
       getSetRows(c.env.DB, serving.id),
     ]);
+    const tierMap = await getTierMap(c.env.DB, tierFormatForLeague(scoring.reception_points));
     const board = buildLeagueBoard(universe, rows, items);
-    const boardRow = board.find((b) => b.espn_player_id === playerId)!;
+    const found = board.find((b) => b.espn_player_id === playerId)!;
+    const boardRow = {
+      ...found,
+      tier: tierMap.get(`${found.position}:${normalizeName(found.name, found.position)}`) ?? null,
+    };
 
     const projection = await getSetRowForPlayer(c.env.DB, serving.id, playerId);
     const { total, breakdown } = scoreStatLine(
