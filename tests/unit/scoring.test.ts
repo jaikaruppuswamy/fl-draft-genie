@@ -59,7 +59,7 @@ describe("scoreStatLine (FR-008/FR-009, SC-002 oracles)", () => {
     const { total, breakdown } = scoreStatLine(MARSHALL, PPR_ITEMS);
     expect(total).toBeCloseTo(370.42, 5); // unrounded here; API rounds
     const sumOfDisplayed = breakdown.reduce((s, b) => s + b.points, 0);
-    expect(Math.abs(sumOfDisplayed - Math.round(total! * 10) / 10)).toBeLessThanOrEqual(0.05);
+    expect(Math.abs(sumOfDisplayed - Math.round(total! * 10) / 10)).toBeLessThanOrEqual(0.05 * breakdown.length);
   });
 });
 

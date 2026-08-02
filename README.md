@@ -12,14 +12,15 @@ via a league setup page (no hardcoded leagues).
 
 ## Status
 
-**Feature 001 (league onboarding) implemented and deployed** to
-**https://draft.neelamjai.com** (Cloudflare Workers + D1) — passwordless email
-sign-in, encrypted ESPN cookie storage, multi-league connect with settings
-sync, and the pre-draft auto-sync cron. 68 tests green, all 46 tasks
-complete, live-validated with real leagues (see
-specs/001-league-onboarding/quickstart-results.md). Sign-in emails are
-delivered via Cloudflare Email Service. Styled with the "Organic" design
-system from Claude Design. Next up: 002-projections-pipeline.
+**Features 001 (league onboarding) and 002 (projections pipeline) deployed**
+to **https://draft.neelamjai.com** (Cloudflare Workers + D1). 001: passwordless
+email sign-in (Cloudflare Email Service), encrypted ESPN cookie storage,
+multi-league connect with settings sync, pre-draft auto-sync cron. 002: the
+per-league **Player board** — live ESPN season projections re-scored in each
+league's own scoring (positional ranks, ADP, byes), a tap-through projection
+detail explaining every number, daily/draft-day auto-refresh with season
+history retained. 101 tests green. Styled with the "Organic" design system
+from Claude Design. Next up: 003-context-signals or 004-draft-monitor.
 
 This repo is driven by [Spec Kit](https://github.com/github/spec-kit):
 

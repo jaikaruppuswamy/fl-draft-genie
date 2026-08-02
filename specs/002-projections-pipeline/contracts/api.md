@@ -73,7 +73,7 @@ Projection detail (US3/FR-014): the stat×value→points derivation.
     // one row per league scoring category (covered=false ⇒ FR-009 zero line)
     // plus any projected categories the league does NOT score are omitted
   ],
-  "total": 268.4   // = round1(unrounded sum); exactly equals the board's projected_points; Σ of displayed breakdown[].points matches within ±0.05 (see rounding rule)
+  "total": 268.4   // = round1(unrounded sum); exactly equals the board's projected_points; Σ of displayed breakdown[].points matches within ±0.05/line (see rounding rule)
 }
 ```
 
@@ -118,6 +118,6 @@ Failure behavior identical to on-demand: last-good set keeps serving.
   `projected_points` and detail `total` are the 1-decimal (half-up) rounding
   of the **unrounded sum** — the same computation, so they are exactly equal.
   Each `breakdown[].points` is the 1-decimal rounding of its own unrounded
-  product, for display; therefore Σ of displayed breakdown points matches
-  `total` within ±0.05 (assert with that tolerance, never exact). SC-002's
-  hand-check tolerance remains ±0.1.
+  product, for display; each line drifts up to ±0.05, so Σ of displayed
+  breakdown points matches `total` within ±(0.05 × line count) — assert with
+  that tolerance, never exact. SC-002's hand-check tolerance remains ±0.1.

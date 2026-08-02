@@ -35,9 +35,9 @@ describe("projection detail contract (US3, FR-014)", () => {
     const leagueStatIds = (ppr.settings.scoringSettings.scoringItems as { statId: number }[]).map((i) => i.statId);
     expect((body.breakdown as { statId: number }[]).map((b) => b.statId).sort()).toEqual([...leagueStatIds].sort());
 
-    // Rounding rule: Σ displayed breakdown points ≈ total within ±0.05.
+    // Rounding rule: each displayed line drifts ≤0.05, so Σ ≈ total within 0.05/line.
     const sum = (body.breakdown as { points: number }[]).reduce((s, b) => s + b.points, 0);
-    expect(Math.abs(sum - body.total)).toBeLessThanOrEqual(0.05);
+    expect(Math.abs(sum - body.total)).toBeLessThanOrEqual(0.05 * body.breakdown.length);
   });
 
   it("league categories the projection doesn't cover appear as zero, covered=false (FR-009)", async () => {
