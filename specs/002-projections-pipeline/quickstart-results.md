@@ -33,8 +33,7 @@ ingest) — **verified**: within 5 minutes of deploy, a complete `scheduled`
 set appeared remotely with 522 projected players / 1,026-player universe,
 matching local. SPA serving 200 on the custom domain.
 
-## Remaining (owner)
+## Owner validation
 
-Scenario 3 (SC-002/003 hand-check across the owner's three real leagues) —
-open each league's Player board on draft.neelamjai.com, spot-check 3–10
-players' detail math per league, and confirm PPR vs standard totals differ.
+2026-08-02: Owner confirmed the boards look good in production across his
+real leagues. **T024 closed — feature complete.**
