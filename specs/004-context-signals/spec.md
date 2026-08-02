@@ -8,6 +8,14 @@
 
 **Input**: User description: "004" (ROADMAP.md feature 004 — context-signals: the non-projection signals the secret sauce needs — team offensive potential, strength of schedule, offensive line rankings — normalized and versioned for uniform consumption)
 
+## Clarifications
+
+### Session 2026-08-02
+
+- Q: What should measure opponent defensive strength inside the SoS calculation? → A: Derived from the already-ingested D/ST season projections (zero new sources; refreshes automatically with every projection update).
+- Q: How should SoS weight the season's weeks? → A: Playoff-weighted — all scheduled weeks count, fantasy-playoff weeks 15–17 count double.
+- Q: Which public source should seed the curated O-line rankings each preseason? → A: PFF's preseason offensive line rankings, transcribed once a year into the repo file with attribution and date.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - See a player's context signals (Priority: P1)
@@ -114,13 +122,16 @@ value, normalized score, rank, provenance) identically.
   derived from the serving projection set (no external source), normalized
   and ranked 1–32.
 - **FR-002**: The system MUST provide a **strength of schedule** signal per
-  NFL team: season-long opponent difficulty derived from the published NFL
-  schedule combined with opponent defensive strength, normalized and ranked
-  (1 = easiest schedule).
+  NFL team: opponent difficulty derived from the published NFL schedule
+  combined with opponent defensive strength **derived from the serving D/ST
+  projections** (ratified in clarification — no external source), weighting
+  all scheduled weeks with fantasy-playoff weeks 15–17 counted double,
+  normalized and ranked (1 = easiest schedule).
 - **FR-003**: The system MUST provide an **offensive line rank** signal from
-  a curated, provenance-attributed data set (updated manually each
-  preseason; versioned with the code), covering all 32 teams, with a
-  load-time completeness check.
+  a curated, provenance-attributed data set seeded each preseason from PFF's
+  public offensive line rankings (ratified in clarification; versioned with
+  the code, attribution + date recorded in the file), covering all 32 teams,
+  with a load-time completeness check.
 - **FR-004**: Bye weeks (already ingested in 002) MUST be exposed alongside
   the other signals in the detail view — no re-ingestion.
 
@@ -178,20 +189,19 @@ value, normalized score, rank, provenance) identically.
 
 ## Assumptions
 
-- **Derive-don't-fetch** (constitution VIII): offensive potential and
-  defensive strength (the SoS ingredient) are derived from the projection
-  data Draft Genie already ingests — team offense = sum of the team's
-  offensive players' projected fantasy output; opponent defensive strength
-  from D/ST projections as proxy — rather than adding external sources. The
-  clarify session may revisit if the proxy proves too weak.
-- **SoS weighting default**: full-season, evenly weighted across scheduled
-  weeks (fantasy-playoff-week weighting is a candidate refinement for the
-  clarify debate).
+- **Derive-don't-fetch** *(ratified in clarification)*: offensive potential
+  and defensive strength (the SoS ingredient) are derived from the
+  projection data Draft Genie already ingests — team offense = sum of the
+  team's offensive players' projected fantasy output; opponent defensive
+  strength from D/ST projections — no external sources.
+- **SoS weighting** *(ratified in clarification)*: all scheduled weeks
+  count; fantasy-playoff weeks 15–17 count double.
 - **NFL schedule source**: the same public ESPN team metadata already used
   for byes exposes each team's schedule; no new provider.
-- **O-line curation**: seeded once per preseason from a reputable public
-  ranking (source attributed in the file), maintained by the repo owner;
-  intentionally not user-editable (constitution IV spirit).
+- **O-line curation** *(ratified in clarification)*: seeded once per
+  preseason from PFF's public offensive line rankings (attribution + date in
+  the file), maintained by the repo owner; intentionally not user-editable
+  (constitution IV spirit).
 - **Team-level granularity in v1**: per-position defensive splits (e.g.
   "defense vs WR") are out of scope until the engine (006) demonstrates a
   need; Boris Chen tiers (003) already carry expert per-player consensus.
