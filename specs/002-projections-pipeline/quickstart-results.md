@@ -29,7 +29,9 @@ Validation league: a seeded connection using the PPR fixture scoring map
 Migration 0002 applied to remote D1 (first attempt hit a transient API error;
 retry applied cleanly). Deployed to https://draft.neelamjai.com; the 5-minute
 cron self-populates projections (serving set absent → stale → scheduled
-ingest) — verified post-deploy (see below).
+ingest) — **verified**: within 5 minutes of deploy, a complete `scheduled`
+set appeared remotely with 522 projected players / 1,026-player universe,
+matching local. SPA serving 200 on the custom domain.
 
 ## Remaining (owner)
 

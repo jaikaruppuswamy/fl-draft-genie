@@ -107,7 +107,7 @@ US3 (projection detail).
 - [x] T022 [P] Board performance check against SC-001: seed the local DB with a full-size ingest (fixture multiplied or live fetch), measure GET board server time < 1 s and page load < 2 s; record numbers in `specs/002-projections-pipeline/quickstart-results.md` (created in T024)
 - [x] T023 [P] Full-suite sweep: `npm test`, `npx tsc --noEmit`, `npx tsc -p web/tsconfig.json --noEmit`, `npx eslint .` all clean; confirm 001 suites unaffected
 - [ ] T024 Run quickstart.md live validation (first real ESPN ingest, hand-check scoring across the owner's 3 leagues — scenarios 1–3 need the owner's leagues), record results in `specs/002-projections-pipeline/quickstart-results.md`
-- [ ] T025 Deploy: `npm run migrate:remote`, `npm run deploy`, smoke-test board + refresh on https://draft.neelamjai.com; update `README.md` status
+- [x] T025 Deploy: `npm run migrate:remote`, `npm run deploy`, smoke-test board + refresh on https://draft.neelamjai.com; update `README.md` status
 
 ---
 
