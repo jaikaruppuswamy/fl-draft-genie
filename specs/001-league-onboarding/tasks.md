@@ -145,7 +145,8 @@ independently testable increment.
 - [x] T043 [P] Implement account deletion `DELETE /api/account` in `src/api/account.ts` (cascade per data-model.md, clears cookie) + danger-zone UI in `web/src/pages/Account.tsx` with typed-confirmation (FR-009)
 - [x] T044 [P] Time-zone rendering audit across SPA pages (all timestamps via one `web/src/lib/time.ts` helper, local tz + relative ages) (FR-023)
 - [ ] T045 Run full quickstart.md validation against a real ESPN account (3 real leagues for SC-002/SC-003), record results in `specs/001-league-onboarding/quickstart-results.md`
-- [ ] T046 First production deploy: `wrangler d1 migrations apply` remote, `wrangler secret put` × 3, `npm run deploy`, smoke-test sign-in + league connect on the deployed URL; update `README.md` status section
+- [x] T046 First production deploy: `wrangler d1 migrations apply` remote, `wrangler secret put` × 3, `npm run deploy`, smoke-test sign-in + league connect on the deployed URL; update `README.md` status section
+  - Deployed 2026-08-02 to https://draft.neelamjai.com (account jai.karuppuswamy@icloud.com). SESSION_SECRET + CREDENTIAL_KEY set; RESEND_API_KEY pending — EMAIL_PROVIDER=console, sign-in codes readable via `npx wrangler tail draft-genie` until Resend is configured. Production sign-in verified end-to-end.
 
 ---
 

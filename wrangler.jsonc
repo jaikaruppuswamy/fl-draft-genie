@@ -15,9 +15,7 @@
     {
       "binding": "DB",
       "database_name": "draft-genie",
-      // Placeholder — replaced with the real id from `wrangler d1 create draft-genie`
-      // before the first remote deploy (tasks.md T046). Local dev/tests ignore it.
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "4e99107b-1b9a-46bb-8a48-5aa7cb26677e"
     }
   ],
   "triggers": {
