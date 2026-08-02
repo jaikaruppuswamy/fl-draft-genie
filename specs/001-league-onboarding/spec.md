@@ -8,6 +8,15 @@
 
 **Input**: User description: "001 Let's go with cloudflare and websockets. The app must account for multiple leagues to be setup."
 
+## Clarifications
+
+### Session 2026-08-02
+
+- Q: Should Draft Genie run as one shared multi-user service, and how should people sign in? → A: Multi-user shared service with passwordless email sign-in (magic link or one-time code); no passwords stored.
+- Q: Should v1 support public leagues without ESPN credentials, or leagues where you have no team (observer mode)? → A: No — every league connection requires the account's ESPN credentials and a team identified as the user's (auto-matched or manually picked). Anonymous public access and observer mode are out of scope.
+- Q: How should the automatic pre-draft re-sync behave? → A: Repeated refresh during the pre-draft window — from ~75 minutes before scheduled draft time until the draft starts, re-sync every few minutes until the draft order and any late changes are captured.
+- Q: Is one ESPN identity (one espn_s2/SWID cookie pair) per Draft Genie account sufficient? → A: Yes — exactly one active cookie pair per account; all the account's leagues must be visible to that ESPN identity. Someone with multiple ESPN accounts uses multiple Draft Genie accounts.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Connect an ESPN league (Priority: P1)
@@ -43,14 +52,15 @@ instructions.
    validation runs, **Then** they see a clear error explaining ESPN denied
    access, with guidance to re-copy the cookies — and the failed values are
    not stored.
-3. **Given** a user who belongs to a public league, **When** they connect it
-   without providing cookies, **Then** the league connects in read-only mode
-   if ESPN allows anonymous access to it, and the user is told credentials
-   may be needed for private data.
-4. **Given** a league identifier for a league the user's ESPN identity has no
-   team in, **When** validation runs, **Then** the league can still be
-   connected but the user is prompted to confirm they have no team (observer
-   mode) or to pick their team manually if automatic matching failed.
+3. **Given** a user who has not yet stored ESPN credentials, **When** they
+   attempt to connect any league (public or private), **Then** they are
+   directed to enter their cookies first — league connection always requires
+   credentials.
+4. **Given** a league in which automatic matching cannot identify the user's
+   team, **When** validation completes, **Then** the user is prompted to pick
+   their team from the league's team list; if they state none is theirs, the
+   connection is refused with an explanation that Draft Genie requires a team
+   in the league.
 5. **Given** a connected league, **When** the user views its settings page,
    **Then** every scoring rule shown matches the values in ESPN's own league
    settings page.
@@ -112,9 +122,10 @@ own.
    user triggers "sync now", **Then** the updated settings are shown along
    with a new last-synced timestamp.
 2. **Given** a league whose scheduled draft is approaching, **When** the
-   pre-draft window begins (about an hour before draft time), **Then** the
-   league's settings and draft details are refreshed automatically, capturing
-   the just-published draft order and any draft-time change.
+   pre-draft window begins (~75 minutes before draft time), **Then** the
+   league is refreshed automatically every few minutes until the draft
+   starts, so the just-published draft order and any draft-time change are
+   captured without user action.
 3. **Given** a re-sync attempt while ESPN is unreachable, **When** the sync
    fails, **Then** the previously synced data remains available, marked with
    its age, and the user sees a non-blocking warning.
@@ -174,9 +185,11 @@ credentials.
 
 **Identity & access**
 
-- **FR-001**: The system MUST let a person create an individual account and
-  sign back into it later; all connected leagues, credentials, and
-  preferences belong to exactly one account.
+- **FR-001**: The system MUST let a person create an individual account
+  identified by their email address, using a passwordless sign-in flow
+  (emailed magic link or one-time code — no passwords ever stored), and sign
+  back into it later; all connected leagues, credentials, and preferences
+  belong to exactly one account.
 - **FR-002**: The system MUST support sign-in from multiple devices to the
   same account, and MUST NOT require re-entry of ESPN credentials per device.
 - **FR-003**: The system MUST isolate all data per account: no account can
@@ -212,13 +225,15 @@ credentials.
   account (at least 5), reusing the account's stored ESPN credentials.
 - **FR-012**: The system MUST validate on connect that the league exists, is
   a fantasy football league for the current season, and is accessible with
-  the user's credentials (or anonymously for public leagues), giving a
-  distinct error message for each failure mode.
-- **FR-013**: The system MUST support connecting public leagues without ESPN
-  credentials in read-only mode.
+  the user's credentials, giving a distinct error message for each failure
+  mode.
+- **FR-013**: The system MUST require stored ESPN credentials before any
+  league (public or private) can be connected; there is no anonymous or
+  read-only connection mode.
 - **FR-014**: The system MUST automatically identify which team in the
   league belongs to the user's ESPN identity; if no team matches, it MUST
-  let the user pick their team manually or continue as an observer.
+  let the user pick their team manually. A league in which the user has no
+  team cannot be connected (no observer mode).
 - **FR-015**: The system MUST let a user disconnect a league, removing its
   synced data without affecting other leagues or the stored credentials.
 
@@ -233,9 +248,11 @@ credentials.
   synced.
 - **FR-018**: The system MUST provide an on-demand re-sync per league that
   refreshes all synced configuration.
-- **FR-019**: The system MUST automatically re-sync each league when its
-  scheduled draft is imminent (within roughly one hour), capturing the
-  published draft order and any late changes to draft time or settings.
+- **FR-019**: The system MUST automatically re-sync each league repeatedly
+  during its pre-draft window — beginning ~75 minutes before the scheduled
+  draft time and repeating every few minutes until the draft starts —
+  capturing the published draft order and any late changes to draft time or
+  settings without user action.
 - **FR-020**: If a sync fails, the system MUST keep serving the most recent
   successful sync's data, labeled with its age, and MUST show a non-blocking
   warning.
@@ -255,13 +272,12 @@ credentials.
 - **Account**: A Draft Genie user; owns everything else. Attributes:
   identifier, sign-in identity (email), creation date.
 - **ESPN Credential**: The `espn_s2`/`SWID` cookie pair for an account's
-  ESPN identity. One active pair per account; referenced by all that
-  account's private-league connections; stored encrypted; carries a
-  last-validated timestamp and a working/failing status.
+  ESPN identity. Exactly one active pair per account; used by all that
+  account's league connections; stored encrypted; carries a last-validated
+  timestamp and a working/failing status.
 - **League Connection**: An account's link to one ESPN league. Attributes:
-  ESPN league ID, season, access mode (credentialed / public read-only),
-  the user's team reference (or observer), connection date, last-sync
-  status.
+  ESPN league ID, season, the user's team reference (required), connection
+  date, last-sync status.
 - **League Settings Snapshot**: The synced configuration of a league —
   name, team count, scoring rule set (stat category → point value), roster
   composition, draft type, draft date/time, draft order (once published) —
@@ -281,9 +297,10 @@ credentials.
   verified across at least 3 real leagues with different scoring rules.
 - **SC-003**: A user can maintain at least 3 concurrently connected leagues
   under one account, each showing distinct, correct settings.
-- **SC-004**: For a league whose draft order was published inside ESPN's
-  ~1-hour pre-draft window, Draft Genie reflects that draft order before the
-  draft starts, without any manual user action.
+- **SC-004**: For a league whose draft order was published at any point
+  inside ESPN's ~1-hour pre-draft window, Draft Genie reflects that draft
+  order within 5 minutes of publication and before the draft starts, without
+  any manual user action.
 - **SC-005**: ESPN cookie values never appear in any log, URL, page source,
   or client-visible payload after initial entry — verified by inspection in
   testing (zero occurrences).
@@ -295,18 +312,14 @@ credentials.
 
 ## Assumptions
 
-- **Multi-user service**: Draft Genie runs as one shared service where each
-  person creates their own account (rather than each person hosting a
-  private copy). The constitution's any-league principle plus the brief's
-  "usable by anyone with an ESPN team" implies self-serve accounts.
-- **Sign-in method**: Accounts are identified by email address with a
-  passwordless sign-in flow (e.g. emailed magic link or code); no ESPN
-  username/password is ever requested. Exact mechanism is a planning
-  decision.
-- **One ESPN identity per account**: An account stores one ESPN cookie pair;
-  all its private leagues must be visible to that ESPN identity. Supporting
-  multiple ESPN identities under one account is out of scope for this
-  feature.
+- **Multi-user service** *(ratified in clarification)*: Draft Genie runs as
+  one shared service where each person creates their own account via
+  passwordless email sign-in (magic link or one-time code). No ESPN
+  username/password is ever requested.
+- **One ESPN identity per account** *(ratified in clarification)*: An
+  account stores exactly one active ESPN cookie pair; all its leagues must
+  be visible to that ESPN identity. A person with multiple ESPN accounts
+  uses multiple Draft Genie accounts.
 - **Current season only**: Onboarding targets the current/upcoming fantasy
   football season; historical seasons are out of scope.
 - **Football, ESPN only**: Only ESPN fantasy football leagues are supported;

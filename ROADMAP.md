@@ -32,12 +32,15 @@ type and scheduled time), identifies which team belongs to the user, and shows
 a league dashboard. Settings re-sync on demand and automatically shortly before
 draft time (draft order is only published ~1 hour before the draft).
 
-**Open questions to debate in the spec session**:
-- App identity: full multi-user accounts (email magic link? passkey?) vs.
-  single-tenant deploy where each person hosts their own instance. The
-  constitution requires any-ESPN-user *design*; it doesn't force public SaaS.
-- Public leagues without cookies — support read-only, or require cookies always?
-- How aggressively to re-sync settings (manual button vs. scheduled).
+**Open questions — RESOLVED (2026-08-02, `/speckit-clarify`)**:
+- App identity: multi-user shared service; passwordless email sign-in (magic
+  link / one-time code), no passwords stored.
+- Public leagues / observer mode: NOT supported — every connection requires
+  ESPN credentials and a team identified as the user's.
+- Re-sync: manual "sync now" + automatic repeated refresh every few minutes
+  during the pre-draft window (from ~75 min before draft time until start).
+- ESPN identities: exactly one cookie pair per account; multiple ESPN
+  accounts → multiple Draft Genie accounts.
 
 **Ratified decisions (2026-08-02, during 001 specify)**:
 - **Hosting: Cloudflare** (Workers platform). Fly.io is off the table.
