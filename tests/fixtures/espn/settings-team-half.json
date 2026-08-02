@@ -1,0 +1,35 @@
+{
+  "id": 2002,
+  "seasonId": 2026,
+  "gameId": 1,
+  "settings": {
+    "name": "Naperville Nine",
+    "size": 10,
+    "scoringSettings": {
+      "scoringType": "H2H_POINTS",
+      "scoringItems": [
+        { "statId": 3, "points": 0.05 },
+        { "statId": 4, "points": 6 },
+        { "statId": 24, "points": 0.1 },
+        { "statId": 25, "points": 6 },
+        { "statId": 42, "points": 0.1 },
+        { "statId": 43, "points": 6 },
+        { "statId": 53, "points": 0.5 }
+      ]
+    },
+    "rosterSettings": {
+      "lineupSlotCounts": { "0": 1, "2": 2, "4": 3, "6": 1, "16": 1, "17": 1, "20": 6, "23": 1 }
+    },
+    "draftSettings": { "type": "SNAKE", "date": 1788489600000, "pickOrder": [] }
+  },
+  "status": { "isActive": true },
+  "members": [
+    { "id": "{11111111-2222-3333-4444-555555555555}", "displayName": "jai_k", "firstName": "Jai", "lastName": "K" },
+    { "id": "{BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF}", "displayName": "cmgr", "firstName": "Casey", "lastName": "Mgr" }
+  ],
+  "teams": [
+    { "id": 2, "name": "Half Point Heroes", "owners": ["{BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF}"] },
+    { "id": 5, "name": "Jai Half", "owners": ["{11111111-2222-3333-4444-555555555555}"] }
+  ],
+  "draftDetail": { "drafted": false, "inProgress": false }
+}

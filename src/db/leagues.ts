@@ -1,0 +1,243 @@
+import { iso, uuid } from "./client";
+import type { ParsedLeague } from "../espn/parsers";
+
+export interface ConnectionRow {
+  id: string;
+  account_id: string;
+  espn_league_id: string;
+  season: number;
+  my_team_id: number;
+  team_match_source: "auto" | "manual";
+  created_at: string;
+  last_sync_at: string | null;
+  last_sync_status: "ok" | "failed" | "pending";
+}
+
+export interface SnapshotRow {
+  connection_id: string;
+  captured_at: string;
+  league_name: string;
+  team_count: number;
+  scoring_json: string;
+  roster_json: string;
+  draft_json: string;
+  teams_json: string;
+  draft_at: string | null;
+}
+
+export async function findConnection(
+  db: D1Database,
+  accountId: string,
+  leagueId: string,
+  season: number,
+): Promise<ConnectionRow | null> {
+  return db
+    .prepare(
+      "SELECT * FROM league_connections WHERE account_id = ? AND espn_league_id = ? AND season = ?",
+    )
+    .bind(accountId, leagueId, season)
+    .first<ConnectionRow>();
+}
+
+export async function getConnectionById(
+  db: D1Database,
+  accountId: string,
+  connectionId: string,
+): Promise<ConnectionRow | null> {
+  // Account-scoped by construction: cross-account ids come back null → 404 (FR-003).
+  return db
+    .prepare("SELECT * FROM league_connections WHERE id = ? AND account_id = ?")
+    .bind(connectionId, accountId)
+    .first<ConnectionRow>();
+}
+
+export async function getSnapshot(db: D1Database, connectionId: string): Promise<SnapshotRow | null> {
+  return db
+    .prepare("SELECT * FROM league_snapshots WHERE connection_id = ?")
+    .bind(connectionId)
+    .first<SnapshotRow>();
+}
+
+function snapshotStatements(
+  db: D1Database,
+  connectionId: string,
+  parsed: ParsedLeague,
+  now: Date,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO league_snapshots (connection_id, captured_at, league_name, team_count, scoring_json, roster_json, draft_json, teams_json, draft_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (connection_id) DO UPDATE SET
+         captured_at = excluded.captured_at,
+         league_name = excluded.league_name,
+         team_count = excluded.team_count,
+         scoring_json = excluded.scoring_json,
+         roster_json = excluded.roster_json,
+         draft_json = excluded.draft_json,
+         teams_json = excluded.teams_json,
+         draft_at = excluded.draft_at`,
+    )
+    .bind(
+      connectionId,
+      iso(now),
+      parsed.league_name,
+      parsed.team_count,
+      JSON.stringify(parsed.scoring),
+      JSON.stringify(parsed.roster),
+      JSON.stringify(parsed.draft),
+      JSON.stringify(parsed.teams),
+      parsed.draft.scheduled_at,
+    );
+}
+
+/** Connection + first snapshot land atomically (no partial connections — spec edge case). */
+export async function createConnectionWithSnapshot(
+  db: D1Database,
+  accountId: string,
+  leagueId: string,
+  season: number,
+  myTeamId: number,
+  matchSource: "auto" | "manual",
+  parsed: ParsedLeague,
+  now: Date,
+): Promise<ConnectionRow> {
+  const row: ConnectionRow = {
+    id: uuid(),
+    account_id: accountId,
+    espn_league_id: leagueId,
+    season,
+    my_team_id: myTeamId,
+    team_match_source: matchSource,
+    created_at: iso(now),
+    last_sync_at: iso(now),
+    last_sync_status: "ok",
+  };
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO league_connections (id, account_id, espn_league_id, season, my_team_id, team_match_source, created_at, last_sync_at, last_sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        row.id,
+        row.account_id,
+        row.espn_league_id,
+        row.season,
+        row.my_team_id,
+        row.team_match_source,
+        row.created_at,
+        row.last_sync_at,
+        row.last_sync_status,
+      ),
+    snapshotStatements(db, row.id, parsed, now),
+  ]);
+  return row;
+}
+
+export async function recordSyncSuccess(
+  db: D1Database,
+  connectionId: string,
+  parsed: ParsedLeague,
+  now: Date,
+): Promise<void> {
+  await db.batch([
+    snapshotStatements(db, connectionId, parsed, now),
+    db
+      .prepare("UPDATE league_connections SET last_sync_at = ?, last_sync_status = 'ok' WHERE id = ?")
+      .bind(iso(now), connectionId),
+  ]);
+}
+
+/** FR-020: failure leaves the previous snapshot untouched, only flags status. */
+export async function recordSyncFailure(db: D1Database, connectionId: string): Promise<void> {
+  await db
+    .prepare("UPDATE league_connections SET last_sync_status = 'failed' WHERE id = ?")
+    .bind(connectionId)
+    .run();
+}
+
+export interface ConnectionWithSnapshot {
+  connection: ConnectionRow;
+  snapshot: SnapshotRow;
+}
+
+/** Dashboard order: soonest upcoming draft first, no-date leagues last (FR-021). */
+export async function listConnections(
+  db: D1Database,
+  accountId: string,
+): Promise<ConnectionWithSnapshot[]> {
+  const res = await db
+    .prepare(
+      `SELECT c.id AS c_id, c.*, s.*
+       FROM league_connections c JOIN league_snapshots s ON s.connection_id = c.id
+       WHERE c.account_id = ?
+       ORDER BY CASE WHEN s.draft_at IS NULL THEN 1 ELSE 0 END, s.draft_at ASC`,
+    )
+    .bind(accountId)
+    .all<Record<string, unknown>>();
+  return res.results.map(splitJoinedRow);
+}
+
+export async function deleteConnection(db: D1Database, accountId: string, connectionId: string): Promise<boolean> {
+  const result = await db
+    .prepare("DELETE FROM league_connections WHERE id = ? AND account_id = ?")
+    .bind(connectionId, accountId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function listConnectionsByAccount(db: D1Database, accountId: string): Promise<ConnectionRow[]> {
+  const res = await db
+    .prepare("SELECT * FROM league_connections WHERE account_id = ?")
+    .bind(accountId)
+    .all<ConnectionRow>();
+  return res.results;
+}
+
+/** Cron scan (FR-019): drafts scheduled within [now−15 m, now+75 m], not completed. */
+export async function findPreDraftWindowConnections(
+  db: D1Database,
+  now: Date,
+): Promise<ConnectionWithSnapshot[]> {
+  const lower = iso(new Date(now.getTime() - 15 * 60_000));
+  const upper = iso(new Date(now.getTime() + 75 * 60_000));
+  const res = await db
+    .prepare(
+      `SELECT c.id AS c_id, c.*, s.*
+       FROM league_connections c JOIN league_snapshots s ON s.connection_id = c.id
+       WHERE s.draft_at IS NOT NULL AND s.draft_at >= ? AND s.draft_at <= ?`,
+    )
+    .bind(lower, upper)
+    .all<Record<string, unknown>>();
+  return res.results
+    .map(splitJoinedRow)
+    .filter(({ snapshot }) => !(JSON.parse(snapshot.draft_json) as { completed: boolean }).completed);
+}
+
+function splitJoinedRow(r: Record<string, unknown>): ConnectionWithSnapshot {
+  return {
+    connection: {
+      id: r.c_id as string,
+      account_id: r.account_id as string,
+      espn_league_id: r.espn_league_id as string,
+      season: r.season as number,
+      my_team_id: r.my_team_id as number,
+      team_match_source: r.team_match_source as "auto" | "manual",
+      created_at: r.created_at as string,
+      last_sync_at: r.last_sync_at as string | null,
+      last_sync_status: r.last_sync_status as "ok" | "failed" | "pending",
+    },
+    snapshot: {
+      connection_id: r.connection_id as string,
+      captured_at: r.captured_at as string,
+      league_name: r.league_name as string,
+      team_count: r.team_count as number,
+      scoring_json: r.scoring_json as string,
+      roster_json: r.roster_json as string,
+      draft_json: r.draft_json as string,
+      teams_json: r.teams_json as string,
+      draft_at: r.draft_at as string | null,
+    },
+  };
+}
