@@ -111,7 +111,7 @@ Failure behavior identical to on-demand: last-good set keeps serving.
 
 - No endpoint exposes another account's league context (FR-007 data is
   global, but board access is via owned league ids only).
-- All money…er, point values are computed from the league's own scoring map
+- All point values are computed from the league's own scoring map
   at read time; two leagues may disagree about the same player by design
   (SC-003).
 - **Rounding rule** (applies everywhere): internal math is unrounded.
