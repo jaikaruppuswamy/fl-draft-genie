@@ -29,9 +29,8 @@
   "observability": { "enabled": true },
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
-    // Flips to "cloudflare" once the neelamjai.com domain is onboarded to
-    // Email Sending (requires the email_sending:write OAuth scope).
-    "EMAIL_PROVIDER": "console",
+    // neelamjai.com onboarded to Email Sending 2026-08-02 (DKIM + DMARC verified).
+    "EMAIL_PROVIDER": "cloudflare",
     "EMAIL_FROM": "signin@neelamjai.com"
   }
   // Secrets (set via `wrangler secret put`, local dev via .dev.vars):
