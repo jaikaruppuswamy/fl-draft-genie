@@ -13,6 +13,8 @@ export interface EspnStub {
   credsResponse: number | "network";
   kona: LeagueFixture | undefined;
   proTeams: LeagueFixture | undefined;
+  /** 003: tier feed bodies keyed by feed key (e.g. "RB-PPR"); "network" to fail. */
+  tiers: Record<string, string | number | "network">;
 }
 
 function respond(fixture: LeagueFixture): Response {
@@ -23,7 +25,7 @@ function respond(fixture: LeagueFixture): Response {
 
 export function makeEspnStub(
   leagues: Record<string, LeagueFixture> = {},
-  opts: { kona?: LeagueFixture; proTeams?: LeagueFixture } = {},
+  opts: { kona?: LeagueFixture; proTeams?: LeagueFixture; tiers?: Record<string, string | number | "network"> } = {},
 ): EspnStub {
   const stub: EspnStub = {
     leagues,
@@ -31,12 +33,23 @@ export function makeEspnStub(
     requests: [],
     kona: opts.kona,
     proTeams: opts.proTeams,
+    tiers: opts.tiers ?? {},
     fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
       const cookie = String(
         (init?.headers as Record<string, string> | undefined)?.["Cookie"] ?? "",
       );
       stub.requests.push({ url, cookie });
+
+      // 003 tier feeds (Boris Chen text files).
+      const tierMatch = url.match(/\/text_([A-Z-]+)\.txt$/);
+      if (tierMatch) {
+        const body = stub.tiers[tierMatch[1]!];
+        if (body === undefined) return new Response("not found", { status: 404 });
+        if (body === "network") throw new TypeError("fetch failed");
+        if (typeof body === "number") return new Response("error", { status: body });
+        return new Response(body, { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
 
       // 002 public projection endpoints (must work without cookies).
       if (url.includes("/leaguedefaults/")) {

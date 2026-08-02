@@ -3,6 +3,7 @@ import { now } from "../env";
 import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { ingestProjections } from "../projections/ingest";
+import { ingestTiers } from "../tiers/borischen";
 import { isDraftSeason, isStale, rateLimited } from "../projections/freshness";
 import { getNewestSet, getServingSet } from "../db/projections";
 import { currentSeason } from "../espn/leagueRef";
@@ -34,6 +35,7 @@ export function projectionRoutes() {
         { status: 502 },
       );
     }
+    await ingestTiers(c.env, t); // never throws; tier failures don't fail the refresh
     return c.json({ fetched_at: result.fetchedAt, player_count: result.playerCount, trigger: "on_demand" });
   });
 

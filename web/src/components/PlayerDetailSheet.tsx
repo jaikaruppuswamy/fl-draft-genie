@@ -24,6 +24,9 @@ export default function PlayerDetailSheet({
       );
   }, [leagueId, playerId]);
 
+  // 003 FR-001: only covered categories are listed; uncovered ones collapse
+  // into a count note (explainability preserved without the clutter).
+  const covered = detail?.breakdown.filter((b) => b.covered) ?? [];
   const uncovered = detail?.breakdown.filter((b) => !b.covered) ?? [];
 
   return (
@@ -66,13 +69,10 @@ export default function PlayerDetailSheet({
                   </tr>
                 </thead>
                 <tbody>
-                  {detail.breakdown.map((b) => (
-                    <tr key={b.statId} style={b.covered ? {} : { opacity: 0.55 }}>
-                      <td>
-                        {b.label}
-                        {!b.covered && <span className="badge warn" style={{ marginLeft: 6 }}>not projected</span>}
-                      </td>
-                      <td className="num">{b.projected ?? "—"}</td>
+                  {covered.map((b) => (
+                    <tr key={b.statId}>
+                      <td>{b.label}</td>
+                      <td className="num">{b.projected}</td>
                       <td className="num">{b.points_per}</td>
                       <td className="num">{b.points}</td>
                     </tr>
@@ -88,7 +88,8 @@ export default function PlayerDetailSheet({
             )}
             {uncovered.length > 0 && (
               <p className="muted small">
-                Categories your league scores that the projection source doesn't cover count as zero.
+                {uncovered.length} league scoring {uncovered.length === 1 ? "category" : "categories"} not
+                covered by projections (counted as zero).
               </p>
             )}
             <div className="dialog-actions">

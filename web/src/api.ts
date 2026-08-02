@@ -70,6 +70,7 @@ export interface BoardPlayer {
   position_rank: number | null;
   adp: number | null;
   overall_rank: number | null;
+  tier: number | null;
 }
 
 export interface BoardResponse {
