@@ -23,6 +23,11 @@
   "triggers": {
     "crons": ["*/5 * * * *"]
   },
+  "routes": [
+    // Requires the neelamjai.com zone on the deploying Cloudflare account;
+    // wrangler creates the DNS record and certificate automatically.
+    { "pattern": "draft.neelamjai.com", "custom_domain": true }
+  ],
   "observability": { "enabled": true },
   "vars": {
     "EMAIL_PROVIDER": "console"
