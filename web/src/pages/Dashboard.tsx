@@ -95,6 +95,14 @@ export default function Dashboard() {
             )}
             <div className="actions">
               <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/leagues/${l.id}/board`);
+                }}
+              >
+                Player board
+              </button>
+              <button
                 className="secondary"
                 onClick={(e) => {
                   e.stopPropagation();

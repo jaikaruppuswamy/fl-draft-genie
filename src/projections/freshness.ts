@@ -18,3 +18,37 @@ export function isStale(fetchedAt: string | null, now: Date): boolean {
   const age = now.getTime() - new Date(fetchedAt).getTime();
   return age > (isDraftSeason(now) ? DRAFT_SEASON_MAX_AGE_MS : OFF_SEASON_MAX_AGE_MS);
 }
+
+/** On-demand refresh floor (FR-016): one global refresh per 15 minutes. */
+const ON_DEMAND_MIN_INTERVAL_MS = 15 * 60_000;
+
+export function rateLimited(newestSetFetchedAt: string | null, now: Date): boolean {
+  if (!newestSetFetchedAt) return false;
+  return now.getTime() - new Date(newestSetFetchedAt).getTime() < ON_DEMAND_MIN_INTERVAL_MS;
+}
+
+/** Pre-draft window length must match the 001 cron scan (sync/predraft). */
+const PRE_DRAFT_WINDOW_MS = 75 * 60_000;
+
+/**
+ * Draft-day top-up (SC-007): due when a league's draft window is open and the
+ * serving set predates the window opening. Self-clearing: after the refresh,
+ * the serving set postdates the opening.
+ */
+export function dueForDraftDayTopUp(
+  draftTimes: (string | null)[],
+  servingFetchedAt: string | null,
+  now: Date,
+): boolean {
+  if (!servingFetchedAt) return true;
+  const serving = new Date(servingFetchedAt).getTime();
+  for (const draftAt of draftTimes) {
+    if (!draftAt) continue;
+    const draft = new Date(draftAt).getTime();
+    const windowOpen = draft - PRE_DRAFT_WINDOW_MS;
+    if (now.getTime() >= windowOpen && now.getTime() <= draft && serving < windowOpen) {
+      return true;
+    }
+  }
+  return false;
+}

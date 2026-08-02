@@ -48,6 +48,9 @@ export default function LeagueDetail() {
       <div className="row">
         <h1 className="page">{league.name}</h1>
         <div className="actions" style={{ marginTop: 0 }}>
+          <Link to={`/leagues/${id}/board`}>
+            <button>Player board</button>
+          </Link>
           <button className="secondary" onClick={syncNow} disabled={syncing}>
             {syncing ? "Syncing…" : "Sync now"}
           </button>

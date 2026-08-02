@@ -9,6 +9,7 @@ import ConnectLeague from "./pages/ConnectLeague";
 import LeagueDetail from "./pages/LeagueDetail";
 import Account from "./pages/Account";
 import DraftBoard from "./pages/DraftBoard";
+import LeagueBoard from "./pages/LeagueBoard";
 
 export interface Session {
   email: string | null;
@@ -66,6 +67,7 @@ function AppRoutes() {
           <Route path="/setup" element={<CredentialSetup />} />
           <Route path="/connect" element={<ConnectLeague />} />
           <Route path="/leagues/:id" element={<LeagueDetail />} />
+          <Route path="/leagues/:id/board" element={<LeagueBoard />} />
           <Route path="/account" element={<Account />} />
         </Route>
       </Route>
