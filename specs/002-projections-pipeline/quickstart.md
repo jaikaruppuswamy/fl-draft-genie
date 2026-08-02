@@ -20,9 +20,10 @@ npm run build && npm run dev
 
 ## Validation scenarios
 
-1. **First refresh (US2)** — with an empty projections store, press "Refresh
-   projections" on the board page (or `curl -X POST …/api/projections/refresh`
-   with your session cookie). Expect `player_count` ≳ 1000 and a fresh
+1. **First refresh (US2)** — with an empty projections store, trigger a
+   refresh: `curl -X POST …/api/projections/refresh` with your session cookie
+   (the board-page button arrives with US2/T018; at the US1-only checkpoint
+   the board shows its "no projections yet" state instead). Expect `player_count` ≳ 1000 and a fresh
    `fetched_at`. The board renders immediately after.
 2. **Board sanity (US1, SC-001)** — open a league's board: ≥ 300 projected
    players, sorted by points, top names plausible (elite RB/WR up top);

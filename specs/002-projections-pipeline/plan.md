@@ -34,7 +34,7 @@ is rate-limited.
 
 **Constraints**: Projection data is global (FR-007) — refresh runs with **no user credentials** (public ESPN endpoints; see research §1); all-or-nothing set swap (FR-017); read-time scoring must reflect league re-syncs instantly (FR-010)
 
-**Scale/Scope**: ~1,100 draftable players; 3 API endpoints + 1 page + 1 detail view; one new cron duty
+**Scale/Scope**: ~1,100 draftable players; 4 API endpoints (board, detail, refresh, status) + 1 page + 1 detail view; one new cron duty
 
 ## Constitution Check
 

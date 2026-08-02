@@ -33,7 +33,7 @@ US3 (projection detail).
 - [ ] T003 Implement public-endpoint source in `src/projections/espnSource.ts`: `fetchPlayers(season)` (kona_player_info against leaguedefaults/3 with X-Fantasy-Filter header, limit 1500, projection-source filter) and `fetchProTeams(season)` (proTeamSchedules_wl); no Cookie header ever; typed parse to `{player, statLine, adp, overallRank}` records; error mapping reusing EspnError codes; unit test against fixtures in `tests/unit/espnSource.test.ts`
 - [ ] T004 [P] Implement `src/db/players.ts`: batch upsert pro_teams and players (active flag, eligible positions JSON), queries for board universe (active players joined to team abbrev + bye)
 - [ ] T005 [P] Implement `src/db/projections.ts`: create `building` set, chunked batch-insert projection rows, atomic `complete` flip with player_count, serving-set query (newest complete for season), set-by-id rows fetch, prune (prior seasons + stale building > 1 h)
-- [ ] T006 Implement refresh orchestration in `src/projections/ingest.ts`: fetch teams + players → upserts → new building set → rows → sanity gate (reject < 300 players, FR-017 spirit) → complete flip; on any failure leave prior serving set untouched and return a typed error; integration test `tests/integration/projections-flow.test.ts` (ingest from fixtures → serving set exists; simulated fetch failure → previous set still serving) (depends on T003–T005)
+- [ ] T006 Implement refresh orchestration in `src/projections/ingest.ts`: fetch teams + players → upserts → new building set → rows → sanity gate (reject < 300 players, FR-017 spirit) → complete flip; on any failure leave prior serving set untouched and return a typed error; plus the pure cadence helper `isStale(fetchedAt, now)` (24 h during Aug 1–Sep 30, else 7 d) in `src/projections/freshness.ts` — needed by US1's board `stale` flag before US2 lands; integration test `tests/integration/projections-flow.test.ts` (ingest from fixtures → serving set exists; simulated fetch failure → previous set still serving) (depends on T003–T005)
 
 **Checkpoint**: `ingest()` from fixtures yields a queryable serving set.
 
@@ -48,13 +48,13 @@ US3 (projection detail).
 ### Tests for User Story 1
 
 - [ ] T007 [P] [US1] Scoring oracle unit tests in `tests/unit/scoring.test.ts`: hand-computed expected points for fixture players under PPR, 0.5-PPR, and standard scoring maps (SC-002 ±0.1 at API rounding); positional-rank ordering incl. tie behavior; uncovered-category → 0; unprojected → null
-- [ ] T008 [P] [US1] Contract tests in `tests/contract/board.test.ts`: GET /api/leagues/:id/board response shape per contracts/api.md — ordering (points desc, unprojected alphabetical tail), inactive players excluded, `freshness` block present, 404 unknown_league, cross-account 404, 409 no_projections before first ingest; SC-003 assertion: same fixture player differs between PPR and standard league boards
+- [ ] T008 [P] [US1] Contract tests in `tests/contract/board.test.ts`: GET /api/leagues/:id/board response shape per contracts/api.md — ordering (points desc, unprojected alphabetical tail), inactive players excluded, `freshness` block present, 404 unknown_league, cross-account 404, 409 no_projections before first ingest; SC-003 assertion: same fixture player differs between PPR and standard league boards; FR-010 assertion: after replacing the league's scoring snapshot (simulated 001 re-sync), the board's points change with no new projection set
 
 ### Implementation for User Story 1
 
 - [ ] T009 [US1] Implement `src/projections/scoring.ts`: `scoreStatLine(statsJson, scoringMap)` → unrounded points + per-category breakdown with covered flags (FR-008/009); `buildLeagueBoard(projections, players, scoringMap)` → sorted entries with 1-decimal API rounding and positional ranks (FR-011/013) (depends on T007 existing and failing)
-- [ ] T010 [US1] Implement `GET /api/leagues/:id/board` in `src/api/board.ts` (league-scoped via 001's `getConnectionById`, serving-set load, scoring.ts compute, contract response incl. freshness/stale flag) and mount in `src/api/app.ts`
-- [ ] T011 [US1] Build `web/src/pages/LeagueBoard.tsx`: full-board fetch, client-side position filter chips (from league's positions) + name search composing, points/pos-rank/team/bye/ADP columns (Organic table styles), unprojected section at bottom, freshness label; route `/leagues/:id/board` in `web/src/App.tsx`; "Player board" button on `web/src/pages/LeagueDetail.tsx` and dashboard league cards
+- [ ] T010 [US1] Implement `GET /api/leagues/:id/board` in `src/api/board.ts` (league-scoped via 001's `getConnectionById`, serving-set load, scoring.ts compute, contract response incl. freshness block with `stale` from freshness.isStale) and mount in `src/api/app.ts`
+- [ ] T011 [US1] Build `web/src/pages/LeagueBoard.tsx`: full-board fetch, client-side position filter chips (from league's positions) + name search composing, points/pos-rank/team/bye/ADP columns (Organic table styles), unprojected section at bottom, freshness label, and a friendly "no projections yet" empty state on 409 `no_projections` (points at the refresh path); filter/search behavior verified manually per the project's SPA-test precedent; route `/leagues/:id/board` in `web/src/App.tsx`; "Player board" button on `web/src/pages/LeagueDetail.tsx` and dashboard league cards
 - [ ] T012 [US1] Extend `web/src/api.ts` with typed `getBoard(leagueId)` (+ types for board rows) used by T011
 
 **Checkpoint**: MVP — a connected league's true cheat sheet, in its own scoring.
@@ -74,7 +74,7 @@ US3 (projection detail).
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Implement cadence policy in `src/projections/freshness.ts`: `isStale(fetchedAt, now)` (24 h in Aug 1–Sep 30, else 7 d), `dueForDraftDayTopUp(windows, servingFetchedAt)`, on-demand rate-limit check (≥ 15 min since newest set of any trigger) — constants in code, no config (constitution IV spirit)
+- [ ] T015 [US2] Extend `src/projections/freshness.ts` (isStale exists from T006) with `dueForDraftDayTopUp(windows, servingFetchedAt)` and the on-demand rate-limit check (≥ 15 min since newest set of any trigger) — constants in code, no config (constitution IV spirit)
 - [ ] T016 [US2] Implement `src/api/projections.ts` (`POST /api/projections/refresh` → rate-limit → ingest → 200/429/502 per contract; `GET /api/projections/status`) and mount in `src/api/app.ts` (depends on T015)
 - [ ] T017 [US2] Wire the scheduled path: extend `src/index.ts` scheduled handler and `src/sync/predraft.ts` so each 5-min tick, after the league scan, runs draft-day top-up check → cadence check → pruning, using `freshness.ts` + `ingest.ts` (depends on T015)
 - [ ] T018 [US2] Surface freshness in the SPA: "Refresh projections" button (429-friendly message) + `fetched_at` age label + stale badge on `web/src/pages/LeagueBoard.tsx` via `web/src/api.ts` refresh/status methods
@@ -91,7 +91,7 @@ US3 (projection detail).
 
 ### Tests for User Story 3
 
-- [ ] T019 [P] [US3] Contract tests in `tests/contract/board-detail.test.ts`: GET /api/leagues/:id/board/players/:playerId — breakdown rows carry statId/label/projected/points_per/points/covered, Σ points equals `total` equals the board's `projected_points`, uncovered league category present with covered=false and points 0, unprojected player → empty breakdown + null total, 404 unknown_player for inactive/unknown ids
+- [ ] T019 [P] [US3] Contract tests in `tests/contract/board-detail.test.ts`: GET /api/leagues/:id/board/players/:playerId — breakdown rows carry statId/label/projected/points_per/points/covered, per the contract's rounding rule `total` (1-decimal rounding of the unrounded sum) equals the board's `projected_points` exactly, and Σ of displayed breakdown points equals `total` within ±0.05, uncovered league category present with covered=false and points 0, unprojected player → empty breakdown + null total, 404 unknown_player for inactive/unknown ids
 
 ### Implementation for User Story 3
 
