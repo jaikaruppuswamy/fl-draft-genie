@@ -1,0 +1,134 @@
+{
+  "kind": "oline",
+  "season": 2026,
+  "source": "Test fixture",
+  "source_url": "https://example.test",
+  "seeded_at": "2026-08-02",
+  "provisional": false,
+  "entries": [
+    {
+      "team_abbrev": "ARI",
+      "rank": 1
+    },
+    {
+      "team_abbrev": "ATL",
+      "rank": 2
+    },
+    {
+      "team_abbrev": "BAL",
+      "rank": 3
+    },
+    {
+      "team_abbrev": "BUF",
+      "rank": 4
+    },
+    {
+      "team_abbrev": "CAR",
+      "rank": 5
+    },
+    {
+      "team_abbrev": "CHI",
+      "rank": 6
+    },
+    {
+      "team_abbrev": "CIN",
+      "rank": 7
+    },
+    {
+      "team_abbrev": "CLE",
+      "rank": 8
+    },
+    {
+      "team_abbrev": "DAL",
+      "rank": 9
+    },
+    {
+      "team_abbrev": "DEN",
+      "rank": 10
+    },
+    {
+      "team_abbrev": "DET",
+      "rank": 11
+    },
+    {
+      "team_abbrev": "GB",
+      "rank": 12
+    },
+    {
+      "team_abbrev": "HOU",
+      "rank": 13
+    },
+    {
+      "team_abbrev": "IND",
+      "rank": 14
+    },
+    {
+      "team_abbrev": "JAX",
+      "rank": 15
+    },
+    {
+      "team_abbrev": "KC",
+      "rank": 16
+    },
+    {
+      "team_abbrev": "LAC",
+      "rank": 17
+    },
+    {
+      "team_abbrev": "LAR",
+      "rank": 18
+    },
+    {
+      "team_abbrev": "LV",
+      "rank": 19
+    },
+    {
+      "team_abbrev": "MIA",
+      "rank": 20
+    },
+    {
+      "team_abbrev": "MIN",
+      "rank": 21
+    },
+    {
+      "team_abbrev": "NE",
+      "rank": 22
+    },
+    {
+      "team_abbrev": "NO",
+      "rank": 23
+    },
+    {
+      "team_abbrev": "NYG",
+      "rank": 24
+    },
+    {
+      "team_abbrev": "NYJ",
+      "rank": 25
+    },
+    {
+      "team_abbrev": "PHI",
+      "rank": 26
+    },
+    {
+      "team_abbrev": "PIT",
+      "rank": 27
+    },
+    {
+      "team_abbrev": "SEA",
+      "rank": 28
+    },
+    {
+      "team_abbrev": "SF",
+      "rank": 29
+    },
+    {
+      "team_abbrev": "TB",
+      "rank": 30
+    },
+    {
+      "team_abbrev": "TEN",
+      "rank": 31
+    }
+  ]
+}

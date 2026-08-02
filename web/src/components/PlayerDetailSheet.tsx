@@ -56,6 +56,38 @@ export default function PlayerDetailSheet({
               </div>
             </div>
 
+            {detail.signals && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--space-2)" }}>
+                {[
+                  { name: "Team offense", block: detail.signals.offense },
+                  { name: "Schedule", block: detail.signals.sos },
+                  { name: "O-line", block: detail.signals.oline },
+                  { name: "Bye week", block: null, bye: detail.signals.bye_week },
+                ].map((s) => (
+                  <div
+                    key={s.name}
+                    style={{
+                      borderRadius: "var(--radius-md)",
+                      background: "var(--color-neutral-100)",
+                      padding: "var(--space-2) var(--space-3)",
+                    }}
+                  >
+                    <div className="muted small">{s.name}</div>
+                    {"bye" in s ? (
+                      <div style={{ fontWeight: 700 }}>{s.bye ?? "—"}</div>
+                    ) : s.block ? (
+                      <div>
+                        <span style={{ fontWeight: 700 }}>#{s.block.rank}</span>{" "}
+                        <span className="muted small">{s.block.label}</span>
+                      </div>
+                    ) : (
+                      <div className="muted">—</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {detail.breakdown.length === 0 ? (
               <p className="muted">No projection for this player yet.</p>
             ) : (

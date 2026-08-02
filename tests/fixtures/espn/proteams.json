@@ -1,14 +1,115 @@
 {
   "settings": {
     "proTeams": [
-      { "id": 0, "abbrev": "FA", "location": "Free", "name": "Agents" },
-      { "id": 1, "abbrev": "ATL", "location": "Atlanta", "name": "Firebirds", "byeWeek": 12 },
-      { "id": 2, "abbrev": "BUF", "location": "Buffalo", "name": "Stampede", "byeWeek": 7 },
-      { "id": 7, "abbrev": "DEN", "location": "Denver", "name": "Peaks", "byeWeek": 9 },
-      { "id": 9, "abbrev": "GB", "location": "Green Bay", "name": "Loggers", "byeWeek": 10 },
-      { "id": 14, "abbrev": "LAR", "location": "Los Angeles", "name": "Comets", "byeWeek": 6 },
-      { "id": 18, "abbrev": "NO", "location": "New Orleans", "name": "Brass", "byeWeek": 11 },
-      { "id": 21, "abbrev": "PHI", "location": "Philadelphia", "name": "Liberty", "byeWeek": 5 }
+      {
+        "id": 0,
+        "abbrev": "FA",
+        "location": "Free",
+        "name": "Agents"
+      },
+      {
+        "id": 1,
+        "abbrev": "ATL",
+        "location": "Atlanta",
+        "name": "Firebirds",
+        "byeWeek": 12,
+        "proGamesByScoringPeriod": {
+          "1": [
+            {
+              "homeProTeamId": 1,
+              "awayProTeamId": 2
+            }
+          ],
+          "15": [
+            {
+              "homeProTeamId": 9,
+              "awayProTeamId": 1
+            }
+          ],
+          "16": [
+            {
+              "homeProTeamId": 1,
+              "awayProTeamId": 7
+            }
+          ]
+        }
+      },
+      {
+        "id": 2,
+        "abbrev": "BUF",
+        "location": "Buffalo",
+        "name": "Stampede",
+        "byeWeek": 7,
+        "proGamesByScoringPeriod": {
+          "1": [
+            {
+              "homeProTeamId": 1,
+              "awayProTeamId": 2
+            }
+          ],
+          "15": [
+            {
+              "homeProTeamId": 2,
+              "awayProTeamId": 7
+            }
+          ],
+          "17": [
+            {
+              "homeProTeamId": 9,
+              "awayProTeamId": 2
+            }
+          ]
+        }
+      },
+      {
+        "id": 7,
+        "abbrev": "DEN",
+        "location": "Denver",
+        "name": "Peaks",
+        "byeWeek": 9,
+        "proGamesByScoringPeriod": {
+          "1": [
+            {
+              "homeProTeamId": 7,
+              "awayProTeamId": 9
+            }
+          ],
+          "2": [
+            {
+              "homeProTeamId": 2,
+              "awayProTeamId": 7
+            }
+          ]
+        }
+      },
+      {
+        "id": 9,
+        "abbrev": "GB",
+        "location": "Green Bay",
+        "name": "Loggers",
+        "byeWeek": 10
+      },
+      {
+        "id": 14,
+        "abbrev": "LAR",
+        "location": "Los Angeles",
+        "name": "Comets",
+        "byeWeek": 6
+      },
+      {
+        "id": 18,
+        "abbrev": "NO",
+        "location": "New Orleans",
+        "name": "Brass",
+        "byeWeek": 11
+      },
+      {
+        "id": 21,
+        "abbrev": "PHI",
+        "location": "Philadelphia",
+        "name": "Liberty",
+        "byeWeek": 5
+      }
     ]
   }
 }

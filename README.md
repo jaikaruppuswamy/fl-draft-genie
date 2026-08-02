@@ -19,8 +19,8 @@ multi-league connect with settings sync, pre-draft auto-sync cron. 002: the
 per-league **Player board** — live ESPN season projections re-scored in each
 league's own scoring (positional ranks, ADP, byes), a tap-through projection
 detail explaining every number, daily/draft-day auto-refresh with season
-history retained. 101 tests green. Styled with the "Organic" design system
-from Claude Design. Next up: 003-context-signals or 004-draft-monitor.
+history retained. 131 tests green; player details carry context signals (team offense, playoff-weighted SoS, O-line rank). Styled with the "Organic" design system
+from Claude Design. Next up: 005-draft-monitor.
 
 This repo is driven by [Spec Kit](https://github.com/github/spec-kit):
 
