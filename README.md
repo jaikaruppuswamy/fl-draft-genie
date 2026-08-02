@@ -12,10 +12,30 @@ via a league setup page (no hardcoded leagues).
 
 ## Status
 
-Requirements phase. This repo is driven by [Spec Kit](https://github.com/github/spec-kit):
+**Feature 001 (league onboarding) implemented** — passwordless email sign-in,
+encrypted ESPN cookie storage, multi-league connect with settings sync, and
+the pre-draft auto-sync cron. 65 tests green. Remaining before 001 closes:
+live validation against a real ESPN account (quickstart scenarios) and the
+first production deploy (tasks T045/T046).
+
+This repo is driven by [Spec Kit](https://github.com/github/spec-kit):
 
 - [ROADMAP.md](ROADMAP.md) — the project broken into 8 feature-sized spec cycles
 - [.specify/memory/constitution.md](.specify/memory/constitution.md) — project principles
+
+## Running locally
+
+```bash
+npm install
+npm run migrate:local
+cp .dev.vars.example .dev.vars   # fill in real values (see wrangler.jsonc comments)
+npm run build                    # build the SPA once
+npm run dev                      # Worker + SPA at http://localhost:8787
+```
+
+Sign-in codes print to the wrangler console in dev (`EMAIL_PROVIDER=console`).
+See [specs/001-league-onboarding/quickstart.md](specs/001-league-onboarding/quickstart.md)
+for the full validation script. `npm test` runs the suite (ESPN stubbed by fixtures).
 
 ## Workflow
 

@@ -12,6 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "migrations", "vitest.config.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
   "exclude": ["web", "node_modules"]
 }
