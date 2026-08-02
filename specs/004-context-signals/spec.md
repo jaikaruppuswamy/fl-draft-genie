@@ -106,8 +106,8 @@ value, normalized score, rank, provenance) identically.
 - O-line curated data missing a team (expansion/typo): that team shows a
   dash; a completeness check flags curated files that don't cover all 32
   teams at load time.
-- Ties in raw values: ranks are assigned deterministically (ties share the
-  better rank; ordering stable across recomputes).
+- Ties in raw values: broken deterministically by team id (total order), so
+  ranks are always a distinct 1–32 permutation, stable across recomputes.
 - Signals must never block or slow the board/detail beyond the existing
   performance criteria (002 SC-001).
 

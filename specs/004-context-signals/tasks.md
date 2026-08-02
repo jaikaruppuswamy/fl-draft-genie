@@ -34,15 +34,15 @@ US3 (uniform shape contract).
 
 ### Tests for User Story 1
 
-- [ ] T006 [P] [US1] Signal oracle unit tests in `tests/unit/signals.test.ts`: hand-computed offense totals and SoS weighted means from the extended fixtures (weeks 15–17 doubled, bye omitted), normalization orientation (100 = favorable), rank ties (shared better rank, stable by team id), label thresholds, teamless/empty-team edge cases
+- [ ] T006 [P] [US1] Signal oracle unit tests in `tests/unit/signals.test.ts`: hand-computed offense totals and SoS weighted means from the extended fixtures (weeks 15–17 doubled, bye omitted), normalization orientation (100 = favorable), rank ties broken by team id (distinct 1–32 permutation), label thresholds, teamless/empty-team edge cases
 - [ ] T007 [P] [US1] Contract tests in `tests/contract/detail-signals.test.ts`: detail response carries the `signals` block per contracts/api.md; free agent → all nulls; missing curated team → oline null; schedule absent → sos null; board list response unchanged
-- [ ] T008 [P] [US1] Curated-file validation unit tests in `tests/unit/curated.test.ts`: valid 32-team file loads; 31-team file rejected loudly; non-permutation ranks rejected; unresolvable abbrev rejected (SC-005)
+- [ ] T008 [P] [US1] Curated-file validation unit tests in `tests/unit/curated.test.ts`: valid 32-team file loads; 31-team file rejected loudly; non-permutation ranks rejected; unresolvable abbrev rejected (SC-005); after seeding valid oline entries, an invalid reload leaves the stored rows unchanged (FR-008)
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Implement `src/signals/compute.ts`: reference-score offense per team (QB/RB/WR/TE only), D/ST defensive strength, SoS weighted mean over parsed schedule (playoff ×2, bye omitted, rank 1 = easiest), min-max normalize 0–100 (100 = favorable), deterministic tie ranks, plain-language labeler (thresholds in code) (depends on T003/T004, tests T006 failing first)
+- [ ] T009 [US1] Implement `src/signals/compute.ts`: reference-score offense per team (QB/RB/WR/TE only), D/ST defensive strength, SoS weighted mean over parsed schedule (playoff ×2, bye omitted, rank 1 = easiest), min-max normalize 0–100 (100 = favorable), tie-break by team id (ranks always a distinct permutation), plain-language labeler (thresholds in code) (depends on T003/T004, tests T006 failing first)
 - [ ] T010 [US1] Implement `src/signals/curated.ts` (oline file loader + completeness validation per data-model.md) and seed `src/signals/data/oline-2026.json` from PFF's current preseason OL rankings (web lookup; if unreachable, mark `"provisional": true` with honest provenance for owner review)
-- [ ] T011 [US1] Implement `computeSignals(env, now)` orchestrator in `src/signals/compute.ts`: derive offense+sos from the serving projection set, load curated oline, write each kind via `src/db/signals.ts` — per-kind all-or-nothing, never throws (FR-008)
+- [ ] T011 [US1] Implement `computeSignals(env, now)` orchestrator in `src/signals/compute.ts`: obtain the schedule by calling `espnSource.fetchProTeams` directly (research §6 — no new storage), derive offense+sos from the serving projection set (with no serving set, skip derived kinds and write curated oline only, logged), load curated oline, write each kind via `src/db/signals.ts` — per-kind all-or-nothing, never throws (FR-008)
 - [ ] T012 [US1] Extend the detail endpoint in `src/api/board.ts` with the `signals` block (join player → pro_team → signal maps + bye from pro_teams; nulls per contract) (depends on T009–T011)
 - [ ] T013 [US1] Add the Signals section to `web/src/components/PlayerDetailSheet.tsx` (four labeled rows with rank + label, dashes for nulls, Organic styling) and extend `web/src/api.ts` PlayerDetail type
 
@@ -54,7 +54,7 @@ US3 (uniform shape contract).
 
 **Independent Test**: Quickstart scenarios 1/6 — computed_at tracks the serving set; failed refresh leaves signals serving.
 
-- [ ] T014 [P] [US2] Integration tests in `tests/integration/signals-freshness.test.ts` (fake clocks): after a projection refresh, derived kinds' computed_at equals the new serving set's fetched_at (SC-004); failed projection refresh → signals untouched; empty signals table on a tick → computed even without a projection refresh
+- [ ] T014 [P] [US2] Integration tests in `tests/integration/signals-freshness.test.ts` (fake clocks): after a projection refresh, derived kinds' computed_at equals the new serving set's fetched_at (SC-004); failed projection refresh → signals untouched; empty signals table on a tick → computed even without a projection refresh; empty table with no serving projection set → curated oline written, derived kinds skipped
 - [ ] T015 [US2] Wire `computeSignals` into `src/sync/predraft.ts` scheduled maintenance (after projection refresh / when signals empty) and `src/api/projections.ts` on-demand refresh, mirroring the tier ingest sites (depends on T011)
 
 ## Phase 5: User Story 3 - Uniform shape (Priority: P3)

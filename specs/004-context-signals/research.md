@@ -46,7 +46,8 @@ identical ranks, and signals stop being global); ESPN's pre-scored
 - **Normalization**: min-max to 0–100 across the 32 teams, oriented so
   **100 is always the favorable end** (best offense, easiest schedule, best
   O-line) — one orientation rule for every consumer (006).
-- **Ties**: shared better rank, stable order by team id.
+- **Ties**: broken by team id (total order) — ranks are always a distinct
+  1–32 permutation, keeping SC-001 exact.
 - **Labels**: rank ≤ 5 → "Top-5 …", ≤ 10 → "Top-10 …", ≥ 28 → "Bottom-5 …",
   ≥ 23 → "Bottom-10 …", else "Mid-pack" — thresholds in code.
 
@@ -75,8 +76,11 @@ to review — the provenance field never lies.
 
 **Decision**: `computeSignals(env, now)` runs at the same two sites as tier
 ingestion (scheduled maintenance after a projection refresh, and the
-on-demand refresh endpoint), plus when the signals table is empty. Never
-throws. The detail endpoint reads a per-team signal map in one query and
+on-demand refresh endpoint), plus when the signals table is empty. It
+obtains the schedule by calling `fetchProTeams` itself (the same public
+endpoint already fetched during ingest — one extra call per refresh cycle,
+no new storage). With no serving projection set (fresh deploy), derived
+kinds are skipped and only the curated oline is written. Never throws. The detail endpoint reads a per-team signal map in one query and
 attaches `signals` to the response (contract addition, additive).
 
 **Alternatives**: computing lazily at read time (recomputes 32-team
