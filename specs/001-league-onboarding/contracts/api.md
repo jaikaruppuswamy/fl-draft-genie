@@ -60,20 +60,19 @@ pasted ESPN league URL.
 
 - Body: `{ "league_ref": string }`
 - 201 → League resource (below), when validation passes and team auto-match succeeds
-- 409 `team_choice_required` `{ "teams": [{ "espn_team_id", "name", "manager_names" }] }`
-  — league is valid but auto-match failed; follow with POST …/team
+- 409 `team_choice_required` `{ "connect_token": string, "teams": [{ "espn_team_id", "name", "manager_names" }] }`
+  — league is valid but auto-match failed; follow with POST /api/leagues/connect/complete
 - 422 `no_credentials` (FR-013), `league_not_found`, `not_football`,
   `wrong_season`, `already_connected`, `unparseable_ref`
 - 422 `espn_rejected` (credentials failing — also flips credential status)
 - 502 `espn_unreachable` (no partial connection created)
 
-### POST /api/leagues/:id/team
-Complete a `team_choice_required` connection, or (edge) re-pick after a
-mistaken choice. Choosing "none of these" is a client-side dead end: the
-league cannot be connected (no observer mode) — client deletes the pending
-choice by simply not completing it; no connection row exists yet, so the 409
-flow holds no server state. Implementation detail: the 409 response carries a
-short-lived `connect_token` the client echoes here.
+### POST /api/leagues/connect/complete
+Complete a `team_choice_required` connection. No connection row exists during
+this flow — all state travels in the short-lived signed `connect_token` from
+the 409 response (hence no `:id` in the path). Choosing "none of these" is a
+client-side dead end: the league cannot be connected (no observer mode) — the
+client simply abandons the token; nothing is stored server-side.
 
 - Body: `{ "connect_token": string, "espn_team_id": number }`
 - 201 → League resource
@@ -93,7 +92,7 @@ Dashboard list (FR-021), ordered by soonest upcoming draft first (nulls last).
   "name": "Naperville Legends",
   "team_count": 12,
   "my_team": { "espn_team_id": 4, "name": "Jai's Giants" },
-  "scoring_summary": "0.5 PPR · 16 slots",   // derived label
+  "scoring_summary": "0.5 PPR · 16 slots",   // derived: reception points per catch if scored ("PPR"/"0.5 PPR"/"Standard"), else "Custom scoring"; "·" + total starting-slot count
   "draft": { "type": "snake_live_online", "scheduled_at": "…", "order_published": false, "supported": true },
   "last_sync_at": "…",
   "sync_status": "ok" | "failed" | "pending",

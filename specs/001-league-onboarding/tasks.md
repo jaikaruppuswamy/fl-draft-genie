@@ -42,8 +42,8 @@ independently testable increment.
 - [ ] T011 Implement D1 access helpers `src/db/client.ts` (typed query helpers) and `src/db/accounts.ts` (create/find by email, delete cascade)
 - [ ] T012 Implement passwordless auth in `src/auth/tokens.ts` (issue 6-digit code + link token, SHA-256 at rest, 10-min expiry, single-use, ≤3 outstanding, ≤5 attempts; storage via `src/db/loginTokens.ts`) and routes in `src/api/auth.ts` (`POST /api/auth/request`, `POST /api/auth/verify`, `GET /api/auth/magic`, `POST /api/auth/signout`) per contracts/api.md
 - [ ] T013 Contract tests for auth flow in `tests/contract/auth.test.ts`: request→verify sets cookie, invalid/expired/consumed codes 422, rate limit 429, no account enumeration (always 204), magic-link redirect behavior
-- [ ] T014 [P] Implement read-only ESPN client in `src/espn/client.ts` + `src/espn/types.ts`: GET-only methods `fetchLeague(view…)`, Cookie-header auth, configurable base URL, per-league minimum call interval, error mapping (401/403→`espn_rejected`, 404→`league_not_found`, network→`espn_unreachable`)
-- [ ] T015 [P] Record sanitized ESPN fixtures in `tests/fixtures/espn/`: `settings-team.json` (mSettings+mTeam) for ≥2 scoring shapes, `draftdetail-unpublished.json`, `draftdetail-published.json`, `error-401.json`; document recording steps in `tests/fixtures/espn/README.md`
+- [ ] T014 [P] Implement read-only ESPN client in `src/espn/client.ts` + `src/espn/types.ts`: GET-only methods `fetchLeague(view…)`, Cookie-header auth, configurable base URL, per-league minimum interval of 30 s between full syncs (bypassed inside the pre-draft window, where the 5-min cron is the pace), error mapping (401/403→`espn_rejected`, 404→`league_not_found`, network→`espn_unreachable`)
+- [ ] T015 [P] Record sanitized ESPN fixtures in `tests/fixtures/espn/`: `settings-team.json` (mSettings+mTeam) for ≥2 scoring shapes, one odd-shape league (`settings-odd.json` — tiny team count and/or no bench slots, per spec edge case), `draftdetail-unpublished.json`, `draftdetail-published.json`, `error-401.json`; document recording steps in `tests/fixtures/espn/README.md`
 
 **Checkpoint**: Sign-in works end-to-end in dev (code via console adapter); ESPN client tested against fixtures.
 
@@ -57,7 +57,7 @@ independently testable increment.
 
 ### Tests for User Story 1
 
-- [ ] T016 [P] [US1] Contract tests for credentials endpoints in `tests/contract/credentials.test.ts`: PUT normalizes then validates against stubbed ESPN, 422 `espn_rejected` stores nothing, GET returns masked SWID only, 502 pass-through
+- [ ] T016 [P] [US1] Contract tests for credentials endpoints in `tests/contract/credentials.test.ts`: PUT normalizes then validates against stubbed ESPN, 422 `espn_rejected` stores nothing, GET returns masked SWID only, 502 pass-through; on replace with existing connections, response `leagues_revalidated` equals connection count and league/credential statuses update (FR-007)
 - [ ] T017 [P] [US1] Contract tests for league connect in `tests/contract/leagues-connect.test.ts`: POST by id and by URL → 201 shape, 409 `team_choice_required` + `connect_token` flow, each 422 code (`no_credentials`, `league_not_found`, `not_football`, `wrong_season`, `already_connected`, `unparseable_ref`)
 - [ ] T018 [P] [US1] Integration test full connect journey in `tests/integration/connect-flow.test.ts`: sign in → store credentials → connect fixture league → GET detail matches fixture scoring exactly (SC-002)
 
@@ -66,11 +66,11 @@ independently testable increment.
 - [ ] T019 [P] [US1] Implement credential storage in `src/db/credentials.ts` (upsert ciphertexts + masked SWID, status transitions per data-model.md state machine)
 - [ ] T020 [P] [US1] Implement cookie normalization in `src/auth/normalizeCookies.ts` (trim quotes/whitespace, SWID brace/case fixup) with unit tests in `tests/unit/normalize.test.ts` (FR-004)
 - [ ] T021 [P] [US1] Implement league-ref parsing in `src/espn/leagueRef.ts` (ID or ESPN URL → leagueId/season) with unit tests in `tests/unit/leagueRef.test.ts` (FR-010)
-- [ ] T022 [P] [US1] Implement ESPN response parsers in `src/espn/parsers.ts` (mSettings→scoring map + roster slots, mTeam→teams/managers, draft settings→draft_json) with fixture-driven unit tests in `tests/unit/parsers.test.ts` (constitution III: lossless scoring map)
+- [ ] T022 [P] [US1] Implement ESPN response parsers in `src/espn/parsers.ts` (mSettings→scoring map + roster slots, mTeam→teams/managers, draft settings→draft_json) with fixture-driven unit tests in `tests/unit/parsers.test.ts`, including the odd-shape fixture (tiny/no-bench league must parse without error) (constitution III: lossless scoring map)
 - [ ] T023 [P] [US1] Implement team auto-match in `src/espn/identifyTeam.ts` (SWID ↔ members[].id ↔ team owners) with unit tests in `tests/unit/identifyTeam.test.ts` (FR-014)
-- [ ] T024 [US1] Implement credentials routes in `src/api/credentials.ts` (PUT validate-then-store via ESPN probe, GET masked status) (depends on T019/T020)
+- [ ] T024 [US1] Implement credentials routes in `src/api/credentials.ts` (PUT validate-then-store via ESPN probe — and on replacement, re-validate every connected league, update credential + per-league statuses, return `leagues_revalidated` per FR-007; GET masked status) (depends on T019/T020)
 - [ ] T025 [US1] Implement connect service in `src/sync/connect.ts`: validate league → sync snapshot → auto-match team → create connection atomically; 409 `connect_token` (10-min signed token) manual-pick path; no partial rows on failure (depends on T021–T023)
-- [ ] T026 [US1] Implement league connect routes in `src/api/leagues.ts` (`POST /api/leagues`, `POST /api/leagues/:id/team`, `GET /api/leagues/:id` detail incl. `snapshot_age_seconds`) + `src/db/leagues.ts` (connections + snapshots CRUD, account-scoped) (depends on T025)
+- [ ] T026 [US1] Implement league connect routes in `src/api/leagues.ts` (`POST /api/leagues`, `POST /api/leagues/connect/complete` taking `{connect_token, espn_team_id}`, `GET /api/leagues/:id` detail incl. `snapshot_age_seconds`) + `src/db/leagues.ts` (connections + snapshots CRUD, account-scoped) (depends on T025)
 - [ ] T027 [P] [US1] Build SPA sign-in page in `web/src/pages/SignIn.tsx` (email → code entry) + typed API client `web/src/api.ts`
 - [ ] T028 [P] [US1] Build credential setup page in `web/src/pages/CredentialSetup.tsx` with step-by-step cookie retrieval instructions, normalization-tolerant inputs, masked confirmation state
 - [ ] T029 [US1] Build connect + detail pages in `web/src/pages/ConnectLeague.tsx` (ref input, team-pick dialog on 409, per-code error text) and `web/src/pages/LeagueDetail.tsx` (full scoring table, roster slots, teams, draft info; times in local tz) (depends on T027/T028)
@@ -88,12 +88,12 @@ independently testable increment.
 ### Tests for User Story 2
 
 - [ ] T030 [P] [US2] Contract tests in `tests/contract/leagues-list.test.ts`: GET /api/leagues ordering (soonest draft first, nulls last), DELETE removes connection+snapshot only, cross-account access is 404 (FR-003)
-- [ ] T031 [P] [US2] Integration test in `tests/integration/multi-league.test.ts`: connect two fixture leagues with different scoring, verify no bleed-through, delete one, other intact
+- [ ] T031 [P] [US2] Integration test in `tests/integration/multi-league.test.ts`: connect five fixture leagues (distinct ids, ≥2 scoring shapes — proves the FR-011 "at least 5" bound), verify no settings bleed-through, delete one, others intact
 
 ### Implementation for User Story 2
 
 - [ ] T032 [US2] Implement dashboard list + delete in `src/api/leagues.ts` (`GET /api/leagues` LeagueSummary array with derived `scoring_summary` label, `DELETE /api/leagues/:id`) extending `src/db/leagues.ts` with ordered list query
-- [ ] T033 [US2] Build dashboard page in `web/src/pages/Dashboard.tsx`: league cards (name, my team, scoring summary, draft countdown in local tz, sync + credential status badges), remove with confirm, empty state pointing to setup
+- [ ] T033 [US2] Build dashboard page in `web/src/pages/Dashboard.tsx`: league cards (name, my team, scoring summary, draft countdown in local tz, sync + credential status badges), unsupported-draft-type notice when `draft.supported` is false ("live-draft assistance covers online snake drafts initially" — spec edge case), remove with confirm, empty state pointing to setup
 
 **Checkpoint**: US1 + US2 — the three-league household works end-to-end.
 

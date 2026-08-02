@@ -112,8 +112,9 @@ the team whose owner list contains that member is "mine". League URL paste →
 extract `leagueId` (and season if present) by regex. Error mapping: HTTP 401
 → credentials invalid; 404 → league not found; wrong `seasonId`/game →
 distinct validation errors (FR-012). Fixtures recorded from real leagues
-(sanitized) drive tests; client enforces a minimum interval between calls
-per league (polite polling).
+(sanitized) drive tests; client enforces a minimum 30-second interval
+between full syncs of the same league (polite polling; the 5-minute cron
+sets the pace inside the pre-draft window).
 
 **Rationale**: These are the endpoints/views the ESPN web app itself uses
 (the constitution's baseline assumption); stat-category-level scoring
