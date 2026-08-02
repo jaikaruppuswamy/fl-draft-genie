@@ -27,11 +27,15 @@
     { "pattern": "draft.neelamjai.com", "custom_domain": true }
   ],
   "observability": { "enabled": true },
+  "send_email": [{ "name": "EMAIL" }],
   "vars": {
-    "EMAIL_PROVIDER": "console"
+    // Flips to "cloudflare" once the neelamjai.com domain is onboarded to
+    // Email Sending (requires the email_sending:write OAuth scope).
+    "EMAIL_PROVIDER": "console",
+    "EMAIL_FROM": "signin@neelamjai.com"
   }
   // Secrets (set via `wrangler secret put`, local dev via .dev.vars):
   //   SESSION_SECRET   — 32+ random bytes, base64 (session cookie HMAC)
   //   CREDENTIAL_KEY   — exactly 32 bytes, base64 (AES-256-GCM for ESPN cookies)
-  //   RESEND_API_KEY   — production email only (EMAIL_PROVIDER=resend)
+  //   RESEND_API_KEY   — only if EMAIL_PROVIDER=resend (not used with cloudflare)
 }
