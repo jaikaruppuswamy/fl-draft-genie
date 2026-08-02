@@ -29,6 +29,8 @@ export interface Env {
   ESPN_FETCH?: typeof fetch;
   /** Test-only: fixed clock (ISO string). */
   NOW_OVERRIDE?: string;
+  /** Test-only: lower the ingest sanity gate for small fixtures. */
+  PROJECTION_MIN_PLAYERS?: string;
 }
 
 export function now(env: Env): Date {

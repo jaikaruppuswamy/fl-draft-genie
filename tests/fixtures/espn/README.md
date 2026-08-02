@@ -18,3 +18,22 @@ Test identity: the suite's "my" SWID is `{11111111-2222-3333-4444-555555555555}`
 no team in `settings-odd.json` — that fixture drives the manual team-pick flow).
 `draftdetail-published.json` is `settings-team.json` after ESPN publishes the
 draft order (`pickOrder` filled).
+
+## Projection fixtures (feature 002)
+
+`kona-players.json` (kona_player_info shape: `players[].player` with
+`stats[]` filtered to statSourceId=1/statSplitTypeId=0) and `proteams.json`
+(proTeamSchedules_wl shape). All names/ids are fabricated; stat lines are
+hand-authored so scoring oracles in tests/unit/scoring.test.ts stay valid —
+if you re-record from the live public endpoints (below, NO cookies needed),
+update the oracle expectations too.
+
+```
+curl "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/<YEAR>/segments/0/leaguedefaults/3?view=kona_player_info" \
+  -H 'X-Fantasy-Filter: {"players":{"limit":1500,"filterStatsForSourceIds":{"value":[1]}}}' | jq . > kona-players.json
+curl "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/<YEAR>?view=proTeamSchedules_wl" | jq . > proteams.json
+```
+
+Edge players baked in: `Rio Deuce` (RB/WR multi-position, projected in stat
+198 that no fixture league scores), `Newt Longshot` (active, unprojected),
+`Gus Hasbeen` (inactive — must be excluded from boards).

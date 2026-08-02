@@ -59,6 +59,46 @@ export interface LeagueDetail extends LeagueSummary {
   warning?: string;
 }
 
+export interface BoardPlayer {
+  espn_player_id: number;
+  name: string;
+  position: string;
+  eligible_positions: string[];
+  team: string;
+  bye_week: number | null;
+  projected_points: number | null;
+  position_rank: number | null;
+  adp: number | null;
+  overall_rank: number | null;
+}
+
+export interface BoardResponse {
+  freshness: { fetched_at: string; season: number; stale: boolean };
+  players: BoardPlayer[];
+}
+
+export interface PlayerDetail {
+  player: BoardPlayer;
+  freshness: { fetched_at: string };
+  breakdown: {
+    statId: number;
+    label: string;
+    projected: number | null;
+    points_per: number;
+    points: number;
+    covered: boolean;
+  }[];
+  total: number | null;
+}
+
+export interface ProjectionsStatus {
+  fetched_at: string | null;
+  season: number;
+  player_count: number | null;
+  stale: boolean;
+  next_scheduled_hint: string;
+}
+
 export interface TeamChoice {
   connect_token: string;
   teams: { espn_team_id: number; name: string; manager_names: string[] }[];
@@ -83,4 +123,10 @@ export const apiClient = {
     request<LeagueDetail>("POST", "/api/leagues/connect/complete", { connect_token, espn_team_id }),
   syncLeague: (id: string) => request<LeagueDetail>("POST", `/api/leagues/${id}/sync`),
   deleteLeague: (id: string) => request<void>("DELETE", `/api/leagues/${id}`),
+  getBoard: (id: string) => request<BoardResponse>("GET", `/api/leagues/${id}/board`),
+  getPlayerDetail: (id: string, playerId: number) =>
+    request<PlayerDetail>("GET", `/api/leagues/${id}/board/players/${playerId}`),
+  refreshProjections: () =>
+    request<{ fetched_at: string; player_count: number }>("POST", "/api/projections/refresh"),
+  getProjectionsStatus: () => request<ProjectionsStatus>("GET", "/api/projections/status"),
 };

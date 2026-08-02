@@ -7,6 +7,8 @@ import { logError } from "./logging";
 import { authRoutes } from "./auth";
 import { credentialRoutes } from "./credentials";
 import { leagueRoutes } from "./leagues";
+import { boardRoutes } from "./board";
+import { projectionRoutes } from "./projections";
 import { accountRoutes } from "./account";
 
 export type AppContext = {
@@ -41,6 +43,8 @@ export function createApp() {
 
   app.route("/api/credentials", credentialRoutes());
   app.route("/api/leagues", leagueRoutes());
+  app.route("/api/leagues", boardRoutes());
+  app.route("/api/projections", projectionRoutes());
   app.route("/api/account", accountRoutes());
 
   app.notFound((c) => {
