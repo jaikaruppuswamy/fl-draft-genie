@@ -8,6 +8,7 @@ import CredentialSetup from "./pages/CredentialSetup";
 import ConnectLeague from "./pages/ConnectLeague";
 import LeagueDetail from "./pages/LeagueDetail";
 import Account from "./pages/Account";
+import DraftBoard from "./pages/DraftBoard";
 
 export interface Session {
   email: string | null;
@@ -58,6 +59,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/signin" element={<SignIn />} />
+      <Route path="/design/draft" element={<DraftBoard />} />
       <Route element={<Layout onSignOut={handleSignOut} />}>
         <Route element={<Protected />}>
           <Route path="/" element={<Dashboard />} />

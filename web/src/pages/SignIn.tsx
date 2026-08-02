@@ -43,7 +43,7 @@ export default function SignIn() {
   return (
     <div className="center">
       <h1 className="page">
-        Draft <span style={{ color: "var(--accent)" }}>Genie</span>
+        Draft <span style={{ color: "var(--color-accent)" }}>Genie</span>
       </h1>
       <div className="card">
         <h2>Sign in</h2>
