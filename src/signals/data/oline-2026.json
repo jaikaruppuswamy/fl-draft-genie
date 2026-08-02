@@ -1,0 +1,138 @@
+{
+  "kind": "oline",
+  "season": 2026,
+  "source": "PFF (partial: confirmed final-2025 top-3 + 2026 preseason notes); provisional completion pending owner transcription of PFF's full 2026 preseason OL rankings",
+  "source_url": "https://www.pff.com/news/nfl-final-2025-nfl-offensive-line-rankings",
+  "seeded_at": "2026-08-02",
+  "provisional": true,
+  "entries": [
+    {
+      "team_abbrev": "DEN",
+      "rank": 1
+    },
+    {
+      "team_abbrev": "IND",
+      "rank": 2
+    },
+    {
+      "team_abbrev": "CHI",
+      "rank": 3
+    },
+    {
+      "team_abbrev": "PHI",
+      "rank": 4
+    },
+    {
+      "team_abbrev": "BAL",
+      "rank": 5
+    },
+    {
+      "team_abbrev": "LAR",
+      "rank": 6
+    },
+    {
+      "team_abbrev": "SF",
+      "rank": 7
+    },
+    {
+      "team_abbrev": "DAL",
+      "rank": 8
+    },
+    {
+      "team_abbrev": "TB",
+      "rank": 9
+    },
+    {
+      "team_abbrev": "ARI",
+      "rank": 10
+    },
+    {
+      "team_abbrev": "LAC",
+      "rank": 11
+    },
+    {
+      "team_abbrev": "DET",
+      "rank": 12
+    },
+    {
+      "team_abbrev": "KC",
+      "rank": 13
+    },
+    {
+      "team_abbrev": "BUF",
+      "rank": 14
+    },
+    {
+      "team_abbrev": "MIN",
+      "rank": 15
+    },
+    {
+      "team_abbrev": "GB",
+      "rank": 16
+    },
+    {
+      "team_abbrev": "PIT",
+      "rank": 17
+    },
+    {
+      "team_abbrev": "ATL",
+      "rank": 18
+    },
+    {
+      "team_abbrev": "NYJ",
+      "rank": 19
+    },
+    {
+      "team_abbrev": "CAR",
+      "rank": 20
+    },
+    {
+      "team_abbrev": "WSH",
+      "rank": 21
+    },
+    {
+      "team_abbrev": "NO",
+      "rank": 22
+    },
+    {
+      "team_abbrev": "HOU",
+      "rank": 23
+    },
+    {
+      "team_abbrev": "CLE",
+      "rank": 24
+    },
+    {
+      "team_abbrev": "JAX",
+      "rank": 25
+    },
+    {
+      "team_abbrev": "LV",
+      "rank": 26
+    },
+    {
+      "team_abbrev": "MIA",
+      "rank": 27
+    },
+    {
+      "team_abbrev": "TEN",
+      "rank": 28
+    },
+    {
+      "team_abbrev": "NYG",
+      "rank": 29
+    },
+    {
+      "team_abbrev": "CIN",
+      "rank": 30
+    },
+    {
+      "team_abbrev": "NE",
+      "rank": 31
+    },
+    {
+      "team_abbrev": "SEA",
+      "rank": 32
+    }
+  ]
+}

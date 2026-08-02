@@ -9,6 +9,8 @@ import { buildLeagueBoard, round1, scoreStatLine } from "../projections/scoring"
 import { isStale } from "../projections/freshness";
 import { getTierMap } from "../db/tiers";
 import { normalizeName, tierFormatForLeague } from "../tiers/borischen";
+import { getSignalMaps, type SignalKind } from "../db/signals";
+import { signalLabel } from "../signals/compute";
 import { currentSeason } from "../espn/leagueRef";
 import type { ScoringSnapshot } from "../espn/parsers";
 
@@ -92,11 +94,26 @@ export function boardRoutes() {
       items,
     );
 
+    // 004: team context signals (nulls per contract for missing data / FA).
+    const signalMaps = await getSignalMaps(c.env.DB);
+    const kindBlock = (kind: SignalKind) => {
+      if (player.pro_team_id === 0) return null;
+      const v = signalMaps.get(kind)?.get(player.pro_team_id);
+      return v ? { rank: v.rank, score: round1(v.score), label: signalLabel(kind, v.rank) } : null;
+    };
+    const signals = {
+      offense: kindBlock("offense"),
+      sos: kindBlock("sos"),
+      oline: kindBlock("oline"),
+      bye_week: player.pro_team_id === 0 ? null : player.bye_week,
+    };
+
     return c.json({
       player: boardRow,
       freshness: { fetched_at: serving.fetched_at },
       breakdown,
       total: total === null ? null : round1(total),
+      signals,
     });
   });
 

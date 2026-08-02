@@ -33,6 +33,8 @@ export interface SourceProTeam {
   abbrev: string;
   name: string;
   byeWeek: number | null;
+  /** (week, opponent) pairs from proGamesByScoringPeriod (004: SoS input). */
+  schedule: { week: number; opponentProTeamId: number }[];
 }
 
 interface KonaPlayerEntry {
@@ -119,14 +121,33 @@ export async function fetchProTeams(env: Env, season: number): Promise<SourcePro
   const base = env.ESPN_BASE_URL ?? DEFAULT_BASE;
   const url = `${base}/apis/v3/games/ffl/seasons/${season}?view=proTeamSchedules_wl`;
   const json = (await publicGet(env, url, {})) as {
-    settings?: { proTeams?: { id?: number; abbrev?: string; location?: string; name?: string; byeWeek?: number }[] };
+    settings?: {
+      proTeams?: {
+        id?: number;
+        abbrev?: string;
+        location?: string;
+        name?: string;
+        byeWeek?: number;
+        proGamesByScoringPeriod?: Record<string, { homeProTeamId?: number; awayProTeamId?: number }[]>;
+      }[];
+    };
   };
   return (json.settings?.proTeams ?? [])
     .filter((t) => typeof t.id === "number")
-    .map((t) => ({
-      espnTeamId: t.id!,
-      abbrev: t.abbrev ?? "UNK",
-      name: [t.location, t.name].filter(Boolean).join(" ") || (t.abbrev ?? "Unknown"),
-      byeWeek: typeof t.byeWeek === "number" && t.byeWeek > 0 ? t.byeWeek : null,
-    }));
+    .map((t) => {
+      const schedule: { week: number; opponentProTeamId: number }[] = [];
+      for (const [week, games] of Object.entries(t.proGamesByScoringPeriod ?? {})) {
+        for (const g of games) {
+          const opponent = g.homeProTeamId === t.id ? g.awayProTeamId : g.homeProTeamId;
+          if (typeof opponent === "number") schedule.push({ week: Number(week), opponentProTeamId: opponent });
+        }
+      }
+      return {
+        espnTeamId: t.id!,
+        abbrev: t.abbrev ?? "UNK",
+        name: [t.location, t.name].filter(Boolean).join(" ") || (t.abbrev ?? "Unknown"),
+        byeWeek: typeof t.byeWeek === "number" && t.byeWeek > 0 ? t.byeWeek : null,
+        schedule,
+      };
+    });
 }

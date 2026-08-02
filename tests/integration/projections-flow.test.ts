@@ -10,7 +10,7 @@ import { makeEspnStub } from "../helpers/espnStub";
 import kona from "../fixtures/espn/kona-players.json";
 import proteams from "../fixtures/espn/proteams.json";
 
-const TEST_ENV = { PROJECTION_MIN_PLAYERS: "5" }; // fixture has 12 projected players
+const TEST_ENV = { PROJECTION_MIN_PLAYERS: "5" }; // fixture has 14 projected players
 
 describe("projection ingest (all-or-nothing)", () => {
   it("ingests fixtures into a complete serving set", async () => {
@@ -19,9 +19,9 @@ describe("projection ingest (all-or-nothing)", () => {
     expect(result.ok).toBe(true);
     const serving = await getServingSet(env.DB, 2026);
     expect(serving?.status).toBe("complete");
-    expect(serving?.player_count).toBe(12); // 13 players minus 1 unprojected
+    expect(serving?.player_count).toBe(14); // 15 players minus 1 unprojected
     const rows = await getSetRows(env.DB, serving!.id);
-    expect(rows).toHaveLength(12);
+    expect(rows).toHaveLength(14);
     expect(rows.every((r) => JSON.parse(r.stats_json))).toBeTruthy();
   });
 

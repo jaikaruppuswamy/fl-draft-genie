@@ -13,6 +13,8 @@ import { ingestProjections } from "../projections/ingest";
 import { getServingSet, pruneSets } from "../db/projections";
 import { ingestTiers } from "../tiers/borischen";
 import { tierTableEmpty } from "../db/tiers";
+import { computeSignals } from "../signals/compute";
+import { signalsTableEmpty } from "../db/signals";
 import { currentSeason } from "../espn/leagueRef";
 
 export async function scanPreDraftWindow(env: Env, now: Date): Promise<number> {
@@ -45,6 +47,11 @@ export async function runScheduledMaintenance(env: Env, now: Date): Promise<void
   // Tiers ride the same cadence events; failures never block (003 FR-002).
   if (refreshed || (await tierTableEmpty(env.DB))) {
     await ingestTiers(env, now);
+  }
+
+  // Signals recompute in lockstep with projections (004 FR-007/FR-008).
+  if (refreshed || (await signalsTableEmpty(env.DB))) {
+    await computeSignals(env, now);
   }
 
   await pruneSets(env.DB, season, now);

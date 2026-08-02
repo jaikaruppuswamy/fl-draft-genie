@@ -14,7 +14,7 @@ describe("projections refresh + status contract", () => {
     const first = await api(env, cookie, "POST", "/api/projections/refresh");
     expect(first.status).toBe(200);
     const body = (await first.json()) as Record<string, unknown>;
-    expect(body.player_count).toBe(12);
+    expect(body.player_count).toBe(14);
     expect(body.trigger).toBe("on_demand");
     expect(typeof body.fetched_at).toBe("string");
 
@@ -60,7 +60,7 @@ describe("projections refresh + status contract", () => {
     const after = (await (await api(env, cookie, "GET", "/api/projections/status")).json()) as Record<string, unknown>;
     expect(after.fetched_at).not.toBeNull();
     expect(after.stale).toBe(false);
-    expect(after.player_count).toBe(12);
+    expect(after.player_count).toBe(14);
     expect(String(after.next_scheduled_hint)).toMatch(/daily/i);
   });
 });

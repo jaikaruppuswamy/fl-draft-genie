@@ -9,7 +9,7 @@ describe("ESPN projection source (public endpoints)", () => {
   it("parses the kona_player_info fixture into typed records", async () => {
     const stub = makeEspnStub({}, { kona, proTeams: proteams });
     const players = await fetchPlayers(makeEnv(stub), 2026);
-    expect(players).toHaveLength(13);
+    expect(players).toHaveLength(15);
 
     const rb = players.find((p) => p.fullName === "Bo Rampart")!;
     expect(rb.primaryPosition).toBe("RB");
@@ -38,6 +38,18 @@ describe("ESPN projection source (public endpoints)", () => {
     const teams = await fetchProTeams(makeEnv(stub), 2026);
     expect(teams.find((t) => t.abbrev === "BUF")?.byeWeek).toBe(7);
     expect(teams.find((t) => t.abbrev === "FA")?.byeWeek).toBeNull();
+  });
+
+  it("parses per-team schedules from proGamesByScoringPeriod (004)", async () => {
+    const stub = makeEspnStub({}, { kona, proTeams: proteams });
+    const teams = await fetchProTeams(makeEnv(stub), 2026);
+    const atl = teams.find((t) => t.abbrev === "ATL")!;
+    expect(atl.schedule).toEqual([
+      { week: 1, opponentProTeamId: 2 },
+      { week: 15, opponentProTeamId: 9 },
+      { week: 16, opponentProTeamId: 7 },
+    ]);
+    expect(teams.find((t) => t.abbrev === "PHI")?.schedule).toEqual([]);
   });
 
   it("never sends a Cookie header (public endpoints, no user context)", async () => {

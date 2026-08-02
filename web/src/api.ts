@@ -78,9 +78,21 @@ export interface BoardResponse {
   players: BoardPlayer[];
 }
 
+export interface SignalBlock {
+  rank: number;
+  score: number;
+  label: string;
+}
+
 export interface PlayerDetail {
   player: BoardPlayer;
   freshness: { fetched_at: string };
+  signals?: {
+    offense: SignalBlock | null;
+    sos: SignalBlock | null;
+    oline: SignalBlock | null;
+    bye_week: number | null;
+  };
   breakdown: {
     statId: number;
     label: string;
