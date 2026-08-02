@@ -39,12 +39,15 @@ draft time (draft order is only published ~1 hour before the draft).
 - Public leagues without cookies — support read-only, or require cookies always?
 - How aggressively to re-sync settings (manual button vs. scheduled).
 
-**Also decided here (in `/speckit-plan`)**: the hosting platform and stack.
-Working recommendation to debate: **Cloudflare Workers** — Durable Objects are a
-natural fit for a per-draft live room (one object polls ESPN and fans out picks
-over WebSockets), D1/KV for league config and projection caches, static assets
-for the UI; Fly.io is the fallback if we decide a long-lived Node process is
-simpler than DO alarms. Record the ratified choice here.
+**Ratified decisions (2026-08-02, during 001 specify)**:
+- **Hosting: Cloudflare** (Workers platform). Fly.io is off the table.
+- **Real-time delivery: WebSockets** (server → client push for draft events).
+- Stack details (Durable Objects for draft rooms, D1/KV for storage, etc.) are
+  settled in 001's `/speckit-plan`.
+- Spec status: `specs/001-league-onboarding/spec.md` drafted; defaults chosen
+  there pending `/speckit-clarify` debate — multi-user shared service,
+  passwordless email sign-in, one ESPN identity per account, public leagues
+  connectable without cookies.
 
 ## 002 — projections-pipeline
 
