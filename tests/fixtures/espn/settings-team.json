@@ -1,0 +1,44 @@
+{
+  "id": 1001,
+  "seasonId": 2026,
+  "gameId": 1,
+  "settings": {
+    "name": "Gridiron Gurus",
+    "size": 12,
+    "scoringSettings": {
+      "scoringType": "H2H_POINTS",
+      "scoringItems": [
+        { "statId": 3, "points": 0.04 },
+        { "statId": 4, "points": 4 },
+        { "statId": 20, "points": -2 },
+        { "statId": 24, "points": 0.1 },
+        { "statId": 25, "points": 6 },
+        { "statId": 42, "points": 0.1 },
+        { "statId": 43, "points": 6 },
+        { "statId": 53, "points": 1 },
+        { "statId": 72, "points": -2 },
+        { "statId": 86, "points": 1 },
+        { "statId": 99, "points": 1 }
+      ]
+    },
+    "rosterSettings": {
+      "lineupSlotCounts": { "0": 1, "2": 2, "4": 2, "6": 1, "16": 1, "17": 1, "20": 7, "21": 1, "23": 1 }
+    },
+    "draftSettings": {
+      "type": "SNAKE",
+      "date": 1788486000000,
+      "pickOrder": []
+    }
+  },
+  "status": { "isActive": true },
+  "members": [
+    { "id": "{11111111-2222-3333-4444-555555555555}", "displayName": "jai_k", "firstName": "Jai", "lastName": "K" },
+    { "id": "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}", "displayName": "rival1", "firstName": "Ryan", "lastName": "Rival" }
+  ],
+  "teams": [
+    { "id": 1, "name": "Bench Warmers", "owners": ["{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}"] },
+    { "id": 4, "name": "Jai's Giants", "owners": ["{11111111-2222-3333-4444-555555555555}"] },
+    { "id": 7, "location": "End Zone", "nickname": "Elite", "owners": [] }
+  ],
+  "draftDetail": { "drafted": false, "inProgress": false }
+}

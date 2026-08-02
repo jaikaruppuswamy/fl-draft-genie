@@ -1,0 +1,34 @@
+{
+  // Draft Genie — single Worker: JSON API + static SPA + pre-draft sync cron.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "draft-genie",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "assets": {
+    "directory": "web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // API and scheduled-test routes must reach the Worker, never the SPA fallback.
+    "run_worker_first": ["/api/*", "/__scheduled"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "draft-genie",
+      // Placeholder — replaced with the real id from `wrangler d1 create draft-genie`
+      // before the first remote deploy (tasks.md T046). Local dev/tests ignore it.
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "observability": { "enabled": true },
+  "vars": {
+    "EMAIL_PROVIDER": "console"
+  }
+  // Secrets (set via `wrangler secret put`, local dev via .dev.vars):
+  //   SESSION_SECRET   — 32+ random bytes, base64 (session cookie HMAC)
+  //   CREDENTIAL_KEY   — exactly 32 bytes, base64 (AES-256-GCM for ESPN cookies)
+  //   RESEND_API_KEY   — production email only (EMAIL_PROVIDER=resend)
+}
