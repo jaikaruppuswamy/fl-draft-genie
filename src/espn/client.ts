@@ -13,7 +13,7 @@ export interface EspnCredentials {
   swid: string;
 }
 
-export type EspnView = "mSettings" | "mTeam" | "mDraftDetail";
+export type EspnView = "mSettings" | "mTeam" | "mDraftDetail" | "mRoster";
 
 export function createEspnClient(env: Env, creds: EspnCredentials) {
   const base = env.ESPN_BASE_URL ?? DEFAULT_BASE;

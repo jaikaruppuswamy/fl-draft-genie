@@ -13,6 +13,35 @@ from a real league (recommended once per season — ESPN drifts):
    name, and league/team name with placeholder values. Never commit real
    SWIDs or any espn_s2 value.
 
+## Placeholder derivation (feature 005)
+
+Captures taken by `scripts/capture-draft.ts` are sanitized **on write** using a
+mapping that is **deterministically derived and never persisted** — recomputing
+it from the same league yields the same placeholders, so no lookup table of
+real GUIDs exists to be committed.
+
+Teams sort by ESPN `teamId` ascending and take index *n* = 1..N:
+
+| Real value | Placeholder |
+|---|---|
+| owner GUID of team *n* | `{00000000-0000-4000-8000-0000000000NN}` (*n*, zero-padded to 12) |
+| owner GUID of **my** team | `{11111111-2222-3333-4444-555555555555}` |
+| `displayName` | `Manager n` |
+| `firstName` / `lastName` | `Manager` / `n` |
+| team `name` / `abbrev` | `Team n` / `Tn` |
+| league `settings.name` | `Test League` |
+| any other GUID-shaped string | `{00000000-0000-4000-8000-9000000000NN}` |
+
+A member owning several teams takes the lowest index. Any GUID the derivation
+does not recognise is still scrubbed — the sanitizer deep-walks every string in
+the document rather than scrubbing named fields, because ESPN ships fields we
+do not model. `assertClean()` runs before any write and throws if a real GUID,
+a real name, or a credential value survives.
+
+**The valid placeholder set is therefore a pattern, not a list**:
+`/^\{?(00000000-0000-4000-8000-\d{12}|11111111-2222-3333-4444-555555555555)\}?$/`.
+That regex is what the fixture gate and `tests/draft/no-secrets.test.ts` check.
+
 Test identity: the suite's "my" SWID is `{11111111-2222-3333-4444-555555555555}`
 (owns team 4 in `settings-team.json`, team 5 in `settings-team-half.json`, and
 no team in `settings-odd.json` — that fixture drives the manual team-pick flow).
