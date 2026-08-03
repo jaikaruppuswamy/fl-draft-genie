@@ -54,16 +54,24 @@ reflect picks during a live snake draft — ~30 real picks over 17.5 minutes,
 **Phases 2–9 are BLOCKED.** Do not start T007. US1, US2 and US4 have no data
 source, and SC-001/SC-002/SC-003 are unachievable as specified.
 
-Before `/speckit-clarify` can frame the right question, one experiment remains:
-the capture polled `mDraftDetail` alone on samples 2..207, so whether
-`mRoster`/`mTeam` move during a draft is **untested**. `capture-draft.ts` now
-requests all four views per sample (no extra requests — ESPN combines `view=`
-params) and reports per-section change detection; `probe-draft.ts` answers it
-in one request against a draft stopped mid-way with picks already made.
+**The follow-up question is now closed too** (research §0 "Gate 0 follow-up"):
+`mRoster`/`mTeam` do **not** move live either — ESPN's league database is
+written **once, at completion** (all DRAFT transactions in a finished draft
+share one `proposedDate` equal to `completeDate`). No v3 read view can carry
+live picks. No further draft run is needed to establish this.
 
-- If rosters move live → the poll *source* changes; most of the design survives.
-- If nothing in the v3 read API moves → transport question (draft-room
-  WebSocket, unresolved Constitution VI) or re-scope.
+The only live source is the ESPN draft-room channel, and a **server-side**
+connection to it is not available: `JOIN` registers a participant and the
+client must write a `PING` every 15 s, so no read-only posture exists —
+Constitution VI forbids it. What *does* work is a **passive tap on the user's
+own already-open draft room** (a browser userscript/extension mirroring frames
+to a Worker ingest route), confirmed against live drafts by multiple parties,
+with no extra connection and no send path.
+
+That trades a technical blocker for a **governance** one: it adds a browser
+artifact the constitution's Technical Constraints do not contemplate, and it
+does not exist on iPad Safari. `/speckit-clarify` must decide the delivery
+model before any further task here is meaningful.
 
 T005 (keeper fixture) and T006 (replay corpus) are moot until a source exists —
 a corpus of frozen skeletons has nothing to replay.

@@ -95,6 +95,64 @@ additional requests — and reports per-section change detection at the end.
 `scripts/probe-draft.ts` answers the same question in one request against a
 draft that is stopped mid-way with picks already made.
 
+### Gate 0 follow-up (2026-08-03) — the open question is closed, negatively
+
+The "does `mRoster`/`mTeam` move live?" question no longer needs a second
+draft. **It does not.** Two independent confirmations:
+
+1. In a completed 2026 draft, **all 64 DRAFT transactions share a single
+   `proposedDate`, identical to `draftDetail.completeDate`** — the fingerprint
+   of one atomic write at completion, not incremental updates.
+2. A third party's real-draft capture reports directly that `mRoster` does not
+   update during a draft either.
+
+So the ESPN **league database is written once, when the draft completes**.
+That explains our Gate 0 result exactly, and it means *no* v3 read view can
+carry live picks. Also falsified along the way: `view=draftInit` exists but its
+pick objects contain only `{id, teamId}` — the string `playerId` does not occur
+anywhere in its `draftDetail`, even for a finished draft.
+
+**The only live source is the ESPN draft-room channel** (`fantasydraft.espn.com`,
+SSE transport, plain-text verbs including `SELECTED <field1> <playerId>
+<slotId>` and an `INIT <base64>` pick ledger). Two things follow, and they pull
+in opposite directions:
+
+**A server-side observer connection is not available** *(evidence: strong)*.
+`JOIN` is the sole entry verb and it registers a **participant** — sets
+`isOnline`, broadcasts `JOINED`, writes a "member joined" chat line — and the
+client must **write** a `PING` every 15 s, so no passive read-only posture
+exists at the protocol level. The `securityToken` is pick authority, not a read
+credential. Nobody in the public corpus has ever demonstrated an independent
+server-side observer connection against a live draft; the one project that
+opens its own socket is fantasy *baseball*, runs under a separate co-manager
+bot account, and has no record of capturing a live pick. Duplicate-session
+eviction (`DUP_LEAVE`) is real but is the *weaker* argument — the client-side
+chain is confirmed, the server-side trigger inferred. The disqualifier is
+simpler: **connecting means participating**, which Constitution VI forbids.
+
+**A passive tap on the user's own draft-room socket does work**
+*(evidence: confirmed against live drafts, multiple independent parties)*. A
+userscript/extension injected at `document_start` into the page the user has
+already opened wraps `window.WebSocket`, mirrors inbound frames, and POSTs them
+in small batches to a Worker ingest route. It opens **no** additional
+connection, cannot evict, never joins, and has **no send path at all** —
+Constitution VI is clean. At least two projects have captured real `SELECTED`
+frames this way with sub-second latency, and a commercial extension ships the
+same approach.
+
+Its cost is not technical but **governance**: it introduces a browser artifact
+the user installs, which the constitution's Technical Constraints do not
+currently contemplate ("responsive web app usable on iPad and desktop browsers.
+No native app."). An extension is not a native app, but it is not purely the
+web app either — and it does not exist on iPad Safari, so drafting from an iPad
+would lose live monitoring. **That is a constitution-level question, not an
+implementation detail**, and it is what `/speckit-clarify` must decide.
+
+**Do not build on this yet**: `SELECTED` field 1 is genuinely unresolved — one
+project's protocol doc and its own code disagree on whether it is `teamId` or
+the pick number, and round-1 data cannot disambiguate them. Any reconciler
+written against that field must resolve it first.
+
 **Also resolved by this capture** (three of §4's UNVERIFIED items):
 - Skeleton `teamId` **is** pre-filled on empty snake slots. Picks 1–6 carried
   `[2,5,4,3,6,1]`, exactly `settings.draftSettings.pickOrder`; picks 7–12
