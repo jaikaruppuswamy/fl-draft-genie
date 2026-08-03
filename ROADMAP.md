@@ -91,10 +91,20 @@ rebuild state from scratch after a crash or reload, and pushes updates to
 connected clients in real time. Emits the events the engine and UI consume:
 `pick_made`, `on_deck`, `on_the_clock`, `draft_complete`.
 
-**Open questions**: poll cadence (and whether to tighten near the user's turn);
-snake vs. auction vs. linear draft support in v1 (recommend snake-only first);
-transport details for the ratified WebSocket push (Durable Object per draft
-room per 001's plan notes); autodraft/keeper edge cases.
+**Ratified decisions (2026-08-02, `/speckit-clarify`)**: live poll cadence is
+two-tier — 10 s baseline, 3 s once the user is within 3 picks of their turn;
+a live session stays alive for the whole draft whether or not a client is
+connected, polling at 30 s while unattended; snake drafts only this season,
+with the state model and event contract shaped so auction can be added later
+without reworking consumers (no auction implementation); the feature ships a
+deliberately throwaway per-league diagnostic page — 007 owns the designed
+draft room; completed drafts are retained indefinitely as season history,
+replay-sufficient for 008. Autodraft and keeper handling resolved in the spec's
+edge cases (autodraft picks are ordinary picks; keepers are unavailable from
+pick one).
+
+**Open questions**: transport details for the ratified WebSocket push (Durable
+Object per draft room per 001's plan notes) — settled in `/speckit-plan`.
 
 ## 006 — recommendation-engine
 

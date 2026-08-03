@@ -8,6 +8,16 @@
 
 **Input**: User description: "005" (ROADMAP.md feature 005 — draft-monitor: the real-time nerve center that detects the draft room opening, pulls the draft order, follows every pick, maintains authoritative draft state, recovers from crashes, and pushes updates to connected clients)
 
+## Clarifications
+
+### Session 2026-08-02
+
+- Q: How often should Draft Genie check ESPN for new picks while a draft is live? → A: Two-tier adaptive — 10 s baseline, tightening to 3 s when the owner is within 3 picks of their turn.
+- Q: Should the server keep watching ESPN while a draft is live but no client is connected? → A: Hybrid — the session stays alive for the whole draft, polling at a slow 30 s cadence while unattended and returning to the 10 s / 3 s tiers as soon as a client connects.
+- Q: Which ESPN draft formats should live monitoring support this season? → A: Snake only, but with the state model and event contract shaped so a second format (auction) can be added later without reworking existing consumers — shape only, no auction implementation.
+- Q: What should be visible in the app when this ships, given 007 owns the designed draft room? → A: A deliberately plain per-league diagnostic page (session status, live pick feed, on-the-clock, picks-until-your-turn, staleness age) — explicitly throwaway scaffolding that 007 replaces wholesale, not styled to the design system.
+- Q: How long should a completed draft's full pick-by-pick record be kept? → A: Indefinitely, as season history — matching 002's retention of every season's projection sets, so 008's replay lab inherits a real corpus.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Follow a live draft pick by pick (Priority: P1)
@@ -165,6 +175,8 @@ yields one `draft_complete` — all in draft order.
 - **Draft order never published or published late**: picks are still tracked
   from ESPN's reported pick sequence; picks-until-my-turn is reported as
   unknown rather than guessed, and becomes available the moment the order is.
+  With the order unknown, "within 3 picks of the owner's turn" cannot be
+  evaluated, so the cadence stays at its 10-second baseline (FR-007).
 - **Order deviates from the snake formula** (traded picks, commissioner
   edits): ESPN's reported pick sequence is authoritative over any computed
   snake order; the computed order is only a fallback for looking ahead.
@@ -180,6 +192,9 @@ yields one `draft_complete` — all in draft order.
   own independent session and state; neither degrades the other.
 - **Several tabs or devices watching one draft**: all receive the same stream
   and converge on the same state.
+- **Laptop sleeps or every tab closes mid-draft**: the session stays alive at
+  its unattended 30-second cadence, so reconnecting later serves a current
+  snapshot immediately instead of triggering a full rebuild.
 - **A user who is not the connection's owner attempts to subscribe**: refused —
   draft state is per-user isolated like every other league resource.
 - **Draft time passes with no draft** (postponed/rescheduled): the armed
@@ -196,8 +211,10 @@ yields one `draft_complete` — all in draft order.
 
 **Session lifecycle**
 
-- **FR-001**: The system MUST maintain a draft session per connected league
-  (per season) that owns that league's authoritative draft state.
+- **FR-001**: The system MUST maintain a draft session per **league
+  connection** (one user's connection to one ESPN league) per season, which
+  owns that connection's authoritative draft state. Two users connected to the
+  same ESPN league have separate sessions and never share state.
 - **FR-002**: A session MUST be able to start on demand when the owner opens
   the league's draft view, and MUST also arm automatically for leagues with a
   scheduled, supported draft during the pre-draft window already scanned in
@@ -211,16 +228,29 @@ yields one `draft_complete` — all in draft order.
 - **FR-005**: A session MUST mark the draft complete when ESPN reports it
   complete or all picks are accounted for, retain the final state, and stop
   polling.
-- **FR-006**: For leagues whose draft type is not supported for live
-  monitoring, the system MUST expose an explicit unsupported state and MUST
-  NOT open a session.
+- **FR-006**: Live monitoring MUST support snake drafts this season. For
+  leagues whose draft type is not supported (auction, offline), the system
+  MUST expose an explicit unsupported state and MUST NOT open a session.
+- **FR-006a**: The draft **format MUST be an explicit attribute** of session
+  state and of every recorded pick (ratified in clarification), and
+  format-specific concepts MUST NOT leak into the shared shapes: turn order is
+  stored as ESPN's reported sequence rather than derived from a snake formula,
+  each roster entry carries an optional format-specific detail slot (unused by
+  snake), and event consumers MUST tolerate an unfamiliar event kind without
+  failing. Adding a second format later MUST NOT change how existing consumers
+  read state or subscribe to events. No auction behavior is implemented here.
 
 **Following the draft**
 
-- **FR-007**: While a draft is live, the system MUST observe ESPN frequently
-  enough that a completed pick is reflected in draft state within 5 seconds of
-  ESPN reporting it, and MUST tighten its cadence as the owner's turn
-  approaches.
+- **FR-007**: While a draft is live **and at least one client is connected**,
+  the system MUST observe ESPN on a **two-tier adaptive cadence** (ratified in
+  clarification): a 10-second baseline, tightening to 3 seconds once the owner
+  is within 3 picks of their turn and until their pick is made.
+- **FR-007a**: A live session MUST keep running until the draft completes
+  whether or not any client is connected (ratified in clarification). While
+  unattended it MUST observe ESPN on a slow 30-second cadence, and MUST return
+  to FR-007's tiers within one cycle of a client connecting — so a reconnecting
+  client is served a current snapshot rather than waiting for a full rebuild.
 - **FR-008**: Observation MUST stay respectful of ESPN: a bounded, documented
   maximum request rate per league, exponential back-off on errors, no polling
   while a session is idle/armed beyond a slow heartbeat, and no polling at all
@@ -232,8 +262,10 @@ yields one `draft_complete` — all in draft order.
 
 - **FR-010**: Draft state MUST include: every pick made (overall pick number,
   round, pick-in-round, drafting team, player), each team's roster so far, the
-  team currently on the clock, the owner's next pick number, picks until the
-  owner's turn, and the set of players still available.
+  team currently on the clock, the owner's **full remaining pick schedule**
+  (every pick number still coming to them, nearest first — not just the next
+  one, so a consumer can reason across rounds), picks until the owner's turn,
+  and the set of players still available.
 - **FR-011**: The available-player set MUST be the league's player board (002)
   minus everyone drafted and minus pre-draft rostered/keeper players.
 - **FR-012**: ESPN MUST be the source of truth: on every read, state reconciles
@@ -241,10 +273,20 @@ yields one `draft_complete` — all in draft order.
   without producing duplicate or phantom picks.
 - **FR-013**: Draft state MUST be durable — it survives process restarts and
   redeploys without requiring a full rebuild, and remains queryable after the
-  draft completes.
+  draft completes. A completed draft MUST be **retained indefinitely as season
+  history** (ratified in clarification, mirroring 002's projection-set
+  retention); no pruning or cleanup job removes it. The retained record MUST be
+  sufficient to reconstruct the draft without ESPN: every pick in order, the
+  pre-draft keeper/rostered assignments, the draft order, the league's team
+  roster, and which team was the owner's.
 - **FR-014**: The system MUST be able to rebuild complete draft state from
   ESPN alone, with no reliance on previously stored state, and the rebuilt
   state MUST be identical to state built incrementally from the same draft.
+- **FR-014a**: Recovery MUST NOT depend on a client reconnecting. If a live
+  session dies while unattended, the same scheduled scan that arms sessions
+  MUST notice the gap and restore it (rebuilding per FR-014) with no user
+  action — otherwise the always-on guarantee of FR-007a fails silently exactly
+  when nobody is watching.
 
 **Real-time delivery**
 
@@ -268,6 +310,13 @@ yields one `draft_complete` — all in draft order.
 - **FR-020**: `on_deck` MUST fire while the owner is still two picks away from
   their turn, so a recommendation can be pre-computed before `on_the_clock`
   (Constitution V).
+- **FR-020a**: A single observation MAY reveal several picks at once — fast
+  picking, an autodraft run, or the unattended cadence of FR-007a. When it
+  does, the system MUST still emit every event the skipped states imply, in
+  draft order: `on_deck` is never omitted merely because the owner's turn was
+  reached inside one observation, and no event is emitted twice. Events derived
+  from one observation MUST carry that observation's time, so a consumer can
+  tell a collapsed batch from a genuine live sequence.
 - **FR-021**: The event contract MUST be consumable by an offline/replayed
   pick sequence, so downstream features (006, 008) can be tested without a
   live draft.
@@ -282,42 +331,68 @@ yields one `draft_complete` — all in draft order.
 - **FR-024**: Session lifecycle transitions and failures (armed, live,
   degraded, rebuilt, complete, aborted) MUST be observable in logs/state for
   draft-day diagnosis, and MUST never include ESPN cookies or other secrets.
-- **FR-025**: The app MUST provide a minimal draft status surface for a
-  connected league — session status, pick feed, on-the-clock, picks until the
-  owner's turn — sufficient to validate this feature; the full draft-room
-  experience remains 007's scope.
+- **FR-024a**: A session is long-lived and its record is kept forever
+  (FR-013), so ESPN credentials MUST NOT be written into draft state, session
+  storage, or the retained history — they are read from encrypted storage for
+  each ESPN request and held no longer than the request needs. No credential
+  material reaches the client in any form, including session status payloads
+  (constitution: Security & Privacy).
+- **FR-025**: The app MUST provide a **plain diagnostic page** per connected
+  league (ratified in clarification) showing session status, the live pick
+  feed, the team on the clock, each team's roster so far, picks until the
+  owner's turn, and the staleness age when degraded — enough to sit through a
+  real draft and verify the
+  monitor by eye. It is explicitly throwaway scaffolding: it MUST NOT be
+  styled to the design system or reuse 007's ratified draft-room design, and
+  007 replaces it wholesale rather than inheriting it.
 
 ### Key Entities
 
 - **Draft Session** *(per league connection, per season)*: status (unsupported,
-  idle, armed, live, degraded, complete), draft type, scheduled time, draft
-  order (or unknown), the owner's slot, last successful ESPN read time, and the
-  current pick pointer.
-- **Draft Pick**: overall pick number, round, pick-in-round, drafting team,
-  player reference, and observed-at time. Ordered by overall pick number; the
-  full set is the draft's history.
+  idle, armed, live, degraded, complete), **draft format** (explicit
+  discriminator — snake this season), scheduled time, draft order (or unknown),
+  the owner's slot, last successful ESPN read time, whether any client is
+  attached (drives cadence), and the current pick pointer.
+- **Draft Pick**: draft format, overall pick number, round, pick-in-round,
+  drafting team, player reference, observed-at time, and an optional
+  format-specific detail slot (unused for snake). Ordered by overall pick
+  number; the full set is the draft's history.
 - **Team Draft Roster**: an ESPN team's picks so far in this draft, including
   pre-draft keeper/rostered players.
 - **Draft Event**: kind (`pick_made`, `on_deck`, `on_the_clock`,
-  `draft_complete`), monotonic sequence number, payload, and occurred-at —
-  the ordered stream clients and the engine consume.
+  `draft_complete` — an open set, per FR-006a), monotonic sequence number,
+  payload, and the observation time it was derived from (shared by every event
+  from one observation, per FR-020a) — the ordered stream clients and the
+  engine consume.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: During a live draft, at least 95% of picks are reflected in
-  Draft Genie's state within 5 seconds of ESPN reporting them, and 100% within
-  15 seconds.
+- **SC-001**: During a live draft **with a client connected**, 100% of picks
+  made while the owner is more than 3 picks away are reflected in Draft Genie's
+  state within 12 seconds of ESPN reporting them (10 s cadence plus one request
+  round-trip), and 100% of picks made while the owner is within 3 picks of
+  their turn within 4 seconds.
+- **SC-001a**: With no client connected, 100% of picks are still recorded
+  within 35 seconds, and a client connecting after any unattended stretch is
+  served a complete, current snapshot with zero missing picks.
 - **SC-002**: A connected client sees a state change within 1 second of the
   session recording it.
-- **SC-003**: `on_deck` precedes `on_the_clock` for 100% of the owner's turns,
-  with at least one full pick of lead time.
+- **SC-003**: Across a full draft, every one of the owner's turns has exactly
+  one `on_deck` emitted before that turn's `on_the_clock` — none skipped, none
+  duplicated, never out of order. Where the two come from separate
+  observations (the normal case at the 3-second tier) `on_deck` leads by at
+  least one full pick; where a single observation reveals both, they are
+  emitted in order within that batch and share an observation time, which is
+  how the collapse is detected.
 - **SC-004**: Reloading the client mid-draft restores complete, correct state
   in under 3 seconds, with zero missing picks.
 - **SC-005**: Destroying the session mid-draft and rebuilding from ESPN
   reproduces identical draft state (same picks, rosters, on-the-clock team,
-  available set) in under 10 seconds for a full 12-team, 16-round draft.
+  available set) in under 10 seconds for a full 12-team, 16-round draft — and
+  a session destroyed while no client is connected is restored by the
+  scheduled scan alone, with no client action.
 - **SC-006**: Joining a draft already in progress yields 100% of prior picks.
 - **SC-007**: With ESPN unavailable for 60 seconds mid-draft, no state is lost,
   the staleness age is shown, and every pick made during the outage is present
@@ -326,24 +401,41 @@ yields one `draft_complete` — all in draft order.
   draft, and per-league request volume stays within the documented rate bound.
 - **SC-009**: Two leagues drafting concurrently each maintain complete and
   correct state, with no cross-contamination of picks or events.
+- **SC-009a**: Format-neutrality check: no shared state field or event payload
+  requires knowing the format is snake in order to be interpreted, and a
+  hypothetical second format can be represented purely by a new format value
+  plus its own detail payload — no change to the entities, the read interface,
+  or the subscription contract. The shared shapes may carry ordinal sequence
+  fields (overall pick number, round, pick-in-round); a format populates the
+  ones it defines and leaves the rest empty, so their presence is not a snake
+  assumption. A consumer fed an unfamiliar event kind continues working.
 - **SC-010**: A full recorded draft replayed through the session produces the
   exact expected event sequence — one `pick_made` per pick in order, paired
-  `on_deck`/`on_the_clock` per owner turn, one terminal `draft_complete`.
+  `on_deck`/`on_the_clock` per owner turn, one terminal `draft_complete`. The
+  recorded sequence MUST be captured from a real ESPN draft and kept in the
+  repository as a fixture, so this check runs offline at any time rather than
+  waiting for draft day.
+- **SC-010a**: A completed draft's full pick record is still queryable after
+  the season ends, after subsequent projection refreshes, and after a redeploy
+  — no scheduled cleanup removes it.
 - **SC-011**: The monitor is validated end-to-end against at least one real
-  ESPN draft (or a full captured pick feed from one) before draft day.
+  ESPN draft (or a full captured pick feed from one) before draft day, watched
+  through the diagnostic page of FR-025 — every pick, the clock, and at least
+  one reconnect confirmed by eye against ESPN's own draft room.
 
 ## Assumptions
 
-- **Snake drafts in v1**: 001 already flags a league's draft as supported only
-  when ESPN reports a snake draft. Auction drafts (a different state model:
-  budgets and nominations) and offline drafts are out of scope here and
-  surface as unsupported; revisiting is a later spec. *(ROADMAP open question —
-  confirm in `/speckit-clarify`.)*
-- **Polling is the mechanism**: ESPN offers no push API for drafts
-  (constitution), so cadence and back-off are the levers. The concrete
-  intervals — baseline while live, tightened near the owner's turn, heartbeat
-  while armed — are set in the plan against FR-007/FR-008's bounds.
-  *(ROADMAP open question — confirm in `/speckit-clarify`.)*
+- **Snake drafts this season** *(ratified in clarification)*: 001 already flags
+  a league's draft as supported only when ESPN reports a snake draft. Auction
+  drafts (budgets, nominations, bidding) and offline drafts surface as
+  unsupported. The state model and event contract are shaped so auction can be
+  added later without reworking consumers (FR-006a) — a format discriminator
+  and an optional detail slot, not speculative auction machinery.
+- **Polling is the mechanism** *(cadence ratified in clarification)*: ESPN
+  offers no push API for drafts (constitution), so cadence and back-off are the
+  levers. Live cadence is two-tier — 10 s baseline, 3 s within 3 picks of the
+  owner's turn (FR-007). The armed-state heartbeat and error back-off curve
+  remain FR-008's bounds, with exact values set in the plan.
 - **Real-time transport is already ratified**: 001 ratified WebSocket push with
   a per-draft-room coordination point; this feature assumes that direction and
   the plan fixes the details.
@@ -356,10 +448,10 @@ yields one `draft_complete` — all in draft order.
   player universe; a pick of a player missing from the board is recorded by
   ESPN identity and shown as unresolved rather than dropped.
 - **Out of scope**: recommendations (006), the designed draft-room UI (007),
-  and replay/import/simulation tooling (008). This feature ships the state,
-  the events, and a minimal status surface — 008 will build on the durable
-  state this feature already keeps, and no separate recording pipeline is built
-  here.
+  and replay/import/simulation tooling (008). This feature ships the state, the
+  events, and the throwaway diagnostic page of FR-025 — 008 will build on the
+  durable state this feature already keeps, and no separate recording pipeline
+  is built here.
 - **Draft-day environment**: the owner watches on one device at a time
   (occasionally two), on ordinary consumer broadband/Wi-Fi, with the ESPN draft
   room open in parallel — Draft Genie never replaces ESPN's own interface.
