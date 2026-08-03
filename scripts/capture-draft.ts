@@ -24,8 +24,12 @@ import type { Env } from "../src/env";
 import { EspnError } from "../src/espn/types";
 import { deriveMapping, mergeMapping, sanitize, assertClean, type Mapping } from "./sanitize-espn";
 
+// ESPN accepts several `view=` params in ONE request, so capturing everything
+// costs the same number of requests as capturing mDraftDetail alone — only the
+// response is bigger. For a capture tool that is the right trade: if
+// mDraftDetail turns out to be frozen during a live draft, the answer to "does
+// ANY view reflect live picks?" is already in the recording.
 const FULL_VIEWS: EspnView[] = ["mSettings", "mTeam", "mDraftDetail", "mRoster"];
-const LIVE_VIEWS: EspnView[] = ["mDraftDetail"];
 
 interface Pick {
   playerId?: number;
@@ -109,7 +113,8 @@ async function main() {
   console.log(`league ${league} season ${season}, my team ${myTeamId}, interval ${interval} ms`);
   console.log(`draft type: ${first.settings?.draftSettings?.type ?? "?"}, teams: ${first.teams?.length ?? 0}`);
 
-  const total = (first.settings?.size ?? first.teams?.length ?? 0) * 16;
+  // Rounds come from the skeleton itself — do not assume 16.
+  const total = (first.draftDetail?.picks ?? []).length;
   let sawOrder = false;
   let sawOpen = false;
   let midWritten = 0;
@@ -118,11 +123,39 @@ async function main() {
   const started = Date.now();
   let sample = 0;
 
+  // Which parts of the payload move at all during a live draft? If picks stay
+  // frozen, this is what says whether some OTHER view carries live state.
+  const sectionHashes = new Map<string, Set<string>>();
+  const hash = (v: unknown) => {
+    const s = JSON.stringify(v) ?? "";
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+    return `${s.length}:${h}`;
+  };
+  const trackSections = (res: DraftResponse) => {
+    const rostered = (res.teams ?? []).reduce(
+      (n, t) => n + ((t as { roster?: { entries?: unknown[] } }).roster?.entries?.length ?? 0),
+      0,
+    );
+    const sections: Record<string, unknown> = {
+      "draftDetail.picks": res.draftDetail?.picks,
+      "draftDetail.flags": [res.draftDetail?.inProgress, res.draftDetail?.drafted],
+      "settings.draftSettings": res.settings?.draftSettings,
+      teams: res.teams,
+      "teams[].roster entry count": rostered,
+    };
+    for (const [k, v] of Object.entries(sections)) {
+      if (!sectionHashes.has(k)) sectionHashes.set(k, new Set());
+      sectionHashes.get(k)!.add(hash(v));
+    }
+    return rostered;
+  };
+
   for (;;) {
     const full = sample === 0;
     const res = full
       ? first
-      : ((await client.fetchLeague(season, league, LIVE_VIEWS).catch((e) => {
+      : ((await client.fetchLeague(season, league, FULL_VIEWS).catch((e) => {
           if (e instanceof EspnError) {
             console.error(`  poll error: ${e.code}${e.status ? ` (${e.status})` : ""}`);
             return null;
@@ -138,9 +171,12 @@ async function main() {
 
       await record(res, at);
       if (lastFilled >= 0 && filled > lastFilled && !drafted) grewDuringDraft = true;
+      const rostered = trackSections(res);
 
       if (sample % 6 === 0 || filled !== lastFilled) {
-        console.log(`  [${at}] picks=${filled}${total ? `/${total}` : ""} inProgress=${inProgress} drafted=${drafted}`);
+        console.log(
+          `  [${at}] picks=${filled}${total ? `/${total}` : ""} rostered=${rostered} inProgress=${inProgress} drafted=${drafted}`,
+        );
       }
 
       if (!sawOrder && (res.settings?.draftSettings?.pickOrder?.length ?? 0) > 0) {
@@ -181,9 +217,21 @@ async function main() {
   console.log(
     grewDuringDraft
       ? "mDraftDetail is live. The polling design holds — proceed with Phase 2."
-      : "mDraftDetail did NOT update during the draft. STOP: SC-001 is unachievable by polling; run /speckit-clarify.",
+      : "mDraftDetail did NOT update during the draft.",
   );
-  console.log(`samples: ${sample + 1} → ${join(outDir, "observations.jsonl")}`);
+  console.log("\nwhich sections changed at all during the run:");
+  for (const [name, hashes] of sectionHashes) {
+    console.log(`  ${hashes.size > 1 ? "CHANGED" : "static "}  ${name}  (${hashes.size} distinct)`);
+  }
+  if (!grewDuringDraft) {
+    const rosterMoved = (sectionHashes.get("teams[].roster entry count")?.size ?? 0) > 1;
+    console.log(
+      rosterMoved
+        ? "\nBUT team rosters DID move — live picks are observable via mRoster. Re-plan the poll source, do not abandon polling."
+        : "\nNo view moved. STOP: SC-001 is unachievable by polling; run /speckit-clarify (research §0).",
+    );
+  }
+  console.log(`\nsamples: ${sample + 1} → ${join(outDir, "observations.jsonl")}`);
 }
 
 main().catch((e) => {
