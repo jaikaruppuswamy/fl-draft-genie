@@ -41,13 +41,32 @@ draft. It is not established (research §0), and if it is false this feature's
 design does not work. Nothing else starts until this passes.
 
 - [X] T001 Write a read-only capture script `scripts/capture-draft.ts` that pulls `mDraftDetail`, `mSettings`, `mTeam` and `mRoster` for a given connection through the existing `src/espn/client.ts` and writes timestamped JSON under `tests/fixtures/espn/draft/` — **sanitizing on write, before any bytes reach the repo**. Every `members[].id` and `teams[].owners[]` GUID (these **are SWIDs**), every `displayName`/`firstName`/`lastName`, and every league and team name is replaced. The mapping MUST be **deterministically derived, never persisted**: order teams by ESPN `teamId` ascending and assign index *n* = 1..N, then emit GUID `{00000000-0000-4000-8000-0000000000NN}` (NN = zero-padded *n*), manager `Manager n`, team `Team n`, league `Test League` — except the connection's own team, which maps to the README's existing `{11111111-2222-3333-4444-555555555555}`. Recomputing the derivation gives the same mapping every run, so **no lookup table of real GUIDs exists to be committed**. Append this rule to `tests/fixtures/espn/README.md` so T006's gate and T058 have a real reference set to check against. Never print cookies. Committing a raw capture violates the constitution's Security & Privacy constraint and 001's house norm
-- [ ] T002 Run the capture against a real ESPN draft (a mock draft in a connected league is sufficient) — **sampling continuously at a fixed short interval (≤ 5 s) for the whole draft, not at a handful of moments**, because SC-003's separate-observation clause and SC-010's replay corpus are both defined over a continuous observation sequence and a sparse capture collapses every event into batches. Retain the four named landmarks (order-published+skeleton, room-open with zero filled picks, mid-draft, complete) as `tests/fixtures/espn/draft/{order,open,mid,complete}.json`
-- [ ] T003 Record the verdict in `specs/005-draft-monitor/research.md` §0 under a new "Gate 0 result" heading: does `picks[]` with `playerId > 0` grow between successive mid-draft samples? **If NO — STOP and run `/speckit-clarify`**; SC-001 is unachievable by polling and the alternative transport raises a Constitution VI question this plan does not answer. Write the verdict in placeholder terms only — no real GUIDs, manager names, or league/team names in prose (the same obligation the fixtures carry)
-- [ ] T004 With the capture in hand, resolve the three UNVERIFIED items in research §4 and update it in place — placeholder terms only, as T003: (a) is skeleton `teamId` pre-filled on empty snake slots, (b) do keepers occupy real `overallPickNumber` slots in `picks[]` or appear only in `roster.entries[]`, (c) what `autoDraftTypeId` values actually appear
+- [X] T002 Run the capture against a real ESPN draft (a mock draft in a connected league is sufficient) — **sampling continuously at a fixed short interval (≤ 5 s) for the whole draft, not at a handful of moments**, because SC-003's separate-observation clause and SC-010's replay corpus are both defined over a continuous observation sequence and a sparse capture collapses every event into batches. Retain the four named landmarks (order-published+skeleton, room-open with zero filled picks, mid-draft, complete) as `tests/fixtures/espn/draft/{order,open,mid,complete}.json`
+- [X] T003 Record the verdict in `specs/005-draft-monitor/research.md` §0 under a new "Gate 0 result" heading: does `picks[]` with `playerId > 0` grow between successive mid-draft samples? **If NO — STOP and run `/speckit-clarify`**; SC-001 is unachievable by polling and the alternative transport raises a Constitution VI question this plan does not answer. Write the verdict in placeholder terms only — no real GUIDs, manager names, or league/team names in prose (the same obligation the fixtures carry)
+- [X] T004 With the capture in hand, resolve the three UNVERIFIED items in research §4 and update it in place — placeholder terms only, as T003: (a) is skeleton `teamId` pre-filled on empty snake slots, (b) do keepers occupy real `overallPickNumber` slots in `picks[]` or appear only in `roster.entries[]`, (c) what `autoDraftTypeId` values actually appear
 - [ ] T005 Produce the keeper fixture that T024 and quickstart scenario 2 both require, in `tests/fixtures/espn/draft/keepers.json`: capture from a **real keeper league** if one is connected — **via `scripts/capture-draft.ts`, same derived mapping** — because a fresh mock draft structurally cannot contain keepers, so T004(b) cannot be answered from T002's capture alone. If no keeper league is available, hand-author the fixture to the shape research §4 describes using the same placeholder derivation, and record in research §4 that the keeper path ships **verified against a hand-authored fixture only**
 - [ ] T006 Assemble the full-draft replay corpus `tests/fixtures/espn/draft/replay-full.json` from the **already-sanitized** T002 samples (so the committed corpus inherits the same derived mapping); then **run the sanitization gate before the first commit of Phase 1** — a Node-side script (not a Workers-pool test; workerd has no `node:fs`) that walks `tests/fixtures/espn/draft/**` and fails on any GUID outside the derived set **or any string matching the real manager/team/league names supplied to the capture**. T058 re-asserts this in CI, but the gate that matters is this one: a raw capture committed once lives in git history permanently
 
-**Checkpoint**: The premise holds, every downstream test has real data, and the sanitization gate passes. (The keeper fixture may be hand-authored per T005 — that is a documented gap in coverage, not a gate failure.)
+**Checkpoint**: ⛔ **GATE 0 FAILED (2026-08-03).** `mDraftDetail` does not
+reflect picks during a live snake draft — ~30 real picks over 17.5 minutes,
+207 samples, zero observable. See research.md §0 "Gate 0 result".
+
+**Phases 2–9 are BLOCKED.** Do not start T007. US1, US2 and US4 have no data
+source, and SC-001/SC-002/SC-003 are unachievable as specified.
+
+Before `/speckit-clarify` can frame the right question, one experiment remains:
+the capture polled `mDraftDetail` alone on samples 2..207, so whether
+`mRoster`/`mTeam` move during a draft is **untested**. `capture-draft.ts` now
+requests all four views per sample (no extra requests — ESPN combines `view=`
+params) and reports per-section change detection; `probe-draft.ts` answers it
+in one request against a draft stopped mid-way with picks already made.
+
+- If rosters move live → the poll *source* changes; most of the design survives.
+- If nothing in the v3 read API moves → transport question (draft-room
+  WebSocket, unresolved Constitution VI) or re-scope.
+
+T005 (keeper fixture) and T006 (replay corpus) are moot until a source exists —
+a corpus of frozen skeletons has nothing to replay.
 
 ---
 

@@ -47,6 +47,67 @@ leagues satisfies it.
 
 ---
 
+### Gate 0 result (2026-08-03) — **FAILED**
+
+`mDraftDetail` does **not** reflect picks during a live snake draft. The
+polling premise of this feature is disproved.
+
+**Method**: league `DraftGenieTester`, 6 teams, SNAKE, 12 rounds (72 pick
+slots), season 2026. A genuine live draft was run from six separate Chrome
+profiles with six human managers — **~30 picks across 5 rounds over 17.5
+minutes**, at human pace (two autopicks). Throughout,
+`scripts/capture-draft.ts` polled `?view=mDraftDetail` every 5 s with valid
+credentials: **207 samples**, 06:50:56Z → 07:08:30Z.
+
+**Result**: `draftDetail.picks` was a 72-entry skeleton with `playerId: -1` on
+every entry, and **not one byte of it changed** across all 207 samples. The
+only variation in the entire payload was `draftDetail.inProgress` flipping
+`true → false` when the draft was stopped — two distinct payload hashes for the
+whole run. Zero picks were ever observable.
+
+This is, as far as we can establish, the first published confirmation for a
+**snake** draft; the only prior report was auction (see the blocking risk
+above), which left snake genuinely unknown. It is now known.
+
+**Consequences**:
+- SC-001 (12 s / 4 s latency) is unachievable by polling this view. So are
+  SC-002, SC-003 and the whole event stream, which derive from observing picks.
+- US1, US2 and US4 have no data source. Phases 2–9 of tasks.md are blocked.
+- The feature cannot proceed on its current design. Per T003 this returns to
+  `/speckit-clarify` — but see the open question below, which determines what
+  the clarification is actually *about*.
+
+**Still open — what the next experiment must answer**: the capture polled
+`mDraftDetail` alone on samples 2..207 (following §4's "cheap poll" guidance,
+which was wrong for a capture tool), so only 1 of 207 samples contains
+`teams[]`. Whether **`mRoster`/`mTeam` reflect picks live is therefore
+untested**. That distinction decides everything:
+
+- If rosters move live → the poll *source* changes and most of the design
+  (Durable Object, cadence, reconciliation, events) survives largely intact.
+- If nothing in the v3 read API moves → the feature needs a different transport
+  (the draft-room WebSocket, which carries an unresolved Constitution VI
+  question) or a re-scope.
+
+`scripts/capture-draft.ts` now requests all four views on **every** sample —
+ESPN accepts multiple `view=` params in one request, so this costs no
+additional requests — and reports per-section change detection at the end.
+`scripts/probe-draft.ts` answers the same question in one request against a
+draft that is stopped mid-way with picks already made.
+
+**Also resolved by this capture** (three of §4's UNVERIFIED items):
+- Skeleton `teamId` **is** pre-filled on empty snake slots. Picks 1–6 carried
+  `[2,5,4,3,6,1]`, exactly `settings.draftSettings.pickOrder`; picks 7–12
+  carried the reverse. The remaining-schedule computation can rely on it.
+- `pickOrder[0]` **is** the team holding overall pick #1 (§7's assumption
+  confirmed).
+- `autoDraftTypeId` was `0` throughout; `bidAmount`/`nominatingTeamId` were `0`
+  in every slot, confirming they are auction-only and belong in FR-006a's
+  format-specific detail slot, not the shared shape.
+- Keepers remain **unverified** — a fresh draft cannot contain them.
+
+---
+
 ## 1. Durable Object as the draft session
 
 **Decision**: One SQLite-backed `DraftSession` DO per league connection per
