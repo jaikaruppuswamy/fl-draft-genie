@@ -15,10 +15,15 @@ Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
 001 league-onboarding ✅
  ├─→ 002 projections-pipeline ✅ ─→ 003 board-refinements ✅
  ├─→ 004 context-signals ──────────┬─→ 006 recommendation-engine ─┐
- └─→ 005 draft-monitor ────────────┘                              ├─→ 007 draft-room-ui
+ └─→ 010 draft-tap 🔜 ─→ 005 draft-monitor ⛔ ─┘                  ├─→ 007 draft-room-ui
                                    └──────────────────────────────┴─→ 008 draft-replay-lab
 009 deployment-ops (exercised continuously since 001; hardening at the end)
 ```
+
+**010 is numbered after 009 but sequenced before 005** — inserting it as 006
+would have renumbered four downstream features and every cross-reference in
+their shipped specs. Directory numbers are identifiers, not execution order;
+this diagram is the order.
 
 ---
 
@@ -91,8 +96,27 @@ rebuild state from scratch after a crash or reload, and pushes updates to
 connected clients in real time. Emits the events the engine and UI consume:
 `pick_made`, `on_deck`, `on_the_clock`, `draft_complete`.
 
-**Ratified decisions (2026-08-02, `/speckit-clarify`)**: live poll cadence is
-two-tier — 10 s baseline, 3 s once the user is within 3 picks of their turn;
+> ⛔ **BLOCKED (2026-08-03) — Gate 0 failed, premise disproved.** ESPN writes
+> draft picks to its league database **once, when the draft completes**: 207
+> samples across ~30 real picks showed `mDraftDetail` frozen, and `mRoster` is
+> confirmed no better (all DRAFT transactions in a finished draft share one
+> `proposedDate` equal to `completeDate`). **No ESPN read API can see a draft in
+> progress.** Live picks now arrive by ingest from a browser tap — see
+> **010-draft-tap**, which lands first. The two-tier poll cadence ratified
+> 2026-08-02 is withdrawn. Everything server-side in 005 (session, reconciler,
+> events, delivery, archive) stands; `plan.md`/`tasks.md` need regeneration.
+
+**Ratified decisions (2026-08-03, round 3)**: picks arrive by **ingest from a
+browser tap**, not polling; the tap is its own feature (`010-draft-tap`) and
+ships **before** 005 resumes, so the reconciler is written against real frames;
+mid-draft rebuild replays a **persisted frame log**, reconciled against the full
+pick ledger ESPN sends on draft-room load; with the room open and no frames
+arriving, the session reports **not receiving picks** and withholds
+recommendations rather than showing a stale board as current.
+
+**Ratified decisions (2026-08-02, `/speckit-clarify`)**: ~~live poll cadence is
+two-tier — 10 s baseline, 3 s once the user is within 3 picks of their turn~~
+*(withdrawn — no live poll source exists)*;
 a live session stays alive for the whole draft whether or not a client is
 connected, polling at 30 s while unattended; snake drafts only this season,
 with the state model and event contract shaped so auction can be added later
@@ -161,6 +185,37 @@ tuning sessions (Principle IV) validate their changes.
 **Open questions**: simulation opponent model (pure ADP with noise?); metrics
 for "the engine did well" (projected points of resulting roster vs. actuals);
 CLI or UI.
+
+## 010 — draft-tap 🔜 NEXT (blocks 005)
+
+**Summary**: The browser userscript that makes live drafting possible at all.
+Gate 0 (2026-08-03) proved ESPN's read API cannot see a draft in progress; the
+picks exist only in the realtime channel the user's own draft-room tab is
+already receiving. This feature ships a userscript that, injected at
+`document_start` into the ESPN draft-room page, passively mirrors those
+messages to a Worker ingest endpoint.
+
+**Strictly passive** (Constitution VI): it opens no connection to ESPN, never
+sends a `JOIN` (which would register a participant and could evict the user's
+own session), has no send path at all, and only observes bytes the browser is
+already receiving. Confirmed working by multiple independent projects at
+sub-second latency.
+
+**Deliverables**: the userscript + install flow; a per-user revocable ingest
+credential distinct from the ESPN cookie pair; the documented frame contract
+005 consumes; and a **captured frame corpus** from a real draft, which is what
+lets 005's reconciler be built and tested without a live draft.
+
+**Open questions**: browser support (Chrome/Firefox via Tampermonkey vs a
+packaged extension); how the user installs and updates it; **the `SELECTED`
+frame's field 1 is unresolved** — one public protocol doc and its own code
+disagree on whether it is `teamId` or the pick number, and round-1 data cannot
+disambiguate them, so the capture must settle it before any reconciler depends
+on it; and how the tap behaves across the three connected leagues.
+
+**Governance**: introduces a browser artifact the constitution's Technical
+Constraints do not contemplate ("responsive web app … No native app").
+Requires an explicit `/speckit-constitution` amendment before implementation.
 
 ## 009 — deployment-ops
 

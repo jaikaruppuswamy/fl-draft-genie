@@ -59,6 +59,23 @@
 - Two consistency fixes applied in the same pass, not from a question: `aborted`
   was missing from the Draft Session status list while FR-024 named it, and the
   Draft Event entity did not carry `revision`.
+- **Clarify round 3 (2026-08-03, after Gate 0 failed)**: the spec's data source
+  was disproved, not merely underspecified. ESPN writes the draft to its league
+  database once, at completion, so the polling mechanism ratified in round 1 is
+  withdrawn. Four decisions ratified: picks arrive by **ingest from a browser
+  tap**; the tap is its own feature (`010-draft-tap`) sequenced **before** 005;
+  mid-draft rebuild replays a **persisted frame log** reconciled against ESPN's
+  full pick ledger; and a session receiving no frames reports **not receiving
+  picks** rather than presenting a stale board.
+- Two checklist items are consequently **provisional**: "Requirements are
+  testable and unambiguous" and "Feature meets measurable outcomes" now depend
+  on a frame contract that `010-draft-tap` has not yet produced. They pass
+  against the spec as written, but SC-001's latency budget is an estimate from
+  third-party captures rather than a measurement, and the `SELECTED` field-1
+  ambiguity must be settled before any reconciler is built on it.
+- `plan.md`, `tasks.md`, `data-model.md` and `contracts/api.md` were authored
+  against the polling design and are **stale**. They need `/speckit-plan` after
+  the tap lands — the spec is the only artifact updated in this round.
 - Transport ("push over a persistent connection", Durable-Object-per-draft-room)
   is a decision already ratified in 001 and referenced, not re-specified here;
   requirements themselves (FR-015–FR-017) stay transport-agnostic. Cadence

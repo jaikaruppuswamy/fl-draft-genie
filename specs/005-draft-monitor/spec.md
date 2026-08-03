@@ -4,7 +4,13 @@
 
 **Created**: 2026-08-02
 
-**Status**: Draft
+**Status**: Draft — **BLOCKED on `010-draft-tap`** (ratified 2026-08-03). Gate 0
+disproved this spec's data source: ESPN's read API cannot see a draft in
+progress. Live picks now arrive by ingest from a browser tap, which is its own
+feature and lands first. Everything server-side specified here stands; the
+polling-for-picks mechanism does not. `plan.md`, `tasks.md`, `data-model.md`
+and `contracts/api.md` were written against the polling design and need
+regeneration via `/speckit-plan` once the tap's frame shape is known.
 
 **Input**: User description: "005" (ROADMAP.md feature 005 — draft-monitor: the real-time nerve center that detects the draft room opening, pulls the draft order, follows every pick, maintains authoritative draft state, recovers from crashes, and pushes updates to connected clients)
 
@@ -23,6 +29,19 @@
 - Q: `on_deck` cannot fire two picks ahead at snake round boundaries, where the owner picks back-to-back — what should the spec promise? → A: An ordinal guarantee — `on_deck` fires as early as the draft's structure allows, at most two picks ahead, always exactly once and always before `on_the_clock`, carrying the real `picks_until` (2, 1, or 0). 006 pre-computes its second pick off `on_the_clock(T)`.
 - Q: "Exactly once" contradicts the correction path, which replays turn events after a reversed pick — which wins? → A: Exactly-once is scoped **per revision**. Every event carries the revision it was emitted under; a correction bumps the revision and replays the affected turns under the new number. Consumers dedupe on (revision, kind, overall) and treat a bump as "rewind and re-apply".
 - Q: Should SC-001 keep promising 100% of picks within 12 s when the platform's timer can be delayed up to a minute during failover? → A: No — 95th percentile at the tier bound (12 s baseline, 4 s near the owner's turn, 35 s unattended), with a hard ceiling for 100% of **the tier bound plus the documented 60 s failover delay**. A flat 60 s ceiling was refined to tier+60 s because the delay lands on top of the polling interval, not instead of it.
+
+### Session 2026-08-03 (round 3, after Gate 0 failed)
+
+**Context**: Gate 0 disproved this spec's data source. ESPN writes draft picks
+to its league database **once, when the draft completes** — 207 samples across
+~30 real picks showed `mDraftDetail` frozen, and `mRoster`/`mTeam` are
+confirmed no better. No read API can see a draft in progress. See research.md
+§0 "Gate 0 result" and "Gate 0 follow-up".
+
+- Q: Given ESPN only writes picks when the draft ends, how should Draft Genie see picks live — or should it stop trying? → A: **Browser tap.** A userscript running in the ESPN draft-room tab passively mirrors the picks already arriving on that page to Draft Genie. It opens no connection to ESPN, never joins the draft, and has no send path. The tap and the recommendation UI need not be on the same device — the tap runs where the draft room is open; the Worker fans state out to every client, including an iPad.
+- Q: Where does a dead session rebuild draft state from, now that ESPN cannot report picks mid-draft? → A: **Both, with distinct roles.** Every ingested frame is persisted server-side and replaying that log is the automatic rebuild path; whenever a fresh full pick ledger arrives from the tap (draft-room page load or reconnect) it is reconciled against the rebuilt state, and any divergence is corrected through the existing revision mechanism (FR-012/FR-019).
+- Q: What should happen during a draft when no tap is feeding (mobile app, iPad, tap not installed)? → A: **Detect and refuse to guess.** When ESPN reports the room open but no tap frames have arrived for a threshold period, the session enters an explicit **not receiving picks** state, surfaced prominently with repair instructions, and withholds recommendations rather than issuing them against a board known to be stale.
+- Q: Should the userscript be built inside 005 or split into its own feature? → A: **Its own feature, sequenced first.** A new feature (`010-draft-tap`) owns the userscript and lands **before** 005 resumes, so the reconciler is written against real captured frames rather than a protocol guess — the `SELECTED` field-1 meaning is currently unresolved. 005's boundary is the documented ingest contract.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -89,12 +108,14 @@ on the clock).
    reloaded, **Then** the full state (all picks, rosters, on-the-clock,
    picks-until-my-turn) is restored within a few seconds without user action.
 2. **Given** a live draft, **When** Draft Genie's draft session is destroyed
-   and restarted, **Then** it rebuilds complete state from ESPN alone and the
+   and restarted, **Then** it rebuilds complete state from the persisted frame
+   log alone and the
    rebuilt state is identical to the pre-crash state.
 3. **Given** a draft that started before the owner opened Draft Genie, **When**
    the draft view is opened, **Then** the complete pick history to date is
    present, not just picks made after opening.
-4. **Given** ESPN is unreachable or erroring, **When** the owner is watching,
+4. **Given** the tap has stopped feeding (tab closed, script disabled) or ESPN
+   is unreachable for the pre-draft reads, **When** the owner is watching,
    **Then** the last known state keeps serving, is visibly marked as
    not-currently-updating with its age, and updating resumes automatically
    once ESPN responds again — with any picks missed during the outage filled
@@ -179,13 +200,12 @@ yields one `draft_complete` — all in draft order.
 ### Edge Cases
 
 - **Draft order never published or published late**: picks are still tracked
-  from ESPN's reported pick sequence; picks-until-my-turn is reported as
-  unknown rather than guessed, and becomes available the moment the order is.
-  With the order unknown, "within 3 picks of the owner's turn" cannot be
-  evaluated, so the cadence stays at its 10-second baseline (FR-007).
+  from the ingested frame sequence; picks-until-my-turn is reported as unknown
+  rather than guessed, and becomes available the moment the order is. Ingest
+  latency does not depend on the order being known.
 - **Order deviates from the snake formula** (traded picks, commissioner
-  edits): ESPN's reported pick sequence is authoritative over any computed
-  snake order; the computed order is only a fallback for looking ahead.
+  edits): the ingested pick sequence is authoritative over any computed snake
+  order; the computed order is only a fallback for looking ahead.
 - **Autodrafted picks**: indistinguishable from manual picks and treated as
   normal picks — no special handling.
 - **Keepers / pre-draft rostered players**: counted as unavailable and
@@ -198,9 +218,18 @@ yields one `draft_complete` — all in draft order.
   own independent session and state; neither degrades the other.
 - **Several tabs or devices watching one draft**: all receive the same stream
   and converge on the same state.
-- **Laptop sleeps or every tab closes mid-draft**: the session stays alive at
-  its unattended 30-second cadence, so reconnecting later serves a current
-  snapshot immediately instead of triggering a full rebuild.
+- **Laptop sleeps or every Draft Genie tab closes mid-draft**: the session stays
+  alive and keeps ingesting, so reconnecting later serves a current snapshot
+  immediately instead of triggering a rebuild. Note this holds only while the
+  **ESPN draft-room tab** is still open — that tab is the tap, and closing it
+  stops the feed (FR-007c).
+- **Owner drafts from the ESPN mobile app or an iPad**: no tap can run there, so
+  the session reports **not receiving picks** rather than showing an empty
+  board. Live monitoring genuinely does not work in that configuration, and the
+  spec says so rather than degrading silently.
+- **Tap sends a frame for a league whose session is not live** (wrong tab, stale
+  script): the frame is rejected and logged, never applied to an unrelated
+  session.
 - **A user who is not the connection's owner attempts to subscribe**: refused —
   draft state is per-user isolated like every other league resource.
 - **Draft time passes with no draft** (postponed/rescheduled): the armed
@@ -248,15 +277,34 @@ yields one `draft_complete` — all in draft order.
 
 **Following the draft**
 
-- **FR-007**: While a draft is live **and at least one client is connected**,
-  the system MUST observe ESPN on a **two-tier adaptive cadence** (ratified in
-  clarification): a 10-second baseline, tightening to 3 seconds once the owner
-  is within 3 picks of their turn and until their pick is made.
-- **FR-007a**: A live session MUST keep running until the draft completes
-  whether or not any client is connected (ratified in clarification). While
-  unattended it MUST observe ESPN on a slow 30-second cadence, and MUST return
-  to FR-007's tiers within one cycle of a client connecting — so a reconnecting
-  client is served a current snapshot rather than waiting for a full rebuild.
+- **FR-007**: Live picks MUST arrive by **ingest from the browser tap**, not by
+  polling ESPN (ratified round 3 — Gate 0 proved ESPN's read API exposes no
+  in-progress draft). The tap forwards the pick messages already arriving in
+  the user's own draft-room tab; the system accepts them, applies them through
+  the same reconciler, and pushes state to every connected client.
+- **FR-007a**: The tap MUST be strictly passive: it opens **no** connection to
+  ESPN, never joins or registers as a draft participant, sends nothing to
+  ESPN, and functions only by observing messages the user's own browser is
+  already receiving (Constitution VI). A session with no tap feeding it is
+  **degraded**, not broken — see FR-007c.
+- **FR-007b**: Polling ESPN remains the source for everything the read API
+  *does* expose — draft type, scheduled time, published draft order, team
+  roster, and the `inProgress`/`drafted` flags that mark the room opening and
+  the draft finishing. Those keep the pre-draft cadence and FR-008's bounds;
+  only *picks* move to the tap.
+- **FR-007c**: When ESPN reports the draft room open but **no tap frames have
+  arrived for a threshold period**, the session MUST enter an explicit **not
+  receiving picks** state (ratified round 3). That state MUST be surfaced
+  prominently with instructions to install or repair the tap, MUST NOT be
+  presented as an empty or up-to-date board, and MUST withhold recommendations
+  rather than issue them against a board known to be stale. A silently empty
+  board is indistinguishable from a draft where nothing has happened yet, which
+  is the failure this feature exists to prevent.
+- **FR-007d**: Ingested frames MUST be authenticated as a specific user and
+  scoped to one league connection. Frames from one user MUST never reach
+  another user's session (FR-018), the credential MUST be revocable and
+  distinct from the ESPN cookie pair, and it MUST NOT grant any capability
+  beyond appending frames to that one draft session.
 - **FR-008**: Observation MUST stay respectful of ESPN: a bounded, documented
   maximum request rate per league, exponential back-off on errors, no polling
   while a session is idle/armed beyond a slow heartbeat, and no polling at all
@@ -274,9 +322,13 @@ yields one `draft_complete` — all in draft order.
   and the set of players still available.
 - **FR-011**: The available-player set MUST be the league's player board (002)
   minus everyone drafted and minus pre-draft rostered/keeper players.
-- **FR-012**: ESPN MUST be the source of truth: on every read, state reconciles
-  to ESPN's reported picks, tolerating corrections, undos, and reordering
-  without producing duplicate or phantom picks.
+- **FR-012**: The **full pick ledger** the tap forwards (ESPN sends one when the
+  draft-room page loads) is the source of truth. State reconciles to it whenever
+  one arrives, tolerating corrections, undos and reordering without producing
+  duplicate or phantom picks. Between ledgers, incremental pick frames are
+  applied in order and the persisted frame log is the working authority. After
+  the draft completes, ESPN's league database becomes authoritative again and
+  MUST be used to verify the final state.
 - **FR-013**: Draft state MUST be durable — it survives process restarts and
   redeploys without requiring a full rebuild, and remains queryable after the
   draft completes. A completed draft MUST be **retained indefinitely as season
@@ -285,9 +337,12 @@ yields one `draft_complete` — all in draft order.
   sufficient to reconstruct the draft without ESPN: every pick in order, the
   pre-draft keeper/rostered assignments, the draft order, the league's team
   roster, and which team was the owner's.
-- **FR-014**: The system MUST be able to rebuild complete draft state from
-  ESPN alone, with no reliance on previously stored state, and the rebuilt
-  state MUST be identical to state built incrementally from the same draft.
+- **FR-014**: The system MUST be able to rebuild complete draft state by
+  **replaying the persisted frame log**, with no reliance on in-memory state,
+  and the rebuilt state MUST be identical to state built incrementally from the
+  same frames. Every ingested frame MUST therefore be persisted durably
+  **before** it is applied — the log is the only mid-draft record that exists,
+  because ESPN cannot reproduce it.
 - **FR-014a**: Recovery MUST NOT depend on a client reconnecting. If a live
   session dies while unattended, the same scheduled scan that arms sessions
   MUST notice the gap and restore it (rebuilding per FR-014) with no user
@@ -341,7 +396,8 @@ yields one `draft_complete` — all in draft order.
 
 **Degradation & visibility**
 
-- **FR-022**: When ESPN is unavailable, the last known state MUST keep serving,
+- **FR-022**: When the tap stops feeding or ESPN is unavailable for the
+  pre-draft reads, the last known state MUST keep serving,
   marked as not-currently-updating with its age, and MUST resume automatically
   — backfilling picks missed during the outage — when ESPN recovers.
 - **FR-023**: Credential failures MUST be surfaced distinctly from ESPN
@@ -377,6 +433,11 @@ yields one `draft_complete` — all in draft order.
   number; the full set is the draft's history.
 - **Team Draft Roster**: an ESPN team's picks so far in this draft, including
   pre-draft keeper/rostered players.
+- **Ingest Frame** *(new, round 3)*: one message forwarded by the tap —
+  received-at time, monotonic ingest sequence, the raw payload, and the league
+  connection it belongs to. Persisted **before** being applied; the ordered log
+  is the mid-draft rebuild source (FR-014) and the only record of a draft in
+  progress that exists anywhere, since ESPN cannot reproduce it.
 - **Draft Event**: kind (`pick_made`, `on_deck`, `on_the_clock`,
   `draft_complete`, `draft_revised` — an open set, per FR-006a), monotonic
   sequence number, **revision** (with kind and overall pick number, the dedupe
@@ -388,18 +449,20 @@ yields one `draft_complete` — all in draft order.
 
 ### Measurable Outcomes
 
-- **SC-001**: During a live draft **with a client connected**, **95%** of picks
-  made while the owner is more than 3 picks away are reflected in Draft Genie's
-  state within 12 seconds of ESPN reporting them (10 s cadence plus one request
-  round-trip), and 95% of picks made while the owner is within 3 picks of their
-  turn within 4 seconds. **100% within the tier bound plus 60 seconds** (72 s
-  and 64 s respectively) — the ceiling absorbs the platform's documented
-  failover delay of up to a minute, which no application code can shorten.
-  Measured over a full replayed draft, so it is checkable offline.
-- **SC-001a**: With no client connected, **95%** of picks are recorded within
-  35 seconds and 100% within 95 seconds (same ceiling rule), and a client
-  connecting after any unattended stretch is served a complete, current
-  snapshot with zero missing picks.
+- **SC-001**: With the tap feeding, **95%** of picks are reflected in Draft
+  Genie's state within **5 seconds** of the pick appearing in the user's own
+  draft room, and 100% within 15 seconds. The budget is the tap's batching
+  interval plus one ingest round-trip — there is no polling cadence any more, so
+  the old tier structure and its failover ceiling no longer apply. Measured over
+  a replayed frame corpus, so it is checkable offline.
+- **SC-001a**: With no client connected, picks are still ingested and recorded
+  at the same latency — ingest does not depend on anyone watching — and a client
+  connecting later is served a complete, current snapshot with zero missing
+  picks.
+- **SC-001b**: When the draft room is open and no frames have arrived for the
+  threshold period, the session reports **not receiving picks** within 30
+  seconds and issues no recommendations, in 100% of trials (FR-007c). A stale
+  board is never presented as a current one.
 - **SC-002**: A connected client sees a state change within 1 second of the
   session recording it.
 - **SC-003**: Across a full draft, every one of the owner's turns has exactly
@@ -412,11 +475,13 @@ yields one `draft_complete` — all in draft order.
   how the collapse is detected.
 - **SC-004**: Reloading the client mid-draft restores complete, correct state
   in under 3 seconds, with zero missing picks.
-- **SC-005**: Destroying the session mid-draft and rebuilding from ESPN
-  reproduces identical draft state (same picks, rosters, on-the-clock team,
-  available set) in under 10 seconds for a full 12-team, 16-round draft — and
-  a session destroyed while no client is connected is restored by the
-  scheduled scan alone, with no client action.
+- **SC-005**: Destroying the session mid-draft and rebuilding **from the
+  persisted frame log** reproduces identical draft state (same picks, rosters,
+  on-the-clock team, available set) in under 10 seconds for a full 12-team,
+  16-round draft — and a session destroyed while no client is connected is
+  restored by the scheduled scan alone, with no client action. A subsequent
+  full ledger from the tap MUST reconcile to the same state, or emit a
+  correction if it does not.
 - **SC-006**: Joining a draft already in progress yields 100% of prior picks.
 - **SC-007**: With ESPN unavailable for 60 seconds mid-draft, no state is lost,
   the staleness age is shown, and every pick made during the outage is present
@@ -455,11 +520,21 @@ yields one `draft_complete` — all in draft order.
   unsupported. The state model and event contract are shaped so auction can be
   added later without reworking consumers (FR-006a) — a format discriminator
   and an optional detail slot, not speculative auction machinery.
-- **Polling is the mechanism** *(cadence ratified in clarification)*: ESPN
-  offers no push API for drafts (constitution), so cadence and back-off are the
-  levers. Live cadence is two-tier — 10 s baseline, 3 s within 3 picks of the
-  owner's turn (FR-007). The armed-state heartbeat and error back-off curve
-  remain FR-008's bounds, with exact values set in the plan.
+- **Ingest is the mechanism for picks; polling only for what ESPN exposes**
+  *(ratified round 3, replacing the polling assumption Gate 0 disproved)*.
+  ESPN's read API writes the draft to its database **once, at completion**, so
+  no cadence can surface a pick mid-draft. Picks arrive from the tap; ESPN
+  polling continues for draft type, scheduled time, order, rosters and the
+  `inProgress`/`drafted` flags, under FR-008's bounds. The two-tier live cadence
+  ratified in round 1 no longer applies and has been removed.
+- **The tap is a dependency, not a component of this feature**: `010-draft-tap`
+  owns it and ships first. 005 is specified and testable against the ingest
+  contract with recorded frames, never needing a live draft.
+- **A browser artifact is now part of the delivery model**, which the
+  constitution's Technical Constraints ("responsive web app … No native app")
+  do not currently contemplate. This needs a constitution amendment via
+  `/speckit-constitution` before `010-draft-tap` is implemented — flagged, not
+  assumed.
 - **Real-time transport is already ratified**: 001 ratified WebSocket push with
   a per-draft-room coordination point; this feature assumes that direction and
   the plan fixes the details.
