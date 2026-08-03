@@ -1,0 +1,157 @@
+# Data Model: Draft Monitor (005)
+
+Two stores with distinct jobs (research §5):
+
+- **Durable Object storage** — the live authority. One JSON blob under key
+  `"session"` in the synchronous KV API of a SQLite-backed DO.
+- **D1** (migration `0005_draft.sql`) — the cron's work-list plus the
+  permanent, ESPN-independent archive.
+
+Derived values are **never stored**: rosters, the unavailable set,
+picks-until-my-turn and the remaining pick schedule are computed at read time
+from picks + keepers + order.
+
+---
+
+## DO blob: `SessionState`
+
+```jsonc
+{
+  "format": "snake",                  // FR-006a discriminator; drives nothing else
+  "status": "live",                   // unsupported|idle|armed|live|degraded|complete|aborted
+  "connection_id": "…", "season": 2026, "my_team_id": 7,
+  "epoch": "uuid",                    // regenerated on rebuild; invalidates client cursors
+  "seq": 412,                         // monotonic within an epoch
+  "revision": 3,                      // increments on each ESPN correction (FR-012)
+  "order": { "team_ids": [7,3,11,…], "trust": "observed" },  // observed|projected|unknown
+  "picks": [                          // ordered, ESPN-authoritative, playerId > 0 only
+    { "overall": 1, "round": 1, "round_pick": 1, "team_id": 3, "player_id": 4362628,
+      "keeper": false, "autodrafted": false, "observed_at": "…", "detail": null }
+  ],
+  "keepers": [ { "team_id": 3, "player_id": 3139477 } ],  // pre-draft rostered (mRoster ∪ keeper picks)
+  "teams": [ { "team_id": 3, "name": "…" } ],
+  "turn_marks": [24, 25],             // owner turns whose on_deck/on_the_clock already fired
+  "last_poll_started_at": "…", "last_success_at": "…", "consecutive_errors": 0,
+  "due_at": 1785000000000, "armed_deadline": "…",
+  "last_error": null                  // "espn_unreachable"|"espn_rejected"|"league_not_found"
+}
+```
+
+**Never present**: `espn_s2`, `SWID`, or anything derived from them (FR-024a).
+A test asserts `JSON.stringify(state)` contains neither value, mirroring 001's
+SC-005 grep test.
+
+**Size**: a 192-pick draft ≈ 25 KB, far under the SQLite backend's 2 MB
+key+value cap.
+
+### `stateFingerprint` (FR-014 identity)
+
+The hash proving a rebuilt state equals an incrementally-built one. **Includes**
+picks, keepers, order, status, format, my_team_id. **Excludes** `epoch`, `seq`,
+`revision`, `observed_at`, `turn_marks` and the event log — a rebuild collapses
+N observations into one and cannot reproduce the original stream (research §7).
+This narrowing is deliberate and is what FR-014's tests assert against.
+
+### State transitions
+
+```text
+unsupported ← (draft type ≠ snake; terminal, no session opened)
+idle ──arm──▶ armed ──inProgress──▶ live ──drafted──▶ complete ──archive──▶ (archived)
+                │                     │
+                │                     ├─ESPN error×3─▶ degraded ──recovery──▶ live
+                └─armed_deadline──▶ aborted          └─league_not_found──▶ aborted
+```
+
+`degraded` keeps serving last-known state (FR-022) and is **not** a restore
+trigger — the cron distinguishes dead from degraded by `getAlarm()`, never by
+timestamp (research §5).
+
+---
+
+## Derived at read time
+
+| Value | Derivation |
+|-------|------------|
+| Team rosters | `picks ∪ keepers`, grouped by `team_id`, keyed by `player_id` so overlap collapses |
+| Available players | 002's league board minus every `player_id` in that union (FR-011) |
+| On the clock | `teamAt(frontier)` where frontier = highest observed `overall` + 1 |
+| Picks until my turn | `nextOwnerPick − frontier`; **null** when `order.trust === "unknown"` |
+| Remaining schedule | every future `overall` where `teamAt(n) === my_team_id` (FR-010) |
+
+`teamAt(n)`: observed `team_id` below the frontier; ESPN's skeleton `team_id`
+when present; otherwise the snake projection from `order.team_ids`. `trust`
+degrades to `unknown` — baseline cadence, no turn events, dashes in the UI —
+rather than fabricating a slot.
+
+---
+
+## D1: `draft_sessions` (cron work-list)
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| connection_id | TEXT | PK, REFERENCES league_connections(id) ON DELETE CASCADE | One session per connection per season; season joined from the parent |
+| account_id | TEXT | NOT NULL, REFERENCES accounts(id) ON DELETE CASCADE | Per-user isolation on every read (FR-018) |
+| status | TEXT | NOT NULL, CHECK IN ('idle','armed','live','degraded','complete','aborted','unsupported') | |
+| scheduled_at | TEXT | | Copied from the league snapshot at arm time |
+| last_observed_at | TEXT | | Heartbeat, 30 s-throttled. **Diagnostics + 009 alerting only — never a restore trigger** |
+| pick_count | INTEGER | NOT NULL DEFAULT 0 | Cheap progress for the diagnostic page |
+| completed_at | TEXT | | Set when ESPN reports `drafted` |
+| archived_at | TEXT | | NULL ⇒ still in the cron's work-list |
+
+`CREATE INDEX idx_draft_sessions_open ON draft_sessions (archived_at, status);`
+
+Cron predicate: `archived_at IS NULL AND status NOT IN ('aborted','unsupported')`
+→ call idempotent `ensureRunning()` on each. That RPC re-arms only when
+`getAlarm()` is null, and retries the archive when
+`completed_at IS NOT NULL AND archived_at IS NULL`.
+
+## D1: `draft_picks` + `draft_keepers` (permanent archive)
+
+Written **once** at completion, chunked at 10 rows per statement (D1's
+100-bound-parameter cap; ~24 statements for a 192-pick draft in one
+`db.batch()`).
+
+`draft_picks`: `account_id` (FK → accounts, CASCADE), `connection_id` (plain
+column, **no FK**), `season`, `overall` , `round`, `round_pick`, `team_id`,
+`player_id`, `keeper`, `autodrafted`, `observed_at`, `detail_json`.
+PK `(account_id, connection_id, season, overall)`.
+
+`draft_keepers`: same key columns plus `team_id`, `player_id`.
+
+**Cascade decision**: the archive keys on `account_id` and deliberately carries
+**no foreign key to `league_connections`**, so disconnecting a league does not
+delete its draft history — FR-013 forbids removal, and 008's replay corpus must
+survive. Deleting an *account* still removes everything.
+
+**Replay sufficiency (FR-013)**: `league_snapshots` is one row per connection,
+**overwritten on every re-sync**, so the archive cannot reference it.
+`teams_json`, `order_json` and `my_team_id` are **copied** into
+`draft_sessions` at archive time or "reconstruct without ESPN" silently rots at
+the next sync.
+
+`observed_at` is **first-seen-wins** (`ON CONFLICT DO UPDATE` that never
+overwrites it), because a cold rebuild would otherwise stamp every pick with one
+timestamp and destroy the per-pick timing 008 wants.
+
+---
+
+## Events
+
+| Kind | Payload |
+|------|---------|
+| `pick_made` | the pick, plus resulting `pick_count` and frontier |
+| `on_deck` | `overall`, and the **actual** `picks_until` (2, 1 or **0**) |
+| `on_the_clock` | `overall`, `remaining_schedule` |
+| `draft_complete` | final `pick_count`, `completed_at` |
+| `draft_revised` | `from_overall`, `revision` — a correction, never a retraction (FR-012) |
+
+Every event carries `(epoch, seq, observed_at)`. Events sharing an
+`observed_at` came from one observation — that is how a collapsed batch is
+distinguished from a live sequence (FR-020a).
+
+**`picks_until` may legitimately be 0.** In a 12-team snake the slot-1 and
+slot-12 owners pick back-to-back at every round turn (#24 then #25), so there is
+no state where the owner is two picks from #25 and not already on the clock for
+#24. `on_deck` still fires — never skipped — but with zero lead time. **006 must
+read `picks_until` and pre-compute its second pick off `on_the_clock(T)` rather
+than waiting for `on_deck(T+1)`.**
