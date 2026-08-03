@@ -31,8 +31,9 @@ from picks + keepers + order.
   "keepers": [ { "team_id": 3, "player_id": 3139477 } ],  // pre-draft rostered (mRoster ∪ keeper picks)
   "teams": [ { "team_id": 3, "name": "…" } ],
   "turn_marks": [24, 25],             // owner turns whose on_deck/on_the_clock already fired
+  "event_window": [ /* last 500 events, oldest evicted; backs ?since= resume */ ],
   "last_poll_started_at": "…", "last_success_at": "…", "consecutive_errors": 0,
-  "due_at": 1785000000000, "armed_deadline": "…",
+  "due_at": 1785000000000, "armed_deadline": "…",   // scheduled_at + 6 h
   "last_error": null                  // "espn_unreachable"|"espn_rejected"|"league_not_found"
 }
 ```
@@ -57,10 +58,17 @@ This narrowing is deliberate and is what FR-014's tests assert against.
 ```text
 unsupported ← (draft type ≠ snake; terminal, no session opened)
 idle ──arm──▶ armed ──inProgress──▶ live ──drafted──▶ complete ──archive──▶ (archived)
-                │                     │
-                │                     ├─ESPN error×3─▶ degraded ──recovery──▶ live
-                └─armed_deadline──▶ aborted          └─league_not_found──▶ aborted
+              ▲ │                     │
+              │ │                     ├─ESPN error×3─▶ degraded ──recovery──▶ live
+              │ └─armed_deadline──▶ aborted          └─league_not_found──▶ aborted
+              └──── new draft_at published ─────┘
 ```
+
+`aborted` is **not** terminal for the postponed-draft case: when the league
+re-sync publishes a *different* `draft_at`, the cron re-arms. That path needs
+its own query, because the main work-list predicate below deliberately excludes
+`aborted` — join `draft_sessions` to `league_snapshots.draft_at` and re-arm
+where they disagree. `league_not_found` aborts terminally (no re-arm).
 
 `degraded` keeps serving last-known state (FR-022) and is **not** a restore
 trigger — the cron distinguishes dead from degraded by `getAlarm()`, never by
@@ -101,9 +109,21 @@ rather than fabricating a slot.
 `CREATE INDEX idx_draft_sessions_open ON draft_sessions (archived_at, status);`
 
 Cron predicate: `archived_at IS NULL AND status NOT IN ('aborted','unsupported')`
-→ call idempotent `ensureRunning()` on each. That RPC re-arms only when
-`getAlarm()` is null, and retries the archive when
-`completed_at IS NOT NULL AND archived_at IS NULL`.
+→ call idempotent `ensureRunning()` on each. Completed-but-unarchived rows stay
+in the work-list **for the archive retry only**:
+
+- re-arms the poll alarm **only when `getAlarm()` is null AND `completed_at IS
+  NULL`** — without the second condition the cron would resume polling a draft
+  that has already finished, contradicting FR-005 and FR-008;
+- retries the archive when `completed_at IS NOT NULL AND archived_at IS NULL`.
+
+**Liveness is tested inside the DO, never from outside.** `getAlarm()` returns
+null while the alarm handler is running, so a *caller* cannot use it as a health
+check. `ensureRunning()` evaluates it inside the object under
+`ctx.blockConcurrencyWhile`, where that race does not exist. Persisted
+staleness (`last_observed_at`) is **not** a restore trigger — a session degraded
+by an ESPN outage is indistinguishable by timestamp from a dead one, so
+thresholding it would rebuild live sessions exactly during an outage.
 
 ## D1: `draft_picks` + `draft_keepers` (permanent archive)
 
@@ -111,23 +131,37 @@ Written **once** at completion, chunked at 10 rows per statement (D1's
 100-bound-parameter cap; ~24 statements for a 192-pick draft in one
 `db.batch()`).
 
+`draft_archives` *(the archive header — one row per completed draft)*:
+`account_id` (FK → accounts, CASCADE), `connection_id` (plain column, **no
+FK**), **`espn_league_id`**, `season`, `league_name`, `team_count`,
+`my_team_id`, `order_json`, `teams_json`, `format`, `completed_at`,
+`archived_at`. PK `(account_id, connection_id, season)`.
+
+`espn_league_id` is not redundant: once the FK is severed, `connection_id`
+resolves to nothing after a disconnect, and re-adding the same league mints a
+*new* UUID — so without it 008 cannot tell two archives of the same league
+apart except by the mutable, snapshot-copied `league_name`. Index
+`(account_id, espn_league_id, season)` for that lookup.
+
 `draft_picks`: `account_id` (FK → accounts, CASCADE), `connection_id` (plain
-column, **no FK**), `season`, `overall` , `round`, `round_pick`, `team_id`,
+column, **no FK**), `season`, `overall`, `round`, `round_pick`, `team_id`,
 `player_id`, `keeper`, `autodrafted`, `observed_at`, `detail_json`.
 PK `(account_id, connection_id, season, overall)`.
 
 `draft_keepers`: same key columns plus `team_id`, `player_id`.
 
-**Cascade decision**: the archive keys on `account_id` and deliberately carries
-**no foreign key to `league_connections`**, so disconnecting a league does not
-delete its draft history — FR-013 forbids removal, and 008's replay corpus must
-survive. Deleting an *account* still removes everything.
+**Cascade decision**: all three archive tables key on `account_id` and
+deliberately carry **no foreign key to `league_connections`**, so disconnecting
+a league does not delete its draft history — FR-013 forbids removal, and 008's
+replay corpus must survive. Deleting an *account* still removes everything.
 
 **Replay sufficiency (FR-013)**: `league_snapshots` is one row per connection,
-**overwritten on every re-sync**, so the archive cannot reference it.
-`teams_json`, `order_json` and `my_team_id` are **copied** into
-`draft_sessions` at archive time or "reconstruct without ESPN" silently rots at
-the next sync.
+**overwritten on every re-sync**, so the archive cannot reference it — and
+neither can `draft_sessions`, which cascades from `league_connections` and dies
+with a disconnect. `my_team_id`, `order_json` and `teams_json` are therefore
+copied into **`draft_archives`**, on the account-keyed side of the cascade
+boundary. Putting them in `draft_sessions` would silently defeat the very
+cascade decision above.
 
 `observed_at` is **first-seen-wins** (`ON CONFLICT DO UPDATE` that never
 overwrites it), because a cold rebuild would otherwise stamp every pick with one
@@ -145,9 +179,17 @@ timestamp and destroy the per-pick timing 008 wants.
 | `draft_complete` | final `pick_count`, `completed_at` |
 | `draft_revised` | `from_overall`, `revision` — a correction, never a retraction (FR-012) |
 
-Every event carries `(epoch, seq, observed_at)`. Events sharing an
+Every event carries `(epoch, seq, revision, observed_at)`. Events sharing an
 `observed_at` came from one observation — that is how a collapsed batch is
 distinguished from a live sequence (FR-020a).
+
+**Exactly-once is scoped per revision** (FR-019). Consumers deduplicate on
+`(revision, kind, overall)`. A correction bumps `revision` and replays the
+turns above the correction point under the new number, so the same
+`on_the_clock(25)` legitimately appears twice across a draft's lifetime with
+different revisions — a consumer treating a bump as "rewind and re-apply" gets
+the right answer; one assuming per-draft uniqueness recommends into a pick that
+has already been made.
 
 **`picks_until` may legitimately be 0.** In a 12-team snake the slot-1 and
 slot-12 owners pick back-to-back at every round turn (#24 then #25), so there is

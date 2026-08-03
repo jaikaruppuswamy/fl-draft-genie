@@ -18,6 +18,12 @@
 - Q: What should be visible in the app when this ships, given 007 owns the designed draft room? → A: A deliberately plain per-league diagnostic page (session status, live pick feed, on-the-clock, picks-until-your-turn, staleness age) — explicitly throwaway scaffolding that 007 replaces wholesale, not styled to the design system.
 - Q: How long should a completed draft's full pick-by-pick record be kept? → A: Indefinitely, as season history — matching 002's retention of every season's projection sets, so 008's replay lab inherits a real corpus.
 
+### Session 2026-08-02 (round 2, after `/speckit-analyze`)
+
+- Q: `on_deck` cannot fire two picks ahead at snake round boundaries, where the owner picks back-to-back — what should the spec promise? → A: An ordinal guarantee — `on_deck` fires as early as the draft's structure allows, at most two picks ahead, always exactly once and always before `on_the_clock`, carrying the real `picks_until` (2, 1, or 0). 006 pre-computes its second pick off `on_the_clock(T)`.
+- Q: "Exactly once" contradicts the correction path, which replays turn events after a reversed pick — which wins? → A: Exactly-once is scoped **per revision**. Every event carries the revision it was emitted under; a correction bumps the revision and replays the affected turns under the new number. Consumers dedupe on (revision, kind, overall) and treat a bump as "rewind and re-apply".
+- Q: Should SC-001 keep promising 100% of picks within 12 s when the platform's timer can be delayed up to a minute during failover? → A: No — 95th percentile at the tier bound (12 s baseline, 4 s near the owner's turn, 35 s unattended), with a hard ceiling for 100% of **the tier bound plus the documented 60 s failover delay**. A flat 60 s ceiling was refined to tier+60 s because the delay lands on top of the polling interval, not instead of it.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Follow a live draft pick by pick (Priority: P1)
@@ -304,12 +310,24 @@ yields one `draft_complete` — all in draft order.
 **Events**
 
 - **FR-019**: The system MUST emit an ordered event stream containing at least
-  `pick_made`, `on_deck`, `on_the_clock`, and `draft_complete`, each occurrence
-  emitted exactly once and carrying enough context for a consumer to act
-  without re-reading ESPN.
-- **FR-020**: `on_deck` MUST fire while the owner is still two picks away from
-  their turn, so a recommendation can be pre-computed before `on_the_clock`
-  (Constitution V).
+  `pick_made`, `on_deck`, `on_the_clock`, and `draft_complete`, each carrying
+  enough context for a consumer to act without re-reading ESPN. Every event MUST
+  carry the **revision** it was emitted under, and within a revision each
+  occurrence is emitted **exactly once**. A correction (FR-012) bumps the
+  revision and replays the affected turns under the new number — so
+  exactly-once is a per-revision property, not a per-draft one. Consumers
+  deduplicate on `(revision, kind, overall pick number)` and treat a revision
+  bump as "rewind to the correction point and re-apply".
+- **FR-020**: `on_deck` MUST fire **as early as the draft's structure allows,
+  at most two picks ahead** of the owner's turn — always exactly once, always
+  before that turn's `on_the_clock` — so a recommendation can be pre-computed
+  before the owner is on the clock (Constitution V). It MUST carry the real
+  distance (`picks_until` = 2, 1, or **0**): at snake round boundaries the owner
+  picks back-to-back, so there is no moment when they are two picks from the
+  second turn, and `on_deck` fires with no lead. It is **never suppressed** in
+  that case. Consumers MUST read `picks_until` rather than assume 2 — feature
+  006 pre-computes its second pick off `on_the_clock(T)` instead of waiting for
+  `on_deck(T+1)`.
 - **FR-020a**: A single observation MAY reveal several picks at once — fast
   picking, an autodraft run, or the unattended cadence of FR-007a. When it
   does, the system MUST still emit every event the skipped states imply, in
@@ -349,7 +367,7 @@ yields one `draft_complete` — all in draft order.
 ### Key Entities
 
 - **Draft Session** *(per league connection, per season)*: status (unsupported,
-  idle, armed, live, degraded, complete), **draft format** (explicit
+  idle, armed, live, degraded, complete, **aborted**), **draft format** (explicit
   discriminator — snake this season), scheduled time, draft order (or unknown),
   the owner's slot, last successful ESPN read time, whether any client is
   attached (drives cadence), and the current pick pointer.
@@ -360,28 +378,34 @@ yields one `draft_complete` — all in draft order.
 - **Team Draft Roster**: an ESPN team's picks so far in this draft, including
   pre-draft keeper/rostered players.
 - **Draft Event**: kind (`pick_made`, `on_deck`, `on_the_clock`,
-  `draft_complete` — an open set, per FR-006a), monotonic sequence number,
-  payload, and the observation time it was derived from (shared by every event
-  from one observation, per FR-020a) — the ordered stream clients and the
-  engine consume.
+  `draft_complete`, `draft_revised` — an open set, per FR-006a), monotonic
+  sequence number, **revision** (with kind and overall pick number, the dedupe
+  key consumers use, per FR-019), payload, and the observation time it was
+  derived from (shared by every event from one observation, per FR-020a) — the
+  ordered stream clients and the engine consume.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: During a live draft **with a client connected**, 100% of picks
+- **SC-001**: During a live draft **with a client connected**, **95%** of picks
   made while the owner is more than 3 picks away are reflected in Draft Genie's
   state within 12 seconds of ESPN reporting them (10 s cadence plus one request
-  round-trip), and 100% of picks made while the owner is within 3 picks of
-  their turn within 4 seconds.
-- **SC-001a**: With no client connected, 100% of picks are still recorded
-  within 35 seconds, and a client connecting after any unattended stretch is
-  served a complete, current snapshot with zero missing picks.
+  round-trip), and 95% of picks made while the owner is within 3 picks of their
+  turn within 4 seconds. **100% within the tier bound plus 60 seconds** (72 s
+  and 64 s respectively) — the ceiling absorbs the platform's documented
+  failover delay of up to a minute, which no application code can shorten.
+  Measured over a full replayed draft, so it is checkable offline.
+- **SC-001a**: With no client connected, **95%** of picks are recorded within
+  35 seconds and 100% within 95 seconds (same ceiling rule), and a client
+  connecting after any unattended stretch is served a complete, current
+  snapshot with zero missing picks.
 - **SC-002**: A connected client sees a state change within 1 second of the
   session recording it.
 - **SC-003**: Across a full draft, every one of the owner's turns has exactly
-  one `on_deck` emitted before that turn's `on_the_clock` — none skipped, none
-  duplicated, never out of order. Where the two come from separate
+  one `on_deck` emitted before that turn's `on_the_clock` **within each
+  revision** — none skipped, none duplicated, never out of order. Where the two
+  come from separate
   observations (the normal case at the 3-second tier) `on_deck` leads by at
   least one full pick; where a single observation reveals both, they are
   emitted in order within that batch and share an observation time, which is

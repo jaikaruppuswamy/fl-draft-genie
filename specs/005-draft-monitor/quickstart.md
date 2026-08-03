@@ -24,8 +24,17 @@ draft — a mock draft in any connected league is enough:
 npx tsx scripts/capture-draft.ts --connection <id> --out tests/fixtures/espn/draft
 ```
 
-Capture four moments: **order published + skeleton**, **room open**
-(`inProgress:true`, zero filled picks), **mid-draft**, **complete**.
+**Sample continuously at ≤ 5 s for the whole draft** — not at a handful of
+moments. SC-003's separate-observation clause and SC-010's replay corpus are
+both defined over a continuous sequence; a sparse capture collapses every event
+into batches and makes them unexercisable. Retain the four landmarks
+(**order published + skeleton**, **room open** with `inProgress:true` and zero
+filled picks, **mid-draft**, **complete**) as named files.
+
+The script sanitizes on write: SWID GUIDs, manager names and league/team names
+are replaced by a **deterministically derived** placeholder mapping (no lookup
+table of real values is ever written). Run the sanitization gate before the
+first commit — a raw capture committed once lives in git history permanently.
 
 **Pass**: pick count grows between mid-draft captures → proceed.
 **Fail**: the view is frozen and flushes at completion → **stop**. SC-001 is

@@ -16,7 +16,7 @@ Session status for the diagnostic page and for 007 later.
 
 ```jsonc
 {
-  "status": "live",              // unsupported|idle|armed|live|degraded|complete
+  "status": "live",              // unsupported|idle|armed|live|degraded|complete|aborted
   "format": "snake",
   "scheduled_at": "2026-08-30T23:00:00Z",
   "order": { "team_ids": [7,3,11], "my_slot": 1, "trust": "observed" },  // team_ids null until published
@@ -38,9 +38,12 @@ Session status for the diagnostic page and for 007 later.
 
 ## GET /api/leagues/:id/draft/snapshot
 
-Full state: the status payload plus `picks[]`, `keepers[]`, `teams[]`, and the
-current `(epoch, seq)`. This is the REST equivalent of the opening WebSocket
-frame, and what a client without WebSocket support falls back to.
+Full state: the status payload plus `picks[]`, `keepers[]`, `teams[]`,
+`available[]` (the league board minus everyone drafted and minus keepers,
+FR-011 — derived DO-side at snapshot time so a client never reconciles two
+sources), and the current `(epoch, seq)`. This is the REST equivalent of the
+opening WebSocket frame, and what a client falls back to when the socket is
+unavailable.
 
 ## POST /api/leagues/:id/draft/open
 
@@ -64,8 +67,8 @@ protocol has no client commands (Constitution VI keeps this one-way by design).
 
 ```jsonc
 { "type": "snapshot", "epoch": "uuid", "seq": 412, "state": { … } }   // always first
-{ "type": "event", "epoch": "uuid", "seq": 413, "kind": "pick_made",
-  "observed_at": "…", "payload": { … } }
+{ "type": "event", "epoch": "uuid", "seq": 413, "revision": 0,
+  "kind": "pick_made", "observed_at": "…", "payload": { … } }
 { "type": "status", "epoch": "uuid", "seq": 414, "status": "degraded",
   "staleness": { … } }
 ```
@@ -76,6 +79,11 @@ protocol has no client commands (Constitution VI keeps this one-way by design).
    *before* the 101 is returned.
 2. A client reconnecting with `?since=N` where `epoch` is unchanged and `N` is
    still in the retained window receives `snapshot` + only events `> N`.
+   **The retained window is the last 500 events**, held in the session blob
+   (`event_window`) — comfortably more than a full draft's stream, so in
+   practice a same-epoch cursor is always in range. A cursor **older than the
+   window** is not an error: the client receives a full `snapshot` and resets
+   its cursor, exactly as in rule 3.
 3. **Mismatched or unknown `epoch` ⇒ full snapshot, cursor reset.** The epoch
    changes on every rebuild, which is what stops a stale cursor from silently
    skipping a reconstructed draft.
@@ -84,6 +92,13 @@ protocol has no client commands (Constitution VI keeps this one-way by design).
 
 **Multiple clients**: every socket on the session receives identical frames with
 identical `seq` values. Tabs converge without coordination.
+
+**When Draft Genie itself is unreachable** (distinct from FR-022's ESPN
+outage): the client reconnects with exponential back-off 1 s → 2 s → 4 s → …
+→ **30 s cap**, and after three consecutive failures falls back to polling
+`GET /snapshot` every 15 s until the socket returns. The UI must distinguish
+"Draft Genie unreachable" from "ESPN not updating" — the user's remedy differs
+(wait vs check ESPN), and during a live draft a wrong diagnosis wastes a pick.
 
 ---
 
@@ -96,7 +111,12 @@ Two contract notes that downstream features must code against:
 
 - **`on_deck.picks_until` may be 0.** At snake round boundaries the owner picks
   back-to-back, so `on_deck` and `on_the_clock` fire from the same observation.
-  006 pre-computes its second pick off `on_the_clock(T)`, not `on_deck(T+1)`.
+  `on_deck` still fires — never suppressed — and 006 pre-computes its second
+  pick off `on_the_clock(T)`, not `on_deck(T+1)`.
+- **Deduplicate on `(revision, kind, overall)`, not on `seq` or kind alone**
+  (FR-019). Exactly-once holds *within* a revision; a correction bumps the
+  revision and replays the affected turns, so the same turn event recurs
+  legitimately. Treat a bump as "rewind to the correction point and re-apply".
 - **Unknown event kinds must be tolerated, not rejected** (FR-006a) — the kind
   set is open so a second draft format can extend it without touching consumers.
 
@@ -108,8 +128,17 @@ re-sync so a just-published draft time arms on the same tick:
 1. Arm sessions for connections whose supported draft is inside the pre-draft
    window.
 2. `ensureRunning()` on every row where `archived_at IS NULL AND status NOT IN
-   ('aborted','unsupported')` — re-arms only when `getAlarm()` is null (FR-014a),
-   and retries a pending archive.
+   ('aborted','unsupported')` — re-arms the poll alarm only when `getAlarm()` is
+   null **AND `completed_at IS NULL`** (FR-014a), and retries a pending archive.
+   The second conjunct is load-bearing: completed-but-unarchived rows stay in
+   the work-list deliberately, and without it the cron resumes polling a draft
+   that has already finished (FR-005/FR-008). `getAlarm()` is evaluated **inside**
+   the object under `blockConcurrencyWhile` — a caller cannot use it as a health
+   check, because it returns null while the handler is running.
+3. Re-arm an `aborted` session whose league snapshot now carries a **different**
+   `draft_at` (the rescheduled-draft path). This needs its own query — the
+   work-list above deliberately excludes `aborted` — joining `draft_sessions` to
+   `league_snapshots.draft_at`.
 
 ## Internal RPC (Worker → DO)
 

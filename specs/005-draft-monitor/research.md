@@ -21,9 +21,13 @@ validated it against a running draft. The freeze was observed on an **auction**
 draft, so snake is genuinely unknown.
 
 **Decision**: Make this **Gate 0** — the first task of implementation, before
-any DO code is written. Capture four moments from a real ESPN draft (order
-published + skeleton, room open, mid-draft, complete) into fixtures. Everything
-downstream is written against those fixtures.
+any DO code is written. Sample a real ESPN draft **continuously at ≤ 5 s for
+its whole duration**, retaining four landmarks (order published + skeleton,
+room open, mid-draft, complete) as named files — SC-003 and SC-010 are defined
+over a continuous observation sequence, so a sparse capture cannot exercise
+them. Fixtures are **sanitized on write** (ESPN's `mSettings`/`mTeam` carry
+SWID GUIDs and real names). Everything downstream is written against those
+fixtures.
 
 **If the view is live** (expected case): the plan below proceeds unchanged.
 
@@ -118,10 +122,18 @@ function is what makes the ratified cadence testable without wall-clock waits.
    and host moves. If the handler dies during the ESPN fetch, **no alarm exists**
    and polling is dead until the 5-minute cron. `setAlarm(now + tier)` must be
    the first statement of `alarm()`; the tail reschedule overrides it.
-2. **`ensureRunning()` must not test `getAlarm() === null`.** Docs state
-   `getAlarm()` returns `null` while the handler is executing, so the cron would
-   routinely see `null` on a *healthy* session and clobber its schedule. Test
-   persisted staleness instead.
+2. **A *caller* must not test `getAlarm() === null`.** Docs state `getAlarm()`
+   returns `null` while the handler is executing, so a cron testing it from
+   outside would routinely see `null` on a *healthy* session and clobber its
+   schedule.
+   **SUPERSEDED IN PART (2026-08-02, post-`/speckit-analyze`)**: this originally
+   read "test persisted staleness instead", which is wrong — a session degraded
+   by an ESPN outage is indistinguishable by timestamp from a dead one, so a
+   staleness threshold rebuilds live sessions *during* an outage (see §5). The
+   ratified resolution is that `ensureRunning()` evaluates `getAlarm()` **inside
+   the object** under `ctx.blockConcurrencyWhile`, where the race does not
+   exist, and additionally guards on `completed_at IS NULL`. Persisted staleness
+   is never a restore trigger.
 3. **Re-anchor when behind.** After hibernation, a redeploy, or a 60 s back-off,
    `dueAt + next` is in the past and the minimum-gap clamp yields a burst of
    catch-up ESPN polls. `if (dueAt + next <= now) dueAt = now;`.

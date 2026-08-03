@@ -47,6 +47,18 @@
   handling in long-lived sessions (FR-024a), session keying terminology
   (FR-001), rosters on the diagnostic page (FR-025), an offline fixture for the
   replay check (SC-010), and the ordinal-fields tension in SC-009a.
+- Clarify round 2 (2026-08-02, after `/speckit-analyze`): all items still pass.
+  Three spec-level defects the analysis found are now ratified rather than
+  contradictory — FR-020's unconditional "two picks ahead" became an ordinal
+  guarantee carrying the real `picks_until` (0 is legal at snake round turns);
+  FR-019's exactly-once is now scoped **per revision**, reconciling it with
+  FR-012's correction replay; and SC-001/SC-001a moved from an absolute 100% to
+  a 95th percentile plus a tier+60 s ceiling, which is the first version of that
+  criterion the platform can actually satisfy. T048 now measures it — before
+  this round, the feature's headline latency number was asserted nowhere.
+- Two consistency fixes applied in the same pass, not from a question: `aborted`
+  was missing from the Draft Session status list while FR-024 named it, and the
+  Draft Event entity did not carry `revision`.
 - Transport ("push over a persistent connection", Durable-Object-per-draft-room)
   is a decision already ratified in 001 and referenced, not re-specified here;
   requirements themselves (FR-015–FR-017) stay transport-agnostic. Cadence

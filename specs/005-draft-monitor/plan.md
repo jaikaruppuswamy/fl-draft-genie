@@ -29,10 +29,13 @@ primitive — Durable Objects**. No new npm dependencies.
 
 **Storage**: DO SQLite-backed storage (synchronous KV blob) is the live
 authority; D1 migration `0005_draft.sql` adds `draft_sessions` (cron
-work-list, cascades from `league_connections`) and the permanent archive
-`draft_picks` + `draft_keepers` (keyed by `account_id`, cascades from
-`accounts` — so disconnecting a league does not destroy retained history,
-research §5).
+work-list, cascades from `league_connections`) and the permanent **three-table**
+archive `draft_archives` + `draft_picks` + `draft_keepers` (all keyed by
+`account_id`, cascading from `accounts`, none carrying an FK to
+`league_connections` — so disconnecting a league does not destroy retained
+history, research §5). `draft_archives` is where `my_team_id`, `order_json` and
+`teams_json` live: putting them in `draft_sessions` would put them back on the
+cascade path and defeat FR-013.
 
 **Transport**: WebSocket Hibernation API (`ctx.acceptWebSocket`) — mandatory,
 not optional: `ctx.getWebSockets()` returns 0 for `server.accept()` sockets,
@@ -42,10 +45,34 @@ so FR-007a's attended/unattended cadence flip cannot otherwise be implemented.
 `mSettings` + `mTeam` + `mRoster` at arm, rebuild and state transitions.
 `mRoster` is new to this repo (keepers, research §4).
 
+**Documented ESPN rate bound (FR-008, validated by SC-008)** — the number
+FR-008 requires and the spec deliberately left to the plan:
+
+- **≤ 25 requests per minute per league**, and **at most one request in flight
+  per session** (the single in-flight gate is also correctness, not just
+  politeness — research §7). The 3 s tier alone is 20 `mDraftDetail` polls/min;
+  the headroom covers a rebuild or state transition landing in the same minute,
+  which adds `mSettings` + `mTeam` + `mRoster`. A flat 20 would be breached by
+  the plan's own request pattern.
+- **Back-off ladder** on consecutive errors: 5 s → 10 s → 20 s → 40 s → **60 s
+  cap**, reset to the normal tier on the first success. `espn_rejected`
+  (credentials) climbs the same ladder; `league_not_found` (404) does **not** —
+  it goes terminal, or the session hammers a 404 forever.
+- **No polling at all** in `complete`, `aborted` or `unsupported` — the alarm
+  is not rescheduled, and `ensureRunning()` will not re-arm a completed
+  session.
+
+**Armed absolute deadline (FR-002 / postponed-draft edge case)**:
+`scheduled_at + 6 hours`, then `aborted`. Re-arm is not manual — the cron
+re-arms when the league re-sync publishes a *different* `draft_at`, which is
+how a rescheduled draft comes back without the owner doing anything.
+
 **Performance**: pick visible ≤ 12 s attended baseline / ≤ 4 s inside the
-3-pick tier (SC-001) — *typical, not bounded*: Cloudflare documents alarms as
-delayable by up to a minute during failover, so the plan states these as
-targets, not guarantees.
+3-pick tier at the **95th percentile**, with 100% inside the tier bound + 60 s
+(SC-001, ratified in clarification round 2). The ceiling exists because
+Cloudflare documents alarms as delayable by up to a minute during failover —
+the spec now states a percentile plus a ceiling rather than an absolute the
+platform does not offer, and T048 measures both over the replayed draft.
 
 **Cost**: a polling DO does not hibernate (10 s of no events required; the
 baseline tier sits exactly at that threshold), so a 3-hour draft bills ≈
@@ -53,12 +80,21 @@ baseline tier sits exactly at that threshold), so a 3-hour draft bills ≈
 **hard absolute deadline** rather than an indefinite heartbeat, or one stuck
 armed session burns ~11,000 GB-s/day.
 
-**Testing**: Vitest workers pool, **two projects** under one `npm test` —
-existing config untouched, plus a root-level config for `tests/draft/**` with
-`isolatedStorage: false` (WebSockets in DOs are unsupported with per-file
-isolation). Bulk logic is tested through the pure reducer, DO-free; ESPN is
-faked with `fetchMock` + `disableNetConnect()`, which is what makes SC-008
-structural.
+**Testing**: Vitest workers pool, **two projects** under one `npm test` — plus
+a root-level config for `tests/draft/**` with `isolatedStorage: false`
+(WebSockets in DOs are unsupported with per-file isolation). The existing
+config is **not** untouched: its include glob is already
+`tests/**/*.test.ts`, which matches `tests/draft/**`, so it must gain a
+matching **exclude** or every DO test also runs under the isolated-storage
+project that cannot support it. Bulk logic is tested through the pure reducer,
+DO-free; ESPN is faked with `fetchMock` + `disableNetConnect()`, which is what
+makes SC-008 structural.
+
+**Fixture sanitization (constitution: Security & Privacy)**: ESPN's
+`mSettings`/`mTeam` payloads carry `members[].id` and `teams[].owners[]`, which
+**are SWID GUIDs**, plus real names. Every captured fixture is sanitized on
+write against the placeholder mapping already fixed by
+`tests/fixtures/espn/README.md` (001's house norm) before it reaches the repo.
 
 **Known dependency bump**: `evictDurableObject` is absent from the installed
 `@cloudflare/vitest-pool-workers@0.8.71`; bump before writing the FR-017
@@ -134,8 +170,11 @@ and keeps the DO a thin shell around tested logic.
 
 ## Implementation Phases
 
-**Gate 0 — validate the premise.** Capture a real ESPN draft at four moments
-(order published + skeleton, room open, mid-draft, complete). If
+**Gate 0 — validate the premise.** Capture a real ESPN draft by **sampling
+continuously at ≤ 5 s for the whole draft** (retaining the four landmarks:
+order published + skeleton, room open, mid-draft, complete) — SC-003 and
+SC-010 are defined over a continuous observation sequence, and a sparse capture
+collapses every event into batches. Fixtures are sanitized on write. If
 `mDraftDetail` proves frozen during live drafts, **stop** and return to
 `/speckit-clarify`: SC-001 is unachievable by polling, and the alternative
 transport carries a Constitution VI question this plan does not answer.
