@@ -206,12 +206,22 @@ credential distinct from the ESPN cookie pair; the documented frame contract
 005 consumes; and a **captured frame corpus** from a real draft, which is what
 lets 005's reconciler be built and tested without a live draft.
 
-**Open questions**: browser support (Chrome/Firefox via Tampermonkey vs a
-packaged extension); how the user installs and updates it; **the `SELECTED`
-frame's field 1 is unresolved** — one public protocol doc and its own code
-disagree on whether it is `teamId` or the pick number, and round-1 data cannot
-disambiguate them, so the capture must settle it before any reconciler depends
-on it; and how the tap behaves across the three connected leagues.
+**Ratified decisions (2026-08-03, `/speckit-clarify`)**: ships as a
+**userscript** under a third-party script manager — chosen for the update path,
+since an undocumented protocol can break on draft day and a store-reviewed
+extension cannot be fixed in time; **desktop Chrome only**, making "no live
+monitoring when drafting from an iPad, phone or the ESPN mobile app" a
+permanent documented limitation rather than a gap to close later; and relayed
+messages carry **numeric identifiers only** — names, member identifiers and free
+text are discarded *before* transmission, so leaguemates' data never crosses the
+boundary and recorded fixtures are clean by construction.
+
+**Open questions**: **the `SELECTED` frame's field 1 is unresolved** — one
+public protocol doc and its own code disagree on whether it is `teamId` or the
+pick number, and round-1 data cannot disambiguate them, so the capture must
+settle it before any reconciler depends on it; and how the pairing credential
+reaches the browser, given the tap runs on ESPN's origin and cannot read the
+app's session (plan-level).
 
 **Governance**: introduces a browser artifact the constitution's Technical
 Constraints do not contemplate ("responsive web app … No native app").
