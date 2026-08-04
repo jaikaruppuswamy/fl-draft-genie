@@ -66,11 +66,11 @@ Both are assigned to T047's end-to-end draft.
 
 ## Phase 2: Setup
 
-- [ ] T010 Create `tap/meta.ts` as the single source of the tap's version and metadata block (`@name`, `@version`, `@match`, `@run-at document-start`, `@sandbox raw`, `@inject-into page`, `@connect draft.neelamjai.com`, `@grant unsafeWindow/GM_setValue/GM_getValue/GM_deleteValue/GM_addValueChangeListener/GM_xmlhttpRequest/GM_registerMenuCommand`) — **no `@require`**, which is documented to delay injection past document-start. `@match` uses T007's finding
-- [ ] T011 Create `build/build-tap.mjs`: esbuild bundle of `tap/` → `web/public/draft-tap.user.js` with the metadata banner prepended, plus a **build-time assertion that the banner's `@version` equals the inlined build constant** — esbuild does not touch the banner, so the two can silently diverge and the tap would report a version it is not (FR-022). Add `build:tap` to `package.json`
-- [ ] T012 [P] Add `web/public/_headers` setting no-cache on `draft-tap.user.js` so an update is picked up rather than served stale; both files land in `web/dist/` via Vite's `publicDir`, already the assets directory in `wrangler.jsonc`
-- [ ] T013 [P] Extend `vitest.config.ts` with a second project (`environment: "node"`) covering `tap/**` and `tests/tap/**`, alongside the existing workers-pool project — browser-side code cannot run under the workers pool. Verify `npm test` runs both and the existing 146 tests still pass
-- [ ] T014 [P] Create `migrations/0006_tap.sql`: `tap_pairings` per data-model.md (PK id, account_id FK→accounts CASCADE, token_hash UNIQUE, install_id, created_at, last_used_at, expires_at, revoked_at) + `idx_tap_pairings_account`; apply locally
+- [X] T010 Create `tap/meta.ts` as the single source of the tap's version and metadata block (`@name`, `@version`, `@match`, `@run-at document-start`, `@sandbox raw`, `@inject-into page`, `@connect draft.neelamjai.com`, `@grant unsafeWindow/GM_setValue/GM_getValue/GM_deleteValue/GM_addValueChangeListener/GM_xmlhttpRequest/GM_registerMenuCommand`) — **no `@require`**, which is documented to delay injection past document-start. `@match` uses T007's finding
+- [X] T011 Create `build/build-tap.mjs`: esbuild bundle of `tap/` → `web/public/draft-tap.user.js` with the metadata banner prepended, plus a **build-time assertion that the banner's `@version` equals the inlined build constant** — esbuild does not touch the banner, so the two can silently diverge and the tap would report a version it is not (FR-022). Add `build:tap` to `package.json`
+- [X] T012 [P] Add `web/public/_headers` setting no-cache on `draft-tap.user.js` so an update is picked up rather than served stale; both files land in `web/dist/` via Vite's `publicDir`, already the assets directory in `wrangler.jsonc`
+- [X] T013 [P] Extend `vitest.config.ts` with a second project (`environment: "node"`) covering `tap/**` and `tests/tap/**`, alongside the existing workers-pool project — browser-side code cannot run under the workers pool. Verify `npm test` runs both and the existing 146 tests still pass
+- [X] T014 [P] Create `migrations/0006_tap.sql`: `tap_pairings` per data-model.md (PK id, account_id FK→accounts CASCADE, token_hash UNIQUE, install_id, created_at, last_used_at, expires_at, revoked_at) + `idx_tap_pairings_account`; apply locally
 
 ---
 
@@ -81,17 +81,17 @@ no Worker. This is the seam that made 005's reconciler testable, applied again.
 
 **⚠️ Blocks all user stories.**
 
-- [ ] T015 [P] Unit tests in `tests/tap/decode.test.ts` against the T008 fixture: the ledger reader is bounds-checked, asserts the transcoder version, and rejects a truncated or over-long record rather than reading past the end
-- [ ] T016 [P] Implement `tap/decode.ts` — **our own** bounds-checked, version-asserting reader. Do **not** port ESPN's: their `readDouble`/`readFloat` discard the bytes and return `Math.random()`, so a port inherits garbage silently for every non-integer field (research §2). Byte advance is deterministic, so offsets are safe (tests T015 failing first)
-- [ ] T017 [P] Unit tests in `tests/tap/filter.test.ts`: the FR-006a allowlist passes numeric ids, pick positions and timing; drops names, member identifiers (numeric **and** brace-form), chat and free text; **negative player ids survive** (D/ST ids are legitimately negative); and `location.href` is never present — the draft-room URL carries the owner's SWID as a query parameter
-- [ ] T018 [P] Implement `tap/filter.ts` operating on **decoded** content only, never the wire form (FR-006c) (tests T017 failing first)
-- [ ] T019 [P] Unit tests in `tests/tap/classify.test.ts` (FR-017a): a known non-draft kind (chat, presence, `PONG` — note `PING` is client→server only and we never send it) is dropped silently; an **unrecognised** verb is counted and reported. ESPN's own parser has no `default:` branch, so our behaviour deliberately differs
-- [ ] T020 [P] Implement `tap/classify.ts` (tests T019 failing first)
-- [ ] T021 [P] Unit tests in `tests/tap/batch.test.ts`: monotonic `seq` per `(install, session)`; `session` fresh per **page load** — never derived from `sessionStorage`, which is cloned on tab duplication and would collide; timing epoch increments when the clock anchor moves > 2 s; backoff shape and `Retry-After` handling; batch size cap
-- [ ] T022 [P] Implement `tap/batch.ts` (tests T021 failing first)
-- [ ] T023 [P] Unit tests in `tests/tap/buffer.test.ts` over an injected storage port: entries hold **filtered** messages only; ordering preserved across flush; truncation happens **only** on a read acknowledgement carrying `accepted_through`, never on an unacknowledged send; behaviour when storage is full
-- [ ] T024 [P] Implement `tap/buffer.ts` against a storage port interface, so it is testable without a script manager (tests T023 failing first)
-- [ ] T025 Implement `tap/status.ts`: the state model from data-model.md, including the two states that exist to prevent silent failure — `INCOMPATIBLE` (message shape changed **or** page-world preflight failed) and `draft-finished` distinct from `watching`
+- [X] T015 [P] Unit tests in `tests/tap/decode.test.ts` against the T008 fixture: the ledger reader is bounds-checked, asserts the transcoder version, and rejects a truncated or over-long record rather than reading past the end
+- [X] T016 [P] Implement `tap/decode.ts` — **our own** bounds-checked, version-asserting reader. Do **not** port ESPN's: their `readDouble`/`readFloat` discard the bytes and return `Math.random()`, so a port inherits garbage silently for every non-integer field (research §2). Byte advance is deterministic, so offsets are safe (tests T015 failing first)
+- [X] T017 [P] Unit tests in `tests/tap/filter.test.ts`: the FR-006a allowlist passes numeric ids, pick positions and timing; drops names, member identifiers (numeric **and** brace-form), chat and free text; **negative player ids survive** (D/ST ids are legitimately negative); and `location.href` is never present — the draft-room URL carries the owner's SWID as a query parameter
+- [X] T018 [P] Implement `tap/filter.ts` operating on **decoded** content only, never the wire form (FR-006c) (tests T017 failing first)
+- [X] T019 [P] Unit tests in `tests/tap/classify.test.ts` (FR-017a): a known non-draft kind (chat, presence, `PONG` — note `PING` is client→server only and we never send it) is dropped silently; an **unrecognised** verb is counted and reported. ESPN's own parser has no `default:` branch, so our behaviour deliberately differs
+- [X] T020 [P] Implement `tap/classify.ts` (tests T019 failing first)
+- [X] T021 [P] Unit tests in `tests/tap/batch.test.ts`: monotonic `seq` per `(install, session)`; `session` fresh per **page load** — never derived from `sessionStorage`, which is cloned on tab duplication and would collide; timing epoch increments when the clock anchor moves > 2 s; backoff shape and `Retry-After` handling; batch size cap
+- [X] T022 [P] Implement `tap/batch.ts` (tests T021 failing first)
+- [X] T023 [P] Unit tests in `tests/tap/buffer.test.ts` over an injected storage port: entries hold **filtered** messages only; ordering preserved across flush; truncation happens **only** on a read acknowledgement carrying `accepted_through`, never on an unacknowledged send; behaviour when storage is full
+- [X] T024 [P] Implement `tap/buffer.ts` against a storage port interface, so it is testable without a script manager (tests T023 failing first)
+- [X] T025 Implement `tap/status.ts`: the state model from data-model.md, including the two states that exist to prevent silent failure — `INCOMPATIBLE` (message shape changed **or** page-world preflight failed) and `draft-finished` distinct from `watching`
 
 **Checkpoint**: decode → filter → classify → batch → buffer all implemented and tested against a real capture, with no browser involved.
 

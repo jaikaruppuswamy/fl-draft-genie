@@ -1,28 +1,27 @@
-import path from "node:path";
-import { defineWorkersConfig, readD1Migrations } from "@cloudflare/vitest-pool-workers/config";
+// 010 T013 — two projects in one run.
+//
+// The Worker suite needs @cloudflare/vitest-pool-workers (D1, bindings,
+// migrations). The tap's pure modules are browser-targeted and cannot run in
+// that pool at all, so they get a plain node project. Splitting is required,
+// not preferred.
+//
+// The workers project keeps its own file (vitest.workers.config.ts) because
+// defineWorkersConfig builds a complete config; referencing it by path here is
+// what lets both run under a single `npm test`.
 
-export default defineWorkersConfig(async () => {
-  const migrations = await readD1Migrations(path.join(__dirname, "migrations"));
-  return {
-    test: {
-      setupFiles: ["./tests/apply-migrations.ts"],
-      include: ["tests/**/*.test.ts"],
-      poolOptions: {
-        workers: {
-          singleWorker: true,
-          wrangler: { configPath: "./wrangler.jsonc" },
-          miniflare: {
-            bindings: {
-              TEST_MIGRATIONS: migrations,
-              // Test-only secrets (32 bytes base64 for the AES key).
-              SESSION_SECRET: "dGVzdC1zZXNzaW9uLXNlY3JldC10ZXN0LXNlc3Npb24=",
-              CREDENTIAL_KEY: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=",
-              EMAIL_PROVIDER: "console",
-              APP_BASE_URL: "http://localhost:8787",
-            },
-          },
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    projects: [
+      "./vitest.workers.config.ts",
+      {
+        test: {
+          name: "tap",
+          environment: "node",
+          include: ["tests/tap/**/*.test.ts"],
         },
       },
-    },
-  };
+    ],
+  },
 });

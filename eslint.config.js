@@ -15,6 +15,11 @@ export default tseslint.config(
     rules: { "@typescript-eslint/no-explicit-any": "off" },
   },
   {
+    // Build scripts run in Node.
+    files: ["build/**/*.mjs", "scripts/**/*.ts"],
+    languageOptions: { globals: { console: "readonly", process: "readonly" } },
+  },
+  {
     // Userscripts run in the browser under a script manager, so they see both
     // the DOM and the manager's GM_* bridge — neither of which is in scope for
     // the Worker code the base config targets.
