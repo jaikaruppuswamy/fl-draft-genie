@@ -66,11 +66,18 @@ const status: TapStatus = {
 };
 
 let badge: HTMLElement | null = null;
+let lastReportedState: TapState | null = null;
+
 function render(state: TapState, detail = ""): void {
+  const changed = state !== status.state;
   status.state = state;
   status.detail = detail;
+  if (changed) reportStatus(state, detail);
   if (!badge) return;
-  badge.textContent = `Draft Genie: ${state}${detail ? ` — ${detail}` : ""}`;
+  // Never render a URL: the draft-room URL carries the owner's SWID as a query
+  // parameter, so any detail string is scrubbed before it is displayed.
+  const safe = detail.replace(/https?:\/\/\S+/g, "<url>").replace(/\{[0-9A-Fa-f-]{20,}\}/g, "<id>");
+  badge.textContent = `Draft Genie ${TAP_VERSION}: ${state}${safe ? ` — ${safe}` : ""}`;
   badge.style.background = isDegraded(status) ? "#7a2020" : "#20502a";
   badge.title = EXPLANATIONS[state];
 }
@@ -150,6 +157,23 @@ function flush(): void {
   });
 }
 
+/** 005 FR-007c detects "not receiving picks" from an ABSENCE of frames; this
+ *  gives it a positive signal too, so the two can be told apart. Best-effort:
+ *  never buffered, never retried — a status is worthless once stale. */
+function reportStatus(state: TapState, detail: string): void {
+  if (!token() || state === lastReportedState) return;
+  lastReportedState = state;
+  try {
+    GM_xmlhttpRequest({
+      method: "POST",
+      url: `${INGEST_ORIGIN}/api/tap/status`,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}`, "X-Tap-Install": installId() },
+      anonymous: true,
+      data: JSON.stringify({ state, detail: detail.replace(/https?:\/\/\S+/g, "<url>"), tapVersion: TAP_VERSION }),
+    });
+  } catch { /* status reporting must never disturb the relay */ }
+}
+
 function scheduleRetry(responseHeaders?: string): void {
   const retryAfter = /retry-after:\s*(\d+)/i.exec(responseHeaders ?? "")?.[1];
   // A timer alone is throttled to one per minute in a hidden tab, which would
@@ -181,7 +205,11 @@ function onFrame(raw: string, transport: Transport): void {
       // capture proved this is what recovers picks the stream drops.
       try {
         const ledger = decodeInitFrame(raw, W.atob.bind(W));
-        if (ledger) enqueue("ledger", filledPicks(ledger).map(filterLedgerPick), transport);
+        if (ledger) {
+          const picks = filledPicks(ledger);
+          enqueue("ledger", picks.map(filterLedgerPick), transport);
+          noteLedger(ledger.totalSlots, picks.length);
+        }
       } catch (e) {
         status.unrecognisedCount++;
         render("incompatible", `ledger: ${(e as Error).message}`);
@@ -189,6 +217,8 @@ function onFrame(raw: string, transport: Transport): void {
       return;
     }
     case "known-non-draft":
+      // STATE marks draft phase transitions; everything else is genuinely inert.
+      if (c.verb === "STATE") onDraftState(raw);
       return; // silently dropped, by design
     case "unrecognised":
       // ESPN's own parser silently drops unknown verbs. We deliberately do not.
@@ -197,6 +227,27 @@ function onFrame(raw: string, transport: Transport): void {
       enqueue("status", { state: "incompatible", verb: c.verb }, transport);
       return;
   }
+}
+
+/**
+ * T045 — draft-end detection. ESPN's STATE frame marks phase changes, and the
+ * ledger tells us when every slot is filled. Where neither is conclusive the tap
+ * says so rather than going quiet: SC-014 forbids idle and dead looking alike.
+ */
+let ledgerSlots = 0;
+let ledgerFilled = 0;
+
+function onDraftState(raw: string): void {
+  const phase = Number(raw.replace(/\n$/, "").split(" ")[1] ?? NaN);
+  // Phase values are not documented and were not settled by the US1 capture, so
+  // we do not map them to meanings. A change is reported; it is not interpreted.
+  if (Number.isFinite(phase)) render(status.state, `draft phase ${phase}`);
+}
+
+function noteLedger(total: number, filled: number): void {
+  ledgerSlots = total;
+  ledgerFilled = filled;
+  if (total > 0 && filled >= total) render("draft-finished");
 }
 
 // --- start ---------------------------------------------------------------
@@ -239,7 +290,11 @@ function start(): void {
   render(token() ? "watching" : "not-paired");
 
   GM_registerMenuCommand("Draft Genie: status", () => {
-    W.alert(`${status.state}\n\n${EXPLANATIONS[status.state]}\n\nbuffered: ${status.buffered}\nversion: ${TAP_VERSION}`);
+    W.alert(
+      `${status.state}\n\n${EXPLANATIONS[status.state]}\n\n` +
+        `buffered: ${status.buffered}\nunrecognised: ${status.unrecognisedCount}\n` +
+        `picks in ledger: ${ledgerFilled}/${ledgerSlots || "?"}\nversion: ${TAP_VERSION}`,
+    );
   });
   GM_registerMenuCommand("Draft Genie: paste pairing token", () => {
     const t = W.prompt("Paste the pairing token from Draft Genie settings:");

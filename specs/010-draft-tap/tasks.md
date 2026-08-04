@@ -136,14 +136,14 @@ relay within one message.
 
 ### Tests for User Story 3
 
-- [ ] T035 [P] [US3] Pairing tests in `tests/contract/tap-pairing.test.ts`: issue, verify, rotate without reinstalling, expire on schedule, revoke; a revoked or expired token is refused within one message; a token bound to one install is refused from another; and the blast radius is bounded — the token cannot read league data or reach ESPN
-- [ ] T036 [P] [US3] Isolation test in `tests/contract/tap-isolation.test.ts`: a batch naming a league the account does not own returns 403 and is not applied to any session
+- [X] T035 [P] [US3] Pairing tests in `tests/contract/tap-pairing.test.ts`: issue, verify, rotate without reinstalling, expire on schedule, revoke; a revoked or expired token is refused within one message; a token bound to one install is refused from another; and the blast radius is bounded — the token cannot read league data or reach ESPN
+- [X] T036 [P] [US3] Isolation test in `tests/contract/tap-isolation.test.ts`: a batch naming a league the account does not own returns 403 and is not applied to any session
 
 ### Implementation for User Story 3
 
-- [ ] T037 [US3] Build the pairing UI in `web/src/pages/` — issue a token, show it once, copy it, revoke, rotate, and show the install steps including the script-manager prerequisite (depends on T032)
-- [ ] T038 [US3] Write the install guide covering the **named supported configuration** (FR-023): Chrome ≥ 138, Tampermonkey with **"Allow user scripts" ON** — it defaults **OFF** on new installs and the script silently never runs without it — plus the manual force-update step, since managers check on their own schedule and expose no force-check API (FR-022)
-- [ ] T039 [US3] Add the `GET /api/tap/health` verification path to the install flow so the owner confirms the tap reaches Draft Genie **without waiting for a draft** (SC-006), and surface the iPad/mobile limitation where it will be encountered without searching (FR-003a, SC-012)
+- [X] T037 [US3] Build the pairing UI in `web/src/pages/` — issue a token, show it once, copy it, revoke, rotate, and show the install steps including the script-manager prerequisite (depends on T032)
+- [X] T038 [US3] Write the install guide covering the **named supported configuration** (FR-023): Chrome ≥ 138, Tampermonkey with **"Allow user scripts" ON** — it defaults **OFF** on new installs and the script silently never runs without it — plus the manual force-update step, since managers check on their own schedule and expose no force-check API (FR-022)
+- [X] T039 [US3] Add the `GET /api/tap/health` verification path to the install flow so the owner confirms the tap reaches Draft Genie **without waiting for a draft** (SC-006), and surface the iPad/mobile limitation where it will be encountered without searching (FR-003a, SC-012)
 
 **Checkpoint**: a fresh machine can be set up for draft day and verified cold.
 
@@ -159,15 +159,15 @@ in turn and confirm a distinct, accurate, actionable status.
 
 ### Tests for User Story 4
 
-- [ ] T040 [P] [US4] Status-model tests in `tests/tap/status.test.ts`: each failure mode maps to a distinct state; `draft-finished` is distinguishable from `watching` (SC-014 forbids idle and dead looking the same); an unrecognised message drives `INCOMPATIBLE` while a known non-draft kind does not
-- [ ] T041 [P] [US4] Preflight test in `tests/tap/preflight.test.ts`: the page-world assertion fails when the wrapped global is not the page's. In an isolated world `window.WebSocket` is not ESPN's and the tap would observe nothing **while appearing healthy** — Tampermonkey documents that `@sandbox raw` can fall back to another sandbox under CSP, so this is a real, silent failure mode
+- [X] T040 [P] [US4] Status-model tests in `tests/tap/status.test.ts`: each failure mode maps to a distinct state; `draft-finished` is distinguishable from `watching` (SC-014 forbids idle and dead looking the same); an unrecognised message drives `INCOMPATIBLE` while a known non-draft kind does not
+- [X] T041 [P] [US4] Preflight test in `tests/tap/preflight.test.ts`: the page-world assertion fails when the wrapped global is not the page's. In an isolated world `window.WebSocket` is not ESPN's and the tap would observe nothing **while appearing healthy** — Tampermonkey documents that `@sandbox raw` can fall back to another sandbox under CSP, so this is a real, silent failure mode
 
 ### Implementation for User Story 4
 
-- [ ] T042 [US4] Implement the page-world preflight in `tap/main.ts`: assert **membership of the page realm**, not merely that the global is non-native, and drive `INCOMPATIBLE` loudly on failure (depends on T033, T025)
-- [ ] T043 [US4] Implement the status badge in `tap/main.ts`: unobtrusive, never overlaying or intercepting a draft control (FR-002), showing state, last-relayed time and the tap version — and **redacting `location.href`** anywhere it appears, since the draft-room URL carries the owner's SWID
-- [ ] T044 [US4] Relay status transitions to `POST /api/tap/status` so 005's FR-007c "not receiving picks" detection has a positive signal as well as an absence (depends on T030, T025)
-- [ ] T045 [US4] Implement draft-end detection in `tap/main.ts` (FR-024): stop relaying and say so; where the tap cannot tell whether a draft is running, report that uncertainty rather than going quiet
+- [X] T042 [US4] Implement the page-world preflight in `tap/main.ts`: assert **membership of the page realm**, not merely that the global is non-native, and drive `INCOMPATIBLE` loudly on failure (depends on T033, T025)
+- [X] T043 [US4] Implement the status badge in `tap/main.ts`: unobtrusive, never overlaying or intercepting a draft control (FR-002), showing state, last-relayed time and the tap version — and **redacting `location.href`** anywhere it appears, since the draft-room URL carries the owner's SWID
+- [X] T044 [US4] Relay status transitions to `POST /api/tap/status` so 005's FR-007c "not receiving picks" detection has a positive signal as well as an absence (depends on T030, T025)
+- [X] T045 [US4] Implement draft-end detection in `tap/main.ts` (FR-024): stop relaying and say so; where the tap cannot tell whether a draft is running, report that uncertainty rather than going quiet
 
 **Checkpoint**: the tap is never silently dead.
 

@@ -18,7 +18,7 @@ import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { now } from "../env";
 import { logInfo } from "./logging";
-import { touchPairing, verifyPairing } from "../db/tap";
+import { issuePairing, listPairings, revokePairing, touchPairing, verifyPairing } from "../db/tap";
 import { getConnectionById } from "../db/leagues";
 
 /** The tap runs on ESPN's origin; nothing else needs these routes. */
@@ -134,6 +134,43 @@ export function tapRoutes() {
     const body = (await c.req.json().catch(() => ({}))) as { state?: string; detail?: string };
     logInfo(`tap status: ${String(body.state)} ${String(body.detail ?? "")}`.trim());
     return withCors(new Response(null, { status: 204 }), cors);
+  });
+
+  return app;
+}
+
+/**
+ * Pairing management — SESSION authenticated, so this is mounted AFTER the
+ * /api/* middleware, unlike the tap-facing routes above which carry their own
+ * bearer credential.
+ */
+export function pairingRoutes() {
+  const app = new Hono<AppContext>();
+
+  app.get("/", async (c) => {
+    const rows = await listPairings(c.env.DB, c.get("accountId"));
+    return Response.json({
+      pairings: rows.map((r) => ({
+        id: r.id,
+        created_at: r.created_at,
+        last_used_at: r.last_used_at,
+        expires_at: r.expires_at,
+        revoked: r.revoked_at !== null,
+        bound: r.install_id !== null,
+      })),
+    });
+  });
+
+  app.post("/", async (c) => {
+    // Shown once and never again — only the hash is stored.
+    const { token, row } = await issuePairing(c.env.DB, c.get("accountId"), now(c.env));
+    return Response.json({ id: row.id, token, expires_at: row.expires_at }, { status: 201 });
+  });
+
+  app.delete("/:id", async (c) => {
+    const ok = await revokePairing(c.env.DB, c.get("accountId"), c.req.param("id"), now(c.env));
+    if (!ok) return jsonError(404, "not_found", "No such pairing.");
+    return new Response(null, { status: 204 });
   });
 
   return app;

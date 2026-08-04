@@ -10,7 +10,7 @@ import { leagueRoutes } from "./leagues";
 import { boardRoutes } from "./board";
 import { projectionRoutes } from "./projections";
 import { accountRoutes } from "./account";
-import { tapRoutes } from "./tap";
+import { pairingRoutes, tapRoutes } from "./tap";
 
 export type AppContext = {
   Bindings: Env;
@@ -53,6 +53,9 @@ export function createApp() {
   app.route("/api/leagues", boardRoutes());
   app.route("/api/projections", projectionRoutes());
   app.route("/api/account", accountRoutes());
+  // Session-authenticated pairing management (distinct from the tap's own
+  // bearer-authenticated ingest above).
+  app.route("/api/tap-pairings", pairingRoutes());
 
   app.notFound((c) => {
     if (new URL(c.req.url).pathname.startsWith("/api/")) {

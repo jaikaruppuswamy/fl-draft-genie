@@ -407,11 +407,15 @@
     detail: ""
   };
   var badge = null;
+  var lastReportedState = null;
   function render(state, detail = "") {
+    const changed = state !== status.state;
     status.state = state;
     status.detail = detail;
+    if (changed) reportStatus(state, detail);
     if (!badge) return;
-    badge.textContent = `Draft Genie: ${state}${detail ? ` \u2014 ${detail}` : ""}`;
+    const safe = detail.replace(/https?:\/\/\S+/g, "<url>").replace(/\{[0-9A-Fa-f-]{20,}\}/g, "<id>");
+    badge.textContent = `Draft Genie ${TAP_VERSION}: ${state}${safe ? ` \u2014 ${safe}` : ""}`;
     badge.style.background = isDegraded(status) ? "#7a2020" : "#20502a";
     badge.title = EXPLANATIONS[state];
   }
@@ -490,6 +494,20 @@
       }
     });
   }
+  function reportStatus(state, detail) {
+    if (!token() || state === lastReportedState) return;
+    lastReportedState = state;
+    try {
+      GM_xmlhttpRequest({
+        method: "POST",
+        url: `${INGEST_ORIGIN}/api/tap/status`,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}`, "X-Tap-Install": installId() },
+        anonymous: true,
+        data: JSON.stringify({ state, detail: detail.replace(/https?:\/\/\S+/g, "<url>"), tapVersion: TAP_VERSION })
+      });
+    } catch {
+    }
+  }
   function scheduleRetry(responseHeaders) {
     const retryAfter = /retry-after:\s*(\d+)/i.exec(responseHeaders ?? "")?.[1];
     setTimeout(flush, backoffMs(failures, retryAfter ? Number(retryAfter) : void 0));
@@ -512,7 +530,11 @@
       case "ledger": {
         try {
           const ledger = decodeInitFrame(raw, W.atob.bind(W));
-          if (ledger) enqueue("ledger", filledPicks(ledger).map(filterLedgerPick), transport);
+          if (ledger) {
+            const picks = filledPicks(ledger);
+            enqueue("ledger", picks.map(filterLedgerPick), transport);
+            noteLedger(ledger.totalSlots, picks.length);
+          }
         } catch (e) {
           status.unrecognisedCount++;
           render("incompatible", `ledger: ${e.message}`);
@@ -520,6 +542,7 @@
         return;
       }
       case "known-non-draft":
+        if (c.verb === "STATE") onDraftState(raw);
         return;
       // silently dropped, by design
       case "unrecognised":
@@ -528,6 +551,17 @@
         enqueue("status", { state: "incompatible", verb: c.verb }, transport);
         return;
     }
+  }
+  var ledgerSlots = 0;
+  var ledgerFilled = 0;
+  function onDraftState(raw) {
+    const phase = Number(raw.replace(/\n$/, "").split(" ")[1] ?? NaN);
+    if (Number.isFinite(phase)) render(status.state, `draft phase ${phase}`);
+  }
+  function noteLedger(total, filled) {
+    ledgerSlots = total;
+    ledgerFilled = filled;
+    if (total > 0 && filled >= total) render("draft-finished");
   }
   function start() {
     const result = install(W, {
@@ -562,12 +596,16 @@
     });
     render(token() ? "watching" : "not-paired");
     GM_registerMenuCommand("Draft Genie: status", () => {
-      W.alert(`${status.state}
+      W.alert(
+        `${status.state}
 
 ${EXPLANATIONS[status.state]}
 
 buffered: ${status.buffered}
-version: ${TAP_VERSION}`);
+unrecognised: ${status.unrecognisedCount}
+picks in ledger: ${ledgerFilled}/${ledgerSlots || "?"}
+version: ${TAP_VERSION}`
+      );
     });
     GM_registerMenuCommand("Draft Genie: paste pairing token", () => {
       const t = W.prompt("Paste the pairing token from Draft Genie settings:");
