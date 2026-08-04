@@ -24,7 +24,7 @@ Produced only after **decode → filter**, never from the wire form (FR-006c).
   "epoch": 2,                      // timing epoch; bumped when the clock anchor moves >2s
   "observed_at": "2026-08-30T23:14:07.221Z",   // FR-006b — load-bearing downstream
   "transport": "ws",               // ws | sse — normalisation differs, so record it
-  "league": { "espn_league_id": "1064865483", "season": 2026 },
+  "league": { "espn_league_id": "9999999999", "season": 2026 },
   "kind": "pick" | "ledger" | "status",
   "payload": { … }                 // numeric ids only
 }

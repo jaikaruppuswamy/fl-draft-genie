@@ -38,7 +38,7 @@ semantics would diverge — decide once, not per call site.
 ```jsonc
 {
   "v": 1, "install": "uuid", "session": "uuid",
-  "league": { "espn_league_id": "1064865483", "season": 2026 },
+  "league": { "espn_league_id": "9999999999", "season": 2026 },
   "messages": [ /* Relay Messages, ascending seq, ≤ 200 per batch */ ]
 }
 ```
@@ -95,12 +95,68 @@ the tap reaches Draft Genie **without waiting for a draft** (FR-021, SC-006).
   `performance.now()` stalls across sleep while `Date.now()` jumps, so a
   page-load-anchored stamp silently runs late afterwards.
 
+## ESPN frame shapes — established from the US1 capture (2026-08-04)
+
+Derived from a real 12-round, 6-team snake draft (70 picks, 617 frames). Every
+field below was confirmed against observed data; nothing here is inferred from
+ESPN's client naming. Fixture: `tests/fixtures/tap/capture-2026.jsonl`.
+
+```
+SELECTED <teamId> <playerId> <round> [{memberSWID}]\n
+```
+
+| Field | Meaning | Evidence |
+|---|---|---|
+| 1 | **team id** | Values 1–6 in a 6-team league; the human-paced opening rounds ran `[5,2,1,3,6,4]` then **exactly its reverse** `[4,6,3,1,2,5]`. The snake reversal is what distinguishes team id from pick number, and it did |
+| 2 | **player id** | Large positive ints, **and legitimately negative** — all six teams took a D/ST in round 7 with ids near `-16000`. Never filter on sign |
+| 3 | **round** | Values 1–12 in a 12-round draft, ~6 frames per value. *Not* a lineup slot — an earlier reading of this was wrong and the round grouping corrected it |
+| 4 | **member SWID, optional** | Present on 34 of 70 frames; every one matches that team's `JOINED` SWID exactly (34 match, 0 mismatch). Absent on autodraft picks |
+
+**There is no pick number in `SELECTED`.** FR-005a's stable identity is
+therefore the **player id**, which is unique within a draft. An overall ordinal
+is available only from the ledger.
+
+**Field 4 is the reason FR-006a exists.** Prior research concluded SWIDs
+appeared only in `CHAT`/`JOINED`/`LEFT`/`ACL`; they are in the **pick frame
+itself**. Relaying frames as-is would ship a leaguemate's SWID with every human
+pick. The tap MUST drop field 4 before transmission.
+
+Other observed frames — all discarded by FR-006, none relayed:
+
+| Verb | Shape | Note |
+|---|---|---|
+| `JOINED` | `JOINED <teamId> {memberSWID}` | carries a SWID |
+| `TOKEN` | `TOKEN <game>:<league>:<team>:{memberSWID}:<n>` | carries the **owner's own** SWID |
+| `CLOCK`, `SELECTING`, `AUTOSUGGEST`, `AUTODRAFT`, `STATE` | — | draft-adjacent but not picks; `SELECTING`/`CLOCK` may later serve on-the-clock signalling |
+| `PONG` | keep-alive | **inbound** keep-alive — `PING` is client→server only and we never send it. Belongs in FR-017a's known-non-draft allowlist |
+
+```
+INIT <base64>\n
+```
+
+The full pick ledger. Verified to contain **zero strings and zero GUIDs** (64%
+null bytes, fixed-width integer records), so its blob is safe to commit and
+carries no names or SWIDs. It is a **fixed-size pre-allocated array**: 7,464
+bytes with no picks vs 7,472 with 27 filled.
+
+**Sent on every connect**, and it is authoritative: of the picks made before a
+mid-draft reconnect, **27/27 appeared in the re-sent ledger and 0/43 of the
+later ones did**. The incremental stream lost 2 of 72 picks across a page
+reload; the ledger is what recovers them. This is why FR-005 makes the ledger
+non-discretionary and 005 FR-012 makes it the source of truth.
+
+**Field offsets within the ledger are still unresolved** — decoding it is
+T016's job, and per §2 the reader must be ours, never a port of ESPN's (whose
+`readDouble`/`readFloat` return `Math.random()`).
+
 ## What 005 must not assume
 
-- **Field meanings are US1's output, not this document's.** ESPN's own parser
-  names `SELECTED`'s fields teamId/playerId/slotId and the ledger carries a pick
-  number, but that is the client's model of the server, not proof. This contract
-  is finalised only after the capture confirms it (spec SC-000).
+- **Field meanings are now established** (see the section above, US1 capture
+  2026-08-04) — with one correction to ESPN's own naming: `SELECTED`'s third
+  field is the **round**, not a lineup slot, and there is a **fourth field
+  carrying a member SWID** that the client's parser did not suggest. SC-000 is
+  satisfied for `SELECTED`; the **ledger's internal offsets remain unresolved**
+  and no requirement may depend on them until T016 decodes it.
 - **Player ids may be negative** (D/ST). Any filter on sign is wrong.
 - **Unrecognised messages are reported, not dropped.** 005 will receive
   `kind: "status"` messages saying the tap saw something it did not understand;

@@ -159,3 +159,75 @@ describe("mergeMapping", () => {
     expect(merged.guid.has(REAL_C.replace(/[{}]/g, ""))).toBe(true);
   });
 });
+
+// --- tap-frame sanitization (010 T008) -------------------------------------
+// The Gate 0 capture established that SELECTED carries a member SWID in an
+// optional 4th field — so every human pick frame is a potential leak. This is
+// the control that keeps them out of the repo.
+
+describe("tap capture sanitization", () => {
+  // Fabricated, NOT from any capture — a real SWID must never enter the repo,
+  // which is the rule this very suite exists to enforce.
+  const OWNER = "{AAAAAAAA-1111-4111-8111-111111111111}";
+  const OTHER = "{BBBBBBBB-2222-4222-8222-222222222222}";
+  const LEAGUE = "9999999999";
+  const frames = () => [
+    { transport: "ws", event: "message", enc: "text", data: `TOKEN 1:${LEAGUE}:2:${OWNER}:1053670275\n` },
+    { transport: "ws", event: "message", enc: "text", data: `JOINED 2 ${OWNER}\n` },
+    { transport: "ws", event: "message", enc: "text", data: `JOINED 5 ${OTHER}\n` },
+    { transport: "ws", event: "message", enc: "text", data: `SELECTED 5 4429795 2 ${OTHER}\n` },
+    { transport: "ws", event: "message", enc: "text", data: "SELECTED 5 -16007 7\n" },
+    { transport: "ws", event: "construct", url: `wss://fantasydraft.espn.com/game-1/league-${LEAGUE}/JOIN?4=${OWNER}` },
+  ];
+
+  it("maps the capturing owner's SWID to the suite identity", async () => {
+    const { deriveTapMapping } = await import("../../scripts/sanitize-espn");
+    const m = deriveTapMapping(frames());
+    expect(m.guid.get(OWNER.replace(/[{}]/g, ""))).toBe(MY_SWID.replace(/[{}]/g, ""));
+  });
+
+  it("strips the SWID from SELECTED's optional 4th field", async () => {
+    const { deriveTapMapping, sanitizeTapFrame } = await import("../../scripts/sanitize-espn");
+    const f = frames();
+    const m = deriveTapMapping(f);
+    const out = f.map((x) => sanitizeTapFrame(x, m));
+    const json = JSON.stringify(out);
+    expect(json).not.toContain(OTHER.replace(/[{}]/g, ""));
+    expect(json).not.toContain(OWNER.replace(/[{}]/g, ""));
+    // structure preserved so the frame still parses
+    expect(out[3]!.data).toMatch(/^SELECTED 5 4429795 2 \{[0-9a-f-]+\}\n$/i);
+  });
+
+  it("preserves negative player ids (D/ST)", async () => {
+    const { deriveTapMapping, sanitizeTapFrame } = await import("../../scripts/sanitize-espn");
+    const f = frames();
+    const out = sanitizeTapFrame(f[4]!, deriveTapMapping(f));
+    expect(out.data).toBe("SELECTED 5 -16007 7\n");
+  });
+
+  it("replaces the league id even when percent-encoded inside a nested URL", async () => {
+    // Regression: a \b-anchored rule missed `%3D<leagueId>%26` because the `D`
+    // from `%3D` destroys the left word boundary. Caught by assertTapClean.
+    const { deriveTapMapping, sanitizeTapFrame } = await import("../../scripts/sanitize-espn");
+    const f = frames();
+    f.push({ transport: "fetch", event: "chunk", enc: "text", data: `redirect%3Fleague%3D${LEAGUE}%26x%3D1` });
+    const m = deriveTapMapping(f);
+    expect(JSON.stringify(f.map((x) => sanitizeTapFrame(x, m)))).not.toContain(LEAGUE);
+  });
+
+  it("assertTapClean throws when a real SWID survives", async () => {
+    const { deriveTapMapping, assertTapClean } = await import("../../scripts/sanitize-espn");
+    const m = deriveTapMapping(frames());
+    expect(() => assertTapClean([{ data: `SELECTED 1 2 3 ${OTHER}` }], m)).toThrow(/Tap sanitization failed/);
+  });
+
+  it("scrubs GUIDs it does not recognise rather than passing them through", async () => {
+    const { deriveTapMapping, sanitizeTapFrame, assertTapClean } = await import("../../scripts/sanitize-espn");
+    const f = frames();
+    const m = deriveTapMapping(f);
+    const stray = { transport: "ws", event: "message", enc: "text", data: '{"id":"DEADBEEF-1111-4222-8333-444455556666"}' };
+    const out = sanitizeTapFrame(stray, m, new Map());
+    expect(JSON.stringify(out)).not.toContain("DEADBEEF");
+    expect(() => assertTapClean([out], m)).not.toThrow();
+  });
+});

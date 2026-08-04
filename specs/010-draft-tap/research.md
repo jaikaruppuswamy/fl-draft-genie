@@ -267,6 +267,81 @@ version it is not.
 
 ---
 
+## 7a. US1 GATE RESULT (2026-08-04) — **PASSED**
+
+Captured from a real 12-round, 6-team snake draft in the test league: **70
+picks over 7.9 minutes**, one mid-draft reconnect, 617 frames. Fixture:
+`tests/fixtures/tap/capture-2026.jsonl` (sanitized; raw capture never
+committed, per FR-019a).
+
+### Transport — confirmed, with the fallback still unobserved
+
+The draft channel is **`wss://fantasydraft.espn.com/game-1/league-<id>/JOIN?…`**
+— WebSocket, plain-text verbs, trailing `\n` on every frame (§0's normalisation
+finding confirmed). Verb census over 585 frames: `CLOCK` 249, `PONG` 86,
+`SELECTED` 70, `SELECTING` 70, `AUTOSUGGEST` 70, `AUTODRAFT` 8, `JOINED` 7,
+`INIT`/`TOKEN`/`STATE` 2 each.
+
+**`PONG` is the inbound keep-alive** — §2's CORRECTION-4 confirmed; `PING` never
+appeared inbound.
+
+**SSE was NOT exercised.** The forced reconnect re-established over WebSocket.
+The fallback path remains unobserved, so §0's ~7 s selector arithmetic stands as
+bundle-derived but untested on the wire. Wrapping both transports remains
+correct; the SSE branch ships unverified and must be treated as such.
+
+**§4's second-socket warning is confirmed on live data.** ESPN opened four
+`wss://espn.connections.edge.bamgrid.com/…` sockets on the same page carrying
+JSON envelopes (`{"data":{"eventId":…}}`, DSS transport events). Unscoped
+wrapping would relay that traffic and feed ESPN's own JSON to the draft
+classifier, firing FR-017a's unrecognised counter continuously. **URL scoping is
+mandatory on evidence, not inference.** The fixture deliberately retains these
+frames as negative cases for the scoping test.
+
+### The incremental stream is lossy; the ledger is what recovers it
+
+**70 of 72 picks arrived as `SELECTED` frames** — rounds 1 and 5 are each one
+short, lost across the page reload. The re-sent `INIT` discriminates perfectly:
+
+- **27 of 27** picks made *before* the reconnect are present in it
+- **0 of 43** made *after* it are
+
+So `INIT` is exactly "state at connect time". A tap built on the incremental
+stream alone silently loses ~3% of picks across one reload. This validates
+FR-005/FR-012 and 005's ledger-as-truth recovery model **on measured data**
+rather than on argument.
+
+The ledger is a **fixed-size pre-allocated array**, not an append log: 7,464
+bytes empty vs 7,472 bytes with 27 picks filled — 8 bytes of counter change.
+Same shape as `mDraftDetail`'s skeleton.
+
+### Ledger contents — §2's privacy finding confirmed empirically
+
+Decoded both `INIT` blobs: **zero ASCII runs ≥ 6 chars, zero GUID-shaped
+sequences, 64% null bytes**. `readUTF` really is never called. The ledger
+carries no names and no SWIDs, so its blob is committable as-is.
+
+### Environment — all three unknowns favourable
+
+| Question | Result |
+|---|---|
+| **§5 `GM_xhr` vs CSP** | **RESOLVED — not blocked.** The probe returned **HTTP 401**, i.e. it *reached* `draft.neelamjai.com` (401 because `/api/tap/health` does not exist yet and fell through to the `/api/*` auth middleware). A CSP block would have produced a network error, not a status. The plan's one unverified load-bearing claim now holds. |
+| **§4 SPA navigation** | **RESOLVED — real document load.** `navigationType: "navigate"`, `readyState: "loading"`, and the wrapper was installed before the page's client. `document-start` fires; the userscript delivery form survives. (A `replaceState` fires post-load — Next.js normalising the URL, not a route transition.) |
+| **§4/§6 frames & origins** | **RESOLVED — top frame.** `isTopFrame: true`, `pageWorld: true`, `wrapperInstalled: true` on Chrome 150. `@noframes` is safe and the CORS allowlist is a single origin. |
+
+**Still unobserved**: sleep/wake behaviour (§6) — the machine was not slept, so
+whether the room re-emits the ledger on resume remains unknown. The "resumed,
+no ledger, no messages → loud reload prompt" requirement stands unvalidated.
+
+### Pick rate — a measured number for the batcher
+
+Pick-to-pick gaps: **median 3.75 s, minimum 1.0 s**, 33 of 69 gaps under 3 s
+under autodraft. Batching must not add meaningful delay at a 1 s pick rate, and
+bursts that fast are exactly the multi-pick observations 005 FR-020a exists to
+handle.
+
+---
+
 ## 8. What US1 must settle
 
 Everything below is deliberately **not** decided here. ESPN's parser names

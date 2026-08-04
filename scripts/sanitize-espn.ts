@@ -245,3 +245,116 @@ export function assertClean(doc: unknown, m: Mapping, secrets: string[] = []): v
     throw new Error(`Sanitization check failed (${problems.length}): ${[...new Set(problems)].join("; ")}`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Tap-capture sanitization (010 T008)
+//
+// The draft-room realtime protocol carries SWIDs in places the league-response
+// sanitizer above never sees. Established empirically from the Gate 0 capture:
+//
+//   SELECTED <team> <player> <round> [{member-SWID}]   ← 4th field, optional
+//   JOINED   <team> {member-SWID}
+//   TOKEN    <game>:<league>:<team>:{member-SWID}:<n>
+//
+// The `SELECTED` case is the one that matters: it means every human pick frame
+// carries the drafting member's SWID. The INIT ledger, by contrast, was
+// verified to contain ZERO strings and ZERO GUIDs (64% null bytes, fixed-width
+// integer records), so its blob is committable as-is.
+//
+// Mapping derivation is the same rule as the league sanitizer: team index n
+// (teams sorted ascending) -> {00000000-0000-4000-8000-0000000000NN}, and the
+// capturing owner's own team -> MY_SWID. Deterministic, never persisted.
+
+export interface TapFrame {
+  seq?: number;
+  at?: string;
+  transport?: string;
+  event?: string;
+  url?: string;
+  enc?: string;
+  data?: string;
+}
+
+const bareGuid = (g: string) => g.replace(/[{}]/g, "").toUpperCase();
+
+/**
+ * Derive the GUID mapping from a tap capture. `JOINED` frames give team->SWID;
+ * the `TOKEN` frame identifies the capturing owner, whose SWID maps to MY_SWID.
+ */
+export function deriveTapMapping(frames: TapFrame[], leagueIdPlaceholder = "1111111"): Mapping {
+  const teamBySwid = new Map<string, number>();
+  let ownerSwid: string | null = null;
+  let realLeagueId: string | null = null;
+
+  for (const f of frames) {
+    const d = f.data;
+    if (typeof d !== "string") continue;
+    const joined = /^JOINED\s+(\d+)\s+(\{[^}]+\})/.exec(d);
+    if (joined) teamBySwid.set(bareGuid(joined[2]!), Number(joined[1]));
+    const token = /^TOKEN\s+\d+:(\d+):\d+:(\{[^}]+\})/.exec(d);
+    if (token) {
+      realLeagueId = token[1]!;
+      ownerSwid = bareGuid(token[2]!);
+    }
+  }
+
+  const guid = new Map<string, string>();
+  for (const [swid, team] of [...teamBySwid].sort((a, b) => a[1] - b[1])) {
+    guid.set(
+      swid,
+      swid === ownerSwid ? bareGuid(MY_SWID) : `00000000-0000-4000-8000-${String(team).padStart(12, "0")}`,
+    );
+  }
+  if (ownerSwid && !guid.has(ownerSwid)) guid.set(ownerSwid, bareGuid(MY_SWID));
+
+  const text = new Map<string, string>();
+  if (realLeagueId) text.set(realLeagueId, leagueIdPlaceholder);
+
+  return { guid, text, fields: { members: new Map(), teams: new Map() } };
+}
+
+/** Sanitize one captured frame. Unknown GUIDs are still scrubbed, never passed. */
+export function sanitizeTapFrame(frame: TapFrame, m: Mapping, unknown = new Map<string, string>()): TapFrame {
+  const scrub = (s: string) => {
+    let out = s.replace(GUID_RE, (match) => {
+      const hadBraces = match.startsWith("{");
+      const k = bareGuid(match);
+      let repl = m.guid.get(k);
+      if (!repl) {
+        repl = unknown.get(k) ?? `00000000-0000-4000-8000-${String(900000000000 + unknown.size + 1)}`;
+        unknown.set(k, repl);
+      }
+      return hadBraces ? `{${repl}}` : repl;
+    });
+    // Literal replacement, NOT a \b-anchored regex: the league id also appears
+    // percent-encoded inside nested URLs (`%3D<leagueId>%26`), where the `D`
+    // from `%3D` destroys the left word boundary and a \b rule silently misses
+    // it. Caught by assertTapClean the first time this ran.
+    for (const [real, placeholder] of m.text) out = out.split(real).join(placeholder);
+    return out;
+  };
+
+  const out: TapFrame = { ...frame };
+  if (typeof out.data === "string" && out.enc !== "b64") out.data = scrub(out.data);
+  if (typeof out.url === "string") out.url = scrub(out.url);
+  return out;
+}
+
+/** Fail-closed check for a sanitized tap capture, run before it is committed. */
+export function assertTapClean(frames: TapFrame[], m: Mapping): void {
+  const problems: string[] = [];
+  const blob = JSON.stringify(frames);
+  for (const real of m.guid.keys()) {
+    if (blob.toUpperCase().includes(real)) problems.push("real SWID survived sanitization");
+  }
+  for (const real of m.text.keys()) {
+    if (blob.includes(real)) problems.push("real league id survived sanitization");
+  }
+  const ALLOWED = /^(00000000-0000-4000-8000-\d{12}|11111111-2222-3333-4444-555555555555)$/;
+  for (const g of blob.match(GUID_RE) ?? []) {
+    if (!ALLOWED.test(bareGuid(g).toLowerCase()) && !ALLOWED.test(bareGuid(g))) {
+      problems.push("unmapped GUID in output");
+    }
+  }
+  if (problems.length) throw new Error(`Tap sanitization failed: ${[...new Set(problems)].join("; ")}`);
+}
