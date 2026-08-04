@@ -333,6 +333,39 @@ carries no names and no SWIDs, so its blob is committable as-is.
 whether the room re-emits the ledger on resume remains unknown. The "resumed,
 no ledger, no messages → loud reload prompt" requirement stands unvalidated.
 
+### The independent oracle earned its place immediately
+
+`tests/fixtures/tap/oracle-2026.json` — 72 picks from ESPN's post-draft
+`mDraftDetail` flush, derived independently of the tap (FR-019b). Joining it to
+the capture produced one confirmation and one correction:
+
+- **Field 1 is the team id: 70/70.** No ambiguity remains.
+- **Field 3 is NOT the round.** The contract briefly said it was, on the
+  strength of a plausible-looking distribution (exactly six of each value
+  1–12). Against the oracle it matches `roundId` on 5/70, `lineupSlotId` on
+  18/70 (almost all in round 1, where a team's first RB coincidentally lands in
+  the RB slot), `roundPickNumber` 7/70 and `overallPickNumber` **0/70**. It is
+  now recorded as **unresolved**, carried as an opaque integer, with nothing
+  depending on it — spec US1 AS3's escape hatch, used as intended.
+
+This is the whole argument for FR-019b in one result: a corpus validated only
+against itself would have shipped the wrong field meaning into 005's reconciler.
+The oracle also shows the tap's arrival order matches `overallPickNumber`
+exactly, so ordering is sound even though the frame carries no ordinal.
+
+**Two defects in our own tooling surfaced here**, both worth recording:
+
+1. `capture-draft.ts` counted filled picks with `playerId > 0`, which **excludes
+   D/ST** (negative ids) — it reported 66/72 for a complete draft. That is the
+   "never filter on sign" rule this project wrote into its own contract after
+   observing negative ids, violated in the tool that observed them. Fixed to
+   compare against the `-1` skeleton sentinel.
+2. Run with `--once`, the script printed the full "mDraftDetail did NOT update
+   during the draft — STOP" verdict, which a single sample cannot possibly
+   establish. A false alarm of exactly the kind FR-017 exists to prevent, in the
+   diagnostic tooling rather than the product. The verdict is now suppressed
+   unless the run is continuous and live.
+
 ### Pick rate — a measured number for the batcher
 
 Pick-to-pick gaps: **median 3.75 s, minimum 1.0 s**, 33 of 69 gaps under 3 s

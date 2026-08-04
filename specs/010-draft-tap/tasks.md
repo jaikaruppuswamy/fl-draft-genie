@@ -48,9 +48,19 @@ is the precedent for what skipping it costs.
 - [X] T006 [P] [US1] Settle whether entering the draft room reloads the document or is a client-side (Next.js) navigation, and record it in research §4. If it is an SPA transition, `@run-at document-start` never fires and the delivery form needs rethinking — **this can invalidate the plan, so record it before writing the shell**
 - [ ] T007 [P] [US1] **PARTIAL — frames/origins resolved, sleep still unobserved.** The capture settled the iframe question (`isTopFrame: true`, so `@noframes` is safe and the CORS allowlist is one origin). **Outstanding**: does the room re-emit the ledger after machine sleep? The machine was not slept during the capture, so the "resumed, no ledger, no messages → loud reload prompt" behaviour (research §6) ships unvalidated. Settle it during the US5 end-to-end draft (T047) rather than spending a draft reset on it alone. Also outstanding and in the same bucket: the **SSE fallback was never exercised** — the reconnect re-established over WebSocket, so that branch ships bundle-derived but untested
 - [X] T008 [US1] Extend `scripts/sanitize-espn.ts` to cover tap frames, then produce the sanitized capture `tests/fixtures/tap/capture-<season>.jsonl` from T002's raw log — the raw log is never committed (FR-019a)
-- [ ] T009 [US1] Capture the **independent oracle** `tests/fixtures/tap/oracle-<season>.json` from ESPN's post-draft `mDraftDetail` flush, derived separately from the tap so SC-010's replay check can actually fail (FR-019b)
+- [X] T009 [US1] Capture the **independent oracle** `tests/fixtures/tap/oracle-<season>.json` from ESPN's post-draft `mDraftDetail` flush, derived separately from the tap so SC-010's replay check can actually fail (FR-019b)
 
-**Checkpoint**: field meanings established from data, six unknowns settled, two sanitized fixtures committed, raw capture destroyed or stored outside the repo.
+**Checkpoint**: ✅ **GATE PASSED (2026-08-04).** Transport confirmed
+(`wss://fantasydraft.espn.com/…`, WebSocket, plain-text verbs). `SELECTED`
+fields 1/2/4 established against an independent oracle; **field 3 recorded as
+UNRESOLVED** and depended on by nothing (US1 AS3). Ledger confirmed
+authoritative — 27/27 pre-reconnect picks recovered, 0/43 post. CSP, SPA
+navigation and frame scoping all resolved favourably. Two fixtures committed
+and verified clean; raw captures never entered the repo.
+
+**Carried forward, not resolved**: the SSE fallback was never exercised (the
+reconnect re-established over WebSocket) and sleep/wake behaviour is unobserved.
+Both are assigned to T047's end-to-end draft.
 
 ---
 

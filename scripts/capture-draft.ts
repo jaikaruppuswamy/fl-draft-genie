@@ -49,10 +49,17 @@ interface DraftResponse {
   draftDetail?: { drafted?: boolean; inProgress?: boolean; picks?: Pick[] };
 }
 
-/** ESPN pre-populates a placeholder skeleton; only playerId > 0 is a real pick.
- *  D/ST ids are legitimately NEGATIVE, so `!== -1` would be wrong. */
+/** ESPN pre-populates a placeholder skeleton with `playerId: -1`. A real pick is
+ *  anything else — including NEGATIVE ids near -16000, which are D/ST.
+ *
+ *  This previously read `playerId > 0`, which silently undercounted every draft
+ *  by the number of D/ST taken (6 in a 6-team league: it reported 66/72 for a
+ *  complete draft). That is the exact "never filter on sign" rule this project
+ *  wrote into contracts/ingest.md after observing negative ids — violated here
+ *  in our own tooling. Caught by cross-checking against the oracle. */
+const SKELETON_PLAYER_ID = -1;
 const filledPicks = (r: DraftResponse) =>
-  (r.draftDetail?.picks ?? []).filter((p) => (p.playerId ?? 0) > 0).length;
+  (r.draftDetail?.picks ?? []).filter((p) => (p.playerId ?? SKELETON_PLAYER_ID) !== SKELETON_PLAYER_ID).length;
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -212,18 +219,27 @@ async function main() {
     await new Promise((r) => setTimeout(r, interval));
   }
 
+  // A single sample cannot show growth, and a completed draft cannot either —
+  // reporting "mDraftDetail did NOT update" in those cases is a false alarm.
+  // The verdict is only meaningful for a continuous run against a LIVE draft.
+  const verdictApplies = sample >= 2 && !flag("once");
   console.log("\n=== GATE 0 SIGNAL (005 T003) ===");
-  console.log(`picks grew between samples while the draft was in progress: ${grewDuringDraft ? "YES" : "NO"}`);
-  console.log(
-    grewDuringDraft
-      ? "mDraftDetail is live. The polling design holds — proceed with Phase 2."
-      : "mDraftDetail did NOT update during the draft.",
-  );
+  if (!verdictApplies) {
+    console.log("not applicable: this was a single-shot capture, so growth between samples");
+    console.log("cannot be observed. Run without --once against a LIVE draft for the verdict.");
+  } else {
+    console.log(`picks grew between samples while the draft was in progress: ${grewDuringDraft ? "YES" : "NO"}`);
+    console.log(
+      grewDuringDraft
+        ? "mDraftDetail is live. The polling design holds — proceed with Phase 2."
+        : "mDraftDetail did NOT update during the draft.",
+    );
+  }
   console.log("\nwhich sections changed at all during the run:");
   for (const [name, hashes] of sectionHashes) {
     console.log(`  ${hashes.size > 1 ? "CHANGED" : "static "}  ${name}  (${hashes.size} distinct)`);
   }
-  if (!grewDuringDraft) {
+  if (verdictApplies && !grewDuringDraft) {
     const rosterMoved = (sectionHashes.get("teams[].roster entry count")?.size ?? 0) > 1;
     console.log(
       rosterMoved

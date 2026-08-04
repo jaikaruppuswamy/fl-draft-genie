@@ -107,14 +107,35 @@ SELECTED <teamId> <playerId> <round> [{memberSWID}]\n
 
 | Field | Meaning | Evidence |
 |---|---|---|
-| 1 | **team id** | Values 1–6 in a 6-team league; the human-paced opening rounds ran `[5,2,1,3,6,4]` then **exactly its reverse** `[4,6,3,1,2,5]`. The snake reversal is what distinguishes team id from pick number, and it did |
-| 2 | **player id** | Large positive ints, **and legitimately negative** — all six teams took a D/ST in round 7 with ids near `-16000`. Never filter on sign |
-| 3 | **round** | Values 1–12 in a 12-round draft, ~6 frames per value. *Not* a lineup slot — an earlier reading of this was wrong and the round grouping corrected it |
-| 4 | **member SWID, optional** | Present on 34 of 70 frames; every one matches that team's `JOINED` SWID exactly (34 match, 0 mismatch). Absent on autodraft picks |
+| 1 | **team id** — CONFIRMED | Matches the oracle's `teamId` on **70/70** frames. Independently, the human-paced opening rounds ran `[5,2,1,3,6,4]` then **exactly its reverse** — the snake reversal that distinguishes team id from pick number |
+| 2 | **player id** — CONFIRMED | Joins 1:1 to the oracle. Large positive ints, **and legitimately negative** — all six D/ST picks carry ids near `-16000`. Never filter on sign |
+| 3 | **UNRESOLVED** | See below. Cross-checked against the oracle it matches `lineupSlotId` 25%, `roundPickNumber` 10%, `roundId` 7%, `overallPickNumber` 0% |
+| 4 | **member SWID, optional** — CONFIRMED | Present on 34 of 70 frames; every one matches that team's `JOINED` SWID (34 match, 0 mismatch). Absent on autodraft picks |
 
-**There is no pick number in `SELECTED`.** FR-005a's stable identity is
-therefore the **player id**, which is unique within a draft. An overall ordinal
-is available only from the ledger.
+### Field 3 is unresolved, and nothing may depend on it
+
+An earlier reading of this document called field 3 the **round**. **That was
+wrong**, and the independent oracle (FR-019b) is what caught it — which is
+precisely the job it exists to do. The value distribution (exactly six of each
+value 1–12 in a 6-team, 12-round draft) makes several interpretations look
+plausible; none survives the join:
+
+- it is **not** the round — matches `roundId` on 5 of 70
+- it is **not** any pick ordinal — 0/70 against `overallPickNumber`
+- it is **not** simply the lineup slot — 18/70, and those matches are almost
+  entirely round 1, where a team's first RB happens to land in the RB slot
+
+Its shape suggests a per-team roster-spot index assigned at pick time, before
+ESPN normalises the roster after the draft. **That remains a hypothesis and is
+recorded as one.** Per spec US1 AS3, an unresolved field is carried as an
+**opaque integer** and no requirement interprets it.
+
+**Nothing needs it.** FR-005a's stable identity is the **player id**, unique
+within a draft and confirmed to join cleanly to the oracle. Round and overall
+pick number are available from the ledger and from the post-draft record. If a
+later capture settles field 3, this table is where it gets recorded.
+
+**There is no pick number in `SELECTED`** — confirmed against the oracle.
 
 **Field 4 is the reason FR-006a exists.** Prior research concluded SWIDs
 appeared only in `CHAT`/`JOINED`/`LEFT`/`ACL`; they are in the **pick frame
