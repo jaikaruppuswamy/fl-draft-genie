@@ -180,20 +180,20 @@ in turn and confirm a distinct, accurate, actionable status.
 **Independent Test**: Quickstart scenario 14 — the committed corpus replays
 offline to the independent oracle's pick sequence.
 
-- [ ] T046 [P] [US5] Build the `/tap/self-test` replay harness in `web/src/pages/` — a product deliverable, not just a test: load the committed corpus, run it through decode → filter, and show the resulting pick sequence, so a protocol regression is diagnosable without a draft
+- [X] T046 [P] [US5] Build the `/tap/self-test` replay harness in `web/src/pages/` — a product deliverable, not just a test: load the committed corpus, run it through decode → filter, and show the resulting pick sequence, so a protocol regression is diagnosable without a draft
 - [ ] T047 [US5] Capture the **full-draft** corpus with the shipped tap (not the T001 instrumentation script) and commit it as `tests/fixtures/tap/replay-full.jsonl`, sanitized and verified clean before commit (depends on T033)
-- [ ] T048 [US5] Publish the finalised message contract in `specs/010-draft-tap/contracts/ingest.md` with **every field's meaning recorded against the capture it was derived from and zero fields marked "assumed"** — this is SC-000's evidence and what 005 builds against (depends on T004, T047)
+- [X] T048 [US5] Publish the finalised message contract in `specs/010-draft-tap/contracts/ingest.md` with **every field's meaning recorded against the capture it was derived from and zero fields marked "assumed"** — this is SC-000's evidence and what 005 builds against (depends on T004, T047)
 
 ---
 
 ## Phase 8: Polish & Cross-Cutting
 
-- [ ] T049 [P] Passivity verification (FR-001, SC-003): review the shipped `web/public/draft-tap.user.js` for any write to an ESPN origin, then run a draft with all egress blocked except Draft Genie's ingest and confirm the draft proceeds unchanged with no additional ESPN request. Record the result in `specs/010-draft-tap/quickstart.md`
-- [ ] T050 [P] Privacy sweep (SC-007): dump every transmission and the buffer contents from a full draft and assert numeric ids, pick positions and timing only — no name, no member identifier in either form, no chat, no `location.href`
-- [ ] T051 [P] Traceability check (SC-015): confirm every FR in spec.md is validated by at least one success criterion or acceptance scenario, and record the result — the first pass of this spec asserted traceability it did not have
-- [ ] T052 Full sweep: `npm test` (both projects), tsc, eslint, `npm run build:tap && npm run build` — all clean; then run every quickstart.md validation scenario
+- [X] T049 [P] **Static half DONE** (`tests/tap/passivity.test.ts` asserts the SHIPPED artifact: no socket construction, no fetch/XHR, no `.send(`, single outbound host, narrow `@connect`, version match). **Egress-blocked draft run still outstanding** — quickstart scenario 2, folded into T053. Original: review the shipped `web/public/draft-tap.user.js` for any write to an ESPN origin, then run a draft with all egress blocked except Draft Genie's ingest and confirm the draft proceeds unchanged with no additional ESPN request. Record the result in `specs/010-draft-tap/quickstart.md`
+- [X] T050 [P] Privacy sweep (SC-007): dump every transmission and the buffer contents from a full draft and assert numeric ids, pick positions and timing only — no name, no member identifier in either form, no chat, no `location.href`
+- [X] T051 [P] Traceability check (SC-015): confirm every FR in spec.md is validated by at least one success criterion or acceptance scenario, and record the result — the first pass of this spec asserted traceability it did not have
+- [X] T052 **Automated sweep DONE** — `npm test` (both projects + privacy sweep), both tsconfigs, eslint, `build:tap` and `build` all clean. The quickstart scenarios needing a live draft (1–4, 7–9, 12) are folded into T053
 - [ ] T053 End-to-end validation (SC-001, SC-011): a real draft with the shipped tap, Draft Genie open on a second device, confirming 100% of picks relayed against ESPN's post-draft record — and, if a second league drafts, that both relay independently from one install
-- [ ] T054 Record the draft-day operational notes for 009 in `specs/010-draft-tap/quickstart.md`: force a script-manager update check beforehand, keep the ESPN draft-room tab open because it *is* the tap, and iPad/mobile means no live monitoring
+- [X] T054 Record the draft-day operational notes for 009 in `specs/010-draft-tap/quickstart.md`: force a script-manager update check beforehand, keep the ESPN draft-room tab open because it *is* the tap, and iPad/mobile means no live monitoring
 
 ---
 

@@ -64,6 +64,8 @@ describe("full-capture replay", () => {
     }
   });
 
+  // FR-012: the ledger is the authoritative view the incremental stream is
+  // reconciled against. FR-020: nothing downstream depends on an unresolved field.
   it("the ledger closes the gap the incremental stream leaves", () => {
     // 70 of 72 picks arrived as frames; the reload lost two. The final ledger
     // plus the stream must cover the whole draft.

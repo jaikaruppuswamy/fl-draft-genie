@@ -29,6 +29,9 @@ async function accountIdFor(cookie: string): Promise<string> {
 }
 
 describe("pairing lifecycle", () => {
+  // FR-011 (revocable, least-privilege credential distinct from ESPN cookies),
+  // FR-013 (revocation stops the relay without touching ESPN) and FR-014a
+  // (stated lifetime and install binding).
   it("issues a token once, stores only its hash, and verifies it", async () => {
     const cookie = await signIn(env, "pair@test.co");
     const res = await app.request("/api/tap-pairings", { method: "POST", headers: { Cookie: cookie } }, env);

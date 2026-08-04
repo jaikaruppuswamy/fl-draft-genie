@@ -168,8 +168,8 @@ describe("mergeMapping", () => {
 describe("tap capture sanitization", () => {
   // Fabricated, NOT from any capture — a real SWID must never enter the repo,
   // which is the rule this very suite exists to enforce.
-  const OWNER = "{AAAAAAAA-1111-4111-8111-111111111111}";
-  const OTHER = "{BBBBBBBB-2222-4222-8222-222222222222}";
+  const OWNER = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
+  const OTHER = "{FFFFFFFF-EEEE-DDDD-CCCC-BBBBBBBBBBBB}";
   const LEAGUE = "9999999999";
   const frames = () => [
     { transport: "ws", event: "message", enc: "text", data: `TOKEN 1:${LEAGUE}:2:${OWNER}:1053670275\n` },

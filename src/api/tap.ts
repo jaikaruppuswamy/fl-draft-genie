@@ -106,7 +106,8 @@ export function tapRoutes() {
 
     await touchPairing(c.env.DB, verified.pairingId, body.install, at);
 
-    // Ordering is (install, session, seq); duplicates are expected and are not
+    // FR-010 / FR-012: ordering is (install, session, seq); duplicates are
+    // expected and are not
     // an error — the receiver deduplicates on pick identity.
     const acceptedThrough = body.messages.reduce((max, m) => Math.max(max, m.seq), -1);
     const kinds = body.messages.reduce<Record<string, number>>((acc, m) => {

@@ -19,6 +19,8 @@ const status = (over: Partial<TapStatus> = {}): TapStatus => ({
 });
 
 describe("status model", () => {
+  // FR-016: each failure mode reported distinctly, in plain language, with what
+  // to do about it.
   it("gives every state a plain-language explanation, not a bare code", () => {
     for (const [state, text] of Object.entries(EXPLANATIONS)) {
       expect(text.length, state).toBeGreaterThan(20);

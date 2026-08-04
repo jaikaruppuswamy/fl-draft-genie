@@ -102,7 +102,7 @@ field below was confirmed against observed data; nothing here is inferred from
 ESPN's client naming. Fixture: `tests/fixtures/tap/capture-2026.jsonl`.
 
 ```
-SELECTED <teamId> <playerId> <round> [{memberSWID}]\n
+SELECTED <teamId> <playerId> <field3> [{memberSWID}]\n
 ```
 
 | Field | Meaning | Evidence |
@@ -166,9 +166,30 @@ later ones did**. The incremental stream lost 2 of 72 picks across a page
 reload; the ledger is what recovers them. This is why FR-005 makes the ledger
 non-discretionary and 005 FR-012 makes it the source of truth.
 
-**Field offsets within the ledger are still unresolved** — decoding it is
-T016's job, and per §2 the reader must be ours, never a port of ESPN's (whose
-`readDouble`/`readFloat` return `Math.random()`).
+### Ledger record layout — RESOLVED (T016, against the oracle)
+
+72 fixed-width records in one pre-allocated array, **stride 45 bytes**,
+big-endian int32 fields:
+
+| Offset | Field | Confidence |
+|---|---|---|
+| `+0` | `teamId` | confirmed — matches the oracle on all 29 filled records |
+| `+4` | `overallPickNumber` | confirmed — 1-based and dense, all 29 agree |
+| `+8` | `playerId` | confirmed — `-1` is the empty sentinel; **negative values are real** (D/ST) |
+| `+12` | *unresolved* | equals `SELECTED`'s field 3 on **27/27**, so it is a real, stable protocol field — but its meaning is still unknown and nothing depends on it |
+
+`roundId` and `roundPickNumber` do **not** appear as int32 anywhere in the
+record. They are derivable from `overallPickNumber` plus the team count and the
+snake rule, so ESPN appears not to transmit them.
+
+**The array offset is NOT constant and must never be hardcoded.** It was 2070 in
+the pre-draft ledger and 2078 in the mid-draft one — *within the same draft* —
+because the prefix ahead of it grows. `tap/decode.ts` locates the array by its
+invariant instead (a run of records numbered 1, 2, 3, …), which generalises
+across league shapes and fails loudly if the layout changes (FR-017).
+
+Per research §2 the reader is **ours**, never a port of ESPN's: their
+`readDouble`/`readFloat` discard the bytes and return `Math.random()`.
 
 ## What 005 must not assume
 

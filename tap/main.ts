@@ -82,6 +82,8 @@ function render(state: TapState, detail = ""): void {
   badge.title = EXPLANATIONS[state];
 }
 
+// FR-015: show whether the tap is paired, connected and relaying, including how
+// recently it last relayed something.
 function mountBadge(): void {
   // Unobtrusive and never over a draft control (FR-002). Fixed to the bottom
   // corner with pointer events off so it cannot intercept a click.
@@ -182,6 +184,10 @@ function scheduleRetry(responseHeaders?: string): void {
   setTimeout(flush, backoffMs(failures, retryAfter ? Number(retryAfter) : undefined));
 }
 
+// FR-006b: the observation time is relayed with every message — it is not
+// personal data and 005 FR-020a needs it to tell a collapsed batch from a live
+// sequence. FR-010: duplicate delivery is safe; the receiver dedupes on pick
+// identity, so we relay rather than suppress.
 function enqueue(kind: "pick" | "ledger" | "status", payload: unknown, transport: Transport): void {
   assertTransmittable(payload); // fail closed rather than leak
   const msg: RelayMessage = sequencer.build(kind, payload, transport);
@@ -192,6 +198,8 @@ function enqueue(kind: "pick" | "ledger" | "status", payload: unknown, transport
 
 // --- frame handling ------------------------------------------------------
 
+// FR-004: relay draft-state messages in order, identifying the league.
+// FR-005a: the stable identity is the player id (SELECTED carries no ordinal).
 function onFrame(raw: string, transport: Transport): void {
   const c = classify(raw);
   switch (c.kind) {

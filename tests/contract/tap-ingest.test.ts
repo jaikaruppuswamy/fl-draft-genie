@@ -137,6 +137,7 @@ describe("POST /api/tap/batch", () => {
 });
 
 describe("GET /api/tap/health", () => {
+  // FR-021: the install is verifiable without waiting for a real draft.
   it("is unauthenticated so the install can be verified without a draft", async () => {
     const res = await app.request("/api/tap/health", { headers: { Origin: ORIGIN } }, env);
     expect(res.status).toBe(200);

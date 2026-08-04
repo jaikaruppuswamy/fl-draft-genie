@@ -74,6 +74,8 @@ describe("chunk / backoff", () => {
 });
 
 describe("Buffer", () => {
+  // FR-008 (never discard observed picks when unreachable) and FR-009
+  // (survive reload, sleep and brief network loss).
   const msg = (seq: number): RelayMessage =>
     ({ seq, kind: "pick", payload: { teamId: 1, playerId: 2, slot3: 3 } }) as RelayMessage;
 

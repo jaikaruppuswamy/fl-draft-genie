@@ -46,7 +46,7 @@ describe("filterPickFields", () => {
 
 describe("assertTransmittable", () => {
   it("throws on a GUID", () => {
-    expect(() => assertTransmittable({ x: "{AAAAAAAA-1111-4111-8111-111111111111}" })).toThrow(/GUID/);
+    expect(() => assertTransmittable({ x: "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}" })).toThrow(/GUID/);
   });
   it("throws on a URL (location.href carries the owner's SWID)", () => {
     expect(() => assertTransmittable({ href: "https://fantasy.espn.com/football/draft?memberId=x" })).toThrow(/URL/);

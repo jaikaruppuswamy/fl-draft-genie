@@ -123,6 +123,39 @@ the workers pool, which is why the split exists.
 
 ## Draft-day notes (feeds 009's runbook)
 
+**Do these before the draft, not during it:**
+
+1. **Force a script-manager update check.** Tampermonkey checks on its own
+   schedule and exposes no API to force one, so a fix published today may not
+   reach you automatically. Dashboard → the tap → *Check for userscript updates*.
+2. **Confirm "Allow user scripts" is still on** at `chrome://extensions`. A
+   Chrome update can reset it, and the script then silently never runs.
+3. **Open the ESPN draft room and check for the badge.** It shows the tap
+   version and its state. No badge means it did not attach — which is the one
+   failure that looks identical to a quiet draft, hence the preflight.
+4. **Run the health check** on the Draft tap page. That proves the ingest is
+   reachable; the badge proves the tap is attached. Both, not either.
+
+**During the draft:**
+
+- **Keep the ESPN draft-room tab open.** That tab *is* the tap; closing it stops
+  the feed and 005 will report "not receiving picks".
+- Drafting from an iPad, a phone, or the ESPN mobile app means **no live
+  monitoring**. This is a decision, not a defect.
+- A pick every ~1 second is normal under autodraft (measured: median 3.75 s,
+  minimum 1.0 s). Bursts that fast arrive as one observation, which 005 FR-020a
+  handles.
+
+**If something looks wrong:**
+
+- The badge names the state and what to do. `incompatible` means picks are
+  **not** being captured — the loudest state, deliberately.
+- The [self-test](/draft-tap/self-test) replays a saved capture through the
+  tap's own decode and filter with no draft running, which is the fastest way to
+  tell a protocol change from a configuration problem.
+
+
+
 - Force a script-manager update check before the draft; managers check on their
   own schedule and expose no force-check API, so FR-022's "fix in minutes"
   depends on this manual step.

@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "dev:web": "vite --config web/vite.config.ts",
     "build": "vite build --config web/vite.config.ts",
-    "test": "vitest run",
+    "test": "vitest run && node scripts/privacy-sweep.mjs",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -15,7 +15,8 @@
     "migrate:remote": "wrangler d1 migrations apply draft-genie --remote",
     "deploy": "npm run build && wrangler deploy",
     "build:tap": "node build/build-tap.mjs",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.tap.json --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tap.json --noEmit",
+    "privacy": "node scripts/privacy-sweep.mjs"
   },
   "dependencies": {
     "hono": "^4.6.0",

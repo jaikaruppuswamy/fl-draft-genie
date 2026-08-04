@@ -38,6 +38,13 @@ the document rather than scrubbing named fields, because ESPN ships fields we
 do not model. `assertClean()` runs before any write and throws if a real GUID,
 a real name, or a credential value survives.
 
+**Fabricated-GUID convention.** Beyond the derived set above, fixtures authored
+by hand use GUIDs whose every group is one repeated hex character —
+`{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}`, `{BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF}`,
+`{CCCCCCCC-DDDD-EEEE-FFFF-000000000000}` and so on. No real SWID looks like
+that, which is what makes the convention checkable rather than a matter of
+trust. `scripts/privacy-sweep.mjs` enforces it across the whole repo.
+
 **The valid placeholder set is therefore a pattern, not a list**:
 `/^\{?(00000000-0000-4000-8000-\d{12}|11111111-2222-3333-4444-555555555555)\}?$/`.
 That regex is what the fixture gate and `tests/draft/no-secrets.test.ts` check.

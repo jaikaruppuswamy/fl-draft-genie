@@ -116,7 +116,9 @@ export default function DraftTap() {
         {health === "failed" && <span>Could not reach Draft Genie.</span>}
         <p className="muted small">
           This confirms the ingest is up. To confirm the tap itself is attached, open your ESPN draft room and
-          look for the Draft Genie badge in the corner.
+          look for the Draft Genie badge in the corner. If ESPN changes something mid-season, the{" "}
+          <a href="/draft-tap/self-test">self-test</a> replays a saved capture through the tap&apos;s own decode
+          and privacy filter without needing a draft.
         </p>
       </div>
 
