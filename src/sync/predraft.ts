@@ -7,7 +7,7 @@
 import type { Env } from "../env";
 import { findPreDraftWindowConnections } from "../db/leagues";
 import { refreshConnection } from "./refresh";
-import { logInfo } from "../api/logging";
+import { logError, logInfo } from "../api/logging";
 import { dueForDraftDayTopUp, isStale } from "../projections/freshness";
 import { ingestProjections } from "../projections/ingest";
 import { getServingSet, pruneSets } from "../db/projections";
@@ -19,6 +19,7 @@ import { currentSeason } from "../espn/leagueRef";
 import { sessionsNeedingAttention } from "../db/draft";
 import { sweepAction } from "../draft/restore";
 import { sessionStub } from "../draft/session";
+import { archiveCompletedDrafts } from "../draft/archiveRun";
 
 export async function scanPreDraftWindow(env: Env, now: Date): Promise<number> {
   const due = await findPreDraftWindowConnections(env.DB, now);
@@ -67,10 +68,39 @@ export async function sweepDraftSessions(env: Env, now: Date): Promise<number> {
   return acted;
 }
 
-export async function runScheduledMaintenance(env: Env, now: Date): Promise<void> {
-  await scanPreDraftWindow(env, now);
-  await sweepDraftSessions(env, now);
+/**
+ * Run one maintenance stage, isolating its failure from the others.
+ *
+ * These jobs are INDEPENDENT: a projection ingest failing has nothing to do
+ * with whether a completed draft gets archived. Running them in a bare
+ * sequence meant the first throw cancelled everything after it — so an ESPN
+ * hiccup during projections could leave a finished draft unarchived
+ * indefinitely. A test caught this only because it exercised the real
+ * scheduled entry point rather than calling the archive function directly.
+ */
+async function stage(name: string, run: () => Promise<unknown>): Promise<void> {
+  try {
+    await run();
+  } catch (e) {
+    logError(`scheduled stage "${name}" failed; continuing`, e as Error);
+  }
+}
 
+export async function runScheduledMaintenance(env: Env, now: Date): Promise<void> {
+  await stage("pre-draft scan", () => scanPreDraftWindow(env, now));
+  await stage("draft session sweep", () => sweepDraftSessions(env, now));
+
+  // Archiving runs in the cron rather than the Durable Object because the
+  // oracle needs an authenticated ESPN read, and FR-024a forbids the session
+  // holding a credential. It runs EARLY and in its own stage: retaining a
+  // finished draft matters more than any of the refresh work below, and must
+  // not be cancelled by it.
+  await stage("draft archive", () => archiveCompletedDrafts(env, now));
+
+  await stage("projections, tiers and signals", () => refreshDerivedData(env, now));
+}
+
+async function refreshDerivedData(env: Env, now: Date): Promise<void> {
   const season = currentSeason(now);
   const serving = await getServingSet(env.DB, season);
   const windows = await findPreDraftWindowConnections(env.DB, now);

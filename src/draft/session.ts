@@ -27,6 +27,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env";
 import { readBatchesAfter, type FeedCursorRow } from "../db/tap";
+import { markSessionStatus } from "../db/draft";
 import { foldBatches, type FeedBatch, type RelayMessage } from "./feed";
 import { initialState, reconcile, trust, frontier, type DraftEvent, type DraftState } from "./reconcile";
 import { picksUntilTurn, teamAt } from "./snake";
@@ -343,6 +344,24 @@ export class DraftSession extends DurableObject<Env> {
     });
 
     if (delivered.length) this.broadcast(s.epoch, delivered);
+
+    // T058: mirror the status to D1, AFTER the commit. D1 is what the cron
+    // sweep and the diagnostic surface read; the object's own storage is
+    // invisible to both. This writes no credential — the session holds none
+    // (FR-024a) — only a status and a timestamp.
+    //
+    // Failure here must not roll back a committed draft: the state is already
+    // durable, and the next pump or the sweep will write it again.
+    try {
+      if (state.complete) {
+        await markSessionStatus(this.env.DB, s.scope.connectionId, "complete", new Date());
+      } else if (state.picks.length > 0) {
+        await markSessionStatus(this.env.DB, s.scope.connectionId, "live", new Date());
+      }
+    } catch {
+      /* the sweep will reconcile it */
+    }
+
     await this.ensureAlarm();
     return events.length;
   }

@@ -230,3 +230,62 @@ export async function writeArchive(db: D1Database, a: ArchiveInput, now: Date): 
   }
   return archiveId;
 }
+
+/**
+ * 005 T058 — write the session's LIVE status back to D1.
+ *
+ * The Durable Object holds the authoritative state, but D1 is what the cron
+ * sweep and the diagnostic surface read. Without this the row stays `armed`
+ * for the entire draft: the surface reports a stale status, and — worse —
+ * `sweepAction`'s armed deadline becomes reachable against a session that is
+ * actually live, because nothing ever writes `live`. The distinction exists
+ * precisely to prevent that.
+ *
+ * Only a FORWARD transition is written. A late-arriving update must not drag a
+ * completed draft back to live.
+ */
+export async function markSessionStatus(
+  db: D1Database,
+  connectionId: string,
+  status: "live" | "complete",
+  now: Date,
+): Promise<void> {
+  const iso = now.toISOString();
+  if (status === "complete") {
+    await db
+      .prepare(
+        `UPDATE draft_sessions
+            SET status = 'complete', completed_at = COALESCE(completed_at, ?), updated_at = ?
+          WHERE connection_id = ? AND completed_at IS NULL`,
+      )
+      .bind(iso, iso, connectionId)
+      .run();
+    return;
+  }
+  await db
+    .prepare(
+      `UPDATE draft_sessions SET status = 'live', updated_at = ?
+        WHERE connection_id = ? AND completed_at IS NULL AND status IN ('idle', 'armed', 'not_receiving', 'degraded')`,
+    )
+    .bind(iso, connectionId)
+    .run();
+}
+
+/** Sessions whose draft finished but which have not been archived yet. */
+export async function sessionsAwaitingArchive(db: D1Database): Promise<DraftSessionRow[]> {
+  const r = await db
+    .prepare(
+      `SELECT * FROM draft_sessions
+        WHERE completed_at IS NOT NULL AND archived_at IS NULL
+        ORDER BY completed_at ASC`,
+    )
+    .all<DraftSessionRow>();
+  return r.results ?? [];
+}
+
+export async function markArchived(db: D1Database, connectionId: string, now: Date): Promise<void> {
+  await db
+    .prepare(`UPDATE draft_sessions SET archived_at = ?, updated_at = ? WHERE connection_id = ?`)
+    .bind(now.toISOString(), now.toISOString(), connectionId)
+    .run();
+}
