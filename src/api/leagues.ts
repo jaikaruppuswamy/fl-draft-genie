@@ -3,6 +3,9 @@ import { z } from "zod";
 import { now } from "../env";
 import type { AppContext } from "./app";
 import { jsonError } from "./app";
+import { getSession } from "../db/draft";
+import { sessionStub } from "../draft/session";
+import { logError } from "./logging";
 import { getCredentials } from "../db/credentials";
 import {
   deleteConnection,
@@ -183,8 +186,29 @@ export function leagueRoutes() {
   });
 
   app.delete("/:id", async (c) => {
-    const removed = await deleteConnection(c.env.DB, c.get("accountId"), c.req.param("id"));
+    const connectionId = c.req.param("id");
+    // 005 T051: read the season BEFORE the row is deleted — afterwards there is
+    // nothing left to derive the session's identity from.
+    const session = await getSession(c.env.DB, connectionId);
+
+    const removed = await deleteConnection(c.env.DB, c.get("accountId"), connectionId);
     if (!removed) return jsonError(404, "unknown_league", "No such league on your dashboard.");
+
+    // Shut the draft session down explicitly. `draft_sessions` cascades from
+    // `league_connections`, so the ROW goes — but the Durable Object does not:
+    // it would keep its alarm scheduled and keep reading a log for a league
+    // that no longer exists, with no row behind it. Re-adding the league mints
+    // a new connection id and therefore a new object, so the orphan would
+    // never be reached again either.
+    if (session) {
+      try {
+        await sessionStub(c.env, connectionId, session.season).shutdown();
+      } catch (e) {
+        // The connection is already gone; a failure here must not turn a
+        // successful disconnect into an error the owner sees.
+        logError("draft session shutdown failed on disconnect", e as Error);
+      }
+    }
     return c.body(null, 204);
   });
 

@@ -30,8 +30,19 @@ const ACCOUNT = "acct-replay";
 const CONNECTION = "conn-replay";
 const LEAGUE = "9999999999";
 const SEASON = 2026;
-/** The test league's real, non-identity order — the snake reversal confirms it. */
-const ORDER = [5, 2, 1, 3, 6, 4];
+/**
+ * The round-1 order, DERIVED from the oracle rather than hardcoded.
+ *
+ * The constant that used to sit here came from 010's FIRST capture; this
+ * corpus is the second draft and drew a different order ([5,1,4,6,3,2]).
+ * Nothing in this file asserted turn positions, so it went unnoticed — which
+ * is exactly why it should not be a guess.
+ */
+const ORDER = ((oracleJson as unknown as { picks: { overallPickNumber: number; teamId: number }[] }).picks)
+  .slice()
+  .sort((a, b) => a.overallPickNumber - b.overallPickNumber)
+  .slice(0, 6)
+  .map((p) => p.teamId);
 
 const testEnv = env as unknown as Env;
 

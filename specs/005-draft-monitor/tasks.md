@@ -157,10 +157,10 @@ published order.
 **Independent test**: replaying the corpus emits exactly one `on_deck` before
 each `on_the_clock`, per revision.
 
-- [ ] T044 [US4] Test in `tests/draft/events.test.ts` (SC-003, SC-010): across the replayed corpus every owner turn has exactly one `on_deck` before its `on_the_clock` **within each revision** — none skipped, none duplicated, none out of order — compared against `oracle-live-2026.json`, never against the replay itself
-- [ ] T045 [US4] Implement the ordinal `on_deck` guarantee in `src/draft/reconcile.ts`: fires as early as the draft's structure allows, at most two picks ahead, always exactly once and always before `on_the_clock`, carrying the real `picks_until` (2, 1 or 0). At snake round boundaries the owner picks back-to-back and two-ahead is structurally impossible
-- [ ] T046 [US4] Emit `draft_complete` from `src/draft/reconcile.ts` and publish the event contract documented in [contracts/api.md](contracts/api.md) for 006/008
-- [ ] T047 [P] [US4] Test in `tests/unit/reconcile.test.ts` that consumers can dedupe on `(revision, kind, overall)` and that a revision bump reads as "rewind and re-apply"
+- [X] T044 [US4] Test in `tests/draft/events.test.ts` (SC-003, SC-010): across the replayed corpus every owner turn has exactly one `on_deck` before its `on_the_clock` **within each revision** — none skipped, none duplicated, none out of order — compared against `oracle-live-2026.json`, never against the replay itself
+- [X] T045 [US4] Implement the ordinal `on_deck` guarantee in `src/draft/reconcile.ts`: fires as early as the draft's structure allows, at most two picks ahead, always exactly once and always before `on_the_clock`, carrying the real `picks_until` (2, 1 or 0). At snake round boundaries the owner picks back-to-back and two-ahead is structurally impossible
+- [X] T046 [US4] Emit `draft_complete` from `src/draft/reconcile.ts` and publish the event contract documented in [contracts/api.md](contracts/api.md) for 006/008
+- [X] T047 [P] [US4] Test in `tests/unit/reconcile.test.ts` that consumers can dedupe on `(revision, kind, overall)` and that a revision bump reads as "rewind and re-apply"
 
 **Checkpoint**: all four stories complete; the contract 006 depends on is fixed.
 
@@ -168,12 +168,12 @@ each `on_the_clock`, per revision.
 
 ## Phase 7: Archive, oracle and hardening
 
-- [ ] T048 Implement `src/draft/archive.ts`: on `drafted`, fetch the authoritative post-completion `mDraftDetail` and **reconcile the tap-built draft against it before archiving**. 010 used this oracle in tests, where it earned its keep twice — disproving the field-3 reading (5/70) and confirming the ledger offsets (31/31). Self-consistency cannot catch a systematically missed pick; an independent source can
-- [ ] T049 Bump the revision through the existing correction path on divergence in `src/draft/archive.ts`, and record the divergence rather than silently preferring one source
-- [ ] T050 [P] Write the archive in chunked batches, first-seen-wins, in `src/db/draft.ts`; retained **indefinitely** as season history (ratified 2026-08-02)
-- [ ] T051 Call `shutdown()` (deleteAlarm + deleteAll, refuse to re-arm) from `deleteConnection` in `src/db/leagues.ts`. Re-adding a league mints a new connection UUID and hence a new DO; an orphaned session would keep reading D1 and ESPN forever with no row behind it
-- [ ] T052 [P] Credential-sweep test in `tests/draft/no-secrets.test.ts`: `JSON.stringify(state)` contains neither `espn_s2` nor `SWID`, mirroring 001's SC-005
-- [ ] T053 [P] Assert the ESPN rate bound (SC-008) structurally in `tests/draft/rate-bound.test.ts` with `fetchMock` + `disableNetConnect()`: **≤ 5 requests/minute per league**, at most one in flight, and **zero ESPN requests on the pick path**
+- [X] T048 Implement `src/draft/archive.ts`: on `drafted`, fetch the authoritative post-completion `mDraftDetail` and **reconcile the tap-built draft against it before archiving**. 010 used this oracle in tests, where it earned its keep twice — disproving the field-3 reading (5/70) and confirming the ledger offsets (31/31). Self-consistency cannot catch a systematically missed pick; an independent source can
+- [X] T049 Bump the revision through the existing correction path on divergence in `src/draft/archive.ts`, and record the divergence rather than silently preferring one source
+- [X] T050 [P] Write the archive in chunked batches, first-seen-wins, in `src/db/draft.ts`; retained **indefinitely** as season history (ratified 2026-08-02)
+- [X] T051 Call `shutdown()` (deleteAlarm + deleteAll, refuse to re-arm) from `deleteConnection` in `src/db/leagues.ts`. Re-adding a league mints a new connection UUID and hence a new DO; an orphaned session would keep reading D1 and ESPN forever with no row behind it
+- [X] T052 [P] Credential-sweep test in `tests/draft/no-secrets.test.ts`: `JSON.stringify(state)` contains neither `espn_s2` nor `SWID`, mirroring 001's SC-005
+- [X] T053 [P] Assert the ESPN rate bound (SC-008) structurally in `tests/draft/rate-bound.test.ts` with `fetchMock` + `disableNetConnect()`: **≤ 5 requests/minute per league**, at most one in flight, and **zero ESPN requests on the pick path**
 
 ---
 
