@@ -189,3 +189,49 @@ export function scoringSummaryLabel(scoring: ScoringSnapshot, roster: RosterSnap
   }
   return `${tier} · ${roster.starting_slots + roster.bench_slots} slots`;
 }
+
+/**
+ * 005 T017 — parse ESPN's post-completion draft flush, for the oracle check.
+ *
+ * This is the ONE view Gate 0 proved ESPN writes reliably, and it is derived
+ * independently of the tap — which is what makes it worth reconciling against.
+ * In 010 it earned its keep twice: it disproved the reading of `SELECTED`'s
+ * third field as the round (agreeing on 5 of 70 picks) and confirmed the ledger
+ * offsets (31/31).
+ *
+ * `playerId` is returned VERBATIM, including negatives. D/ST ids sit near
+ * -16000, and filtering on sign is what made 010's capture script report 66 of
+ * 72 picks for a complete draft.
+ */
+export interface CompletedPick {
+  overall: number;
+  round: number;
+  roundPick: number;
+  teamId: number;
+  playerId: number;
+  keeper: boolean;
+  autodrafted: boolean;
+}
+
+export function parseCompletedDraft(res: EspnLeagueResponse): CompletedPick[] {
+  const rows = res.draftDetail?.picks ?? [];
+  const out: CompletedPick[] = [];
+  for (const r of rows) {
+    const playerId = Number(r.playerId);
+    const teamId = Number(r.teamId);
+    const overall = Number(r.overallPickNumber);
+    // A row without an identity or a position is not a pick we can place.
+    // Note the deliberate absence of any `> 0` test on playerId.
+    if (!Number.isInteger(playerId) || !Number.isInteger(teamId) || !Number.isInteger(overall)) continue;
+    out.push({
+      overall,
+      round: Number.isInteger(Number(r.roundId)) ? Number(r.roundId) : 0,
+      roundPick: Number.isInteger(Number(r.roundPickNumber)) ? Number(r.roundPickNumber) : 0,
+      teamId,
+      playerId,
+      keeper: r.keeper === true,
+      autodrafted: Number(r.autoDraftTypeId ?? 0) > 0,
+    });
+  }
+  return out.sort((a, b) => a.overall - b.overall);
+}

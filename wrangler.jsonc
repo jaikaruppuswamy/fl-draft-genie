@@ -18,6 +18,15 @@
       "database_id": "4e99107b-1b9a-46bb-8a48-5aa7cb26677e"
     }
   ],
+  "durable_objects": {
+    "bindings": [{ "name": "DRAFT_SESSION", "class_name": "DraftSession" }]
+  },
+  // LEGACY `migrations` array, deliberately NOT `exports`. 010's research
+  // established empirically that `exports` silently provisions a KV-backed
+  // Durable Object under the installed vitest pool while production is
+  // SQLite-backed — so the suite would pass against a different storage engine
+  // than production runs on.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DraftSession"] }],
   "triggers": {
     "crons": ["*/5 * * * *"]
   },

@@ -15,6 +15,8 @@ export interface EmailSendingBinding {
 
 export interface Env {
   DB: D1Database;
+  /** 005: the live draft session authority, one per league connection + season. */
+  DRAFT_SESSION: DurableObjectNamespace;
   ASSETS?: Fetcher;
   EMAIL?: EmailSendingBinding;
   SESSION_SECRET: string;

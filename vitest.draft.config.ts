@@ -1,3 +1,14 @@
+// 005 T003 — the third Vitest project.
+//
+// WHY IT EXISTS: WebSockets in Durable Objects are unsupported with per-file
+// storage isolation, which the main workers suite depends on. Turning isolation
+// off globally would make every existing D1 test share state; scoping it to
+// tests/draft/** keeps that blast radius at zero.
+//
+// vitest.workers.config.ts carries a matching EXCLUDE for tests/draft/**. Its
+// include glob is `tests/**/*.test.ts`, so without that exclude these tests
+// would also be collected there and fail for reasons unrelated to the code.
+
 import path from "node:path";
 import { defineWorkersConfig, readD1Migrations } from "@cloudflare/vitest-pool-workers/config";
 
@@ -6,24 +17,15 @@ export default defineWorkersConfig(async () => {
   return {
     test: {
       setupFiles: ["./tests/apply-migrations.ts"],
-      include: ["tests/**/*.test.ts"],
-      // tests/tap/** belongs to the node project — see vitest.config.ts. Without
-      // this exclude the workers pool also collects them and they fail there.
-      //
-      // tests/draft/** belongs to vitest.draft.config.ts, which runs with
-      // isolatedStorage: false because WebSockets in Durable Objects are
-      // unsupported with per-file storage isolation. This include glob is
-      // `tests/**/*.test.ts`, so without the exclude every DO test ALSO runs
-      // here, under the isolation that cannot support it.
-      exclude: ["tests/tap/**", "tests/draft/**"],
+      include: ["tests/draft/**/*.test.ts"],
       poolOptions: {
         workers: {
           singleWorker: true,
+          isolatedStorage: false,
           wrangler: { configPath: "./wrangler.jsonc" },
           miniflare: {
             bindings: {
               TEST_MIGRATIONS: migrations,
-              // Test-only secrets (32 bytes base64 for the AES key).
               SESSION_SECRET: "dGVzdC1zZXNzaW9uLXNlY3JldC10ZXN0LXNlc3Npb24=",
               CREDENTIAL_KEY: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=",
               EMAIL_PROVIDER: "console",

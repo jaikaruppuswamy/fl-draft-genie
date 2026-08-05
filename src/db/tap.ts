@@ -183,3 +183,92 @@ export async function summariseBatches(db: D1Database, accountId: string): Promi
     .all<BatchSummary>();
   return r.results ?? [];
 }
+
+// --- 005 feed: the keyset cursor read (FR-007h) ------------------------------
+//
+// The DraftSession PULLS from this log rather than having frames pushed into
+// it. See specs/005-draft-monitor/plan.md; the short version is that the tap
+// discards its buffer only on `accepted_through`, which makes the ack a
+// durability boundary — so the ingest writes here, acks, and only THEN nudges.
+//
+// KEYSET, not offset: a batch inserted while a read is in flight shifts an
+// offset window and silently skips a row. Anchoring on `(received_at, id)` is
+// stable under concurrent inserts, and the pair is a total order because
+// autodraft can land two batches in the same millisecond.
+
+export interface FeedCursorRow {
+  receivedAt: string;
+  id: string;
+}
+
+export interface FeedBatchRow {
+  id: string;
+  receivedAt: string;
+  installId: string;
+  sessionId: string;
+  firstSeq: number;
+  lastSeq: number;
+  messages: unknown[];
+}
+
+/**
+ * Batches strictly after `cursor`, oldest first.
+ *
+ * Backed by `idx_tap_batches_league (account_id, espn_league_id, season,
+ * received_at)`, so no migration was needed to make the session readable.
+ */
+export async function readBatchesAfter(
+  db: D1Database,
+  scope: { accountId: string; espnLeagueId: string; season: number },
+  cursor: FeedCursorRow | null,
+  limit = 200,
+): Promise<FeedBatchRow[]> {
+  const sql = cursor
+    ? `SELECT id, received_at, install_id, session_id, first_seq, last_seq, messages_json
+         FROM tap_batches
+        WHERE account_id = ? AND espn_league_id = ? AND season = ?
+          AND (received_at > ? OR (received_at = ? AND id > ?))
+        ORDER BY received_at ASC, id ASC
+        LIMIT ?`
+    : `SELECT id, received_at, install_id, session_id, first_seq, last_seq, messages_json
+         FROM tap_batches
+        WHERE account_id = ? AND espn_league_id = ? AND season = ?
+        ORDER BY received_at ASC, id ASC
+        LIMIT ?`;
+
+  const stmt = cursor
+    ? db
+        .prepare(sql)
+        .bind(scope.accountId, scope.espnLeagueId, scope.season, cursor.receivedAt, cursor.receivedAt, cursor.id, limit)
+    : db.prepare(sql).bind(scope.accountId, scope.espnLeagueId, scope.season, limit);
+
+  const r = await stmt.all<{
+    id: string;
+    received_at: string;
+    install_id: string;
+    session_id: string;
+    first_seq: number;
+    last_seq: number;
+    messages_json: string;
+  }>();
+
+  return (r.results ?? []).map((row) => ({
+    id: row.id,
+    receivedAt: row.received_at,
+    installId: row.install_id,
+    sessionId: row.session_id,
+    firstSeq: row.first_seq,
+    lastSeq: row.last_seq,
+    messages: safeParseMessages(row.messages_json),
+  }));
+}
+
+/** A corrupt row must not take the whole draft down mid-session. */
+function safeParseMessages(json: string): unknown[] {
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
