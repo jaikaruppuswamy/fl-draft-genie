@@ -17,6 +17,7 @@ import { FLUSH_TIMEOUT_MS, Sequencer, backoffMs, chunk, type Clock, type RelayMe
 import { Buffer as TapBuffer, type StoragePort } from "./buffer";
 import { EXPLANATIONS, isDegraded, type TapState, type TapStatus } from "./status";
 import { install, type Transport } from "./intercept";
+import { DraftEnd } from "./draftEnd";
 
 declare const unsafeWindow: Window & typeof globalThis;
 declare function GM_getValue(key: string, dflt?: string): string;
@@ -233,10 +234,16 @@ function enqueue(kind: "pick" | "ledger" | "status", payload: unknown, transport
 // FR-005a: the stable identity is the player id (SELECTED carries no ordinal).
 function onFrame(raw: string, transport: Transport): void {
   const c = classify(raw);
+  // FR-024: a completed draft emits nothing we should forward. Status frames
+  // still go out — stopping the relay must not also stop saying why.
+  if (!draftEnd.shouldRelay(c.kind === "unrecognised" ? "status" : c.kind)) return;
   switch (c.kind) {
     case "pick": {
       const payload = filterPickFields(c.fields);
-      if (payload) enqueue("pick", payload, transport);
+      if (payload) {
+        enqueue("pick", payload, transport);
+        draftEnd.notePicks([payload.playerId]);
+      }
       return;
     }
     case "ledger": {
@@ -247,7 +254,7 @@ function onFrame(raw: string, transport: Transport): void {
         if (ledger) {
           const picks = filledPicks(ledger);
           enqueue("ledger", picks.map(filterLedgerPick), transport);
-          noteLedger(ledger.totalSlots, picks.length);
+          draftEnd.notePicks(picks.map((p) => p.playerId), ledger.totalSlots);
         }
       } catch (e) {
         status.unrecognisedCount++;
@@ -268,13 +275,15 @@ function onFrame(raw: string, transport: Transport): void {
   }
 }
 
-/**
- * T045 — draft-end detection. ESPN's STATE frame marks phase changes, and the
- * ledger tells us when every slot is filled. Where neither is conclusive the tap
- * says so rather than going quiet: SC-014 forbids idle and dead looking alike.
- */
-let ledgerSlots = 0;
-let ledgerFilled = 0;
+// T045 / FR-024 — draft-end detection. The rules and the reasoning live in
+// tap/draftEnd.ts, where they can be tested; this is only the wiring.
+const draftEnd = new DraftEnd({
+  render: (state, detail) => render(state, detail),
+  flush: () => flush(),
+  currentState: () => status.state,
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+  clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+});
 
 function onDraftState(raw: string): void {
   const phase = Number(raw.replace(/\n$/, "").split(" ")[1] ?? NaN);
@@ -283,28 +292,34 @@ function onDraftState(raw: string): void {
   if (Number.isFinite(phase)) render(status.state, `draft phase ${phase}`);
 }
 
-function noteLedger(total: number, filled: number): void {
-  ledgerSlots = total;
-  ledgerFilled = filled;
-  if (total > 0 && filled >= total) render("draft-finished");
-}
-
 // --- start ---------------------------------------------------------------
 
 function start(): void {
-  const result = install(W, {
-    isDraftChannel,
-    onFrame: (raw, transport) => onFrame(raw, transport),
-    onChannel: (event) => {
-      if (event === "open") render(token() ? "watching" : "not-paired");
+  const result = install(
+    W,
+    {
+      isDraftChannel,
+      onFrame: (raw, transport) => onFrame(raw, transport),
+      onChannel: (event) => {
+        if (event === "open") render(token() ? "watching" : "not-paired");
+      },
+      onError: (m) => render("incompatible", m),
     },
-    onError: (m) => render("incompatible", m),
-  });
+    // The probe must reach the page global INDEPENDENTLY of the scope we
+    // installed on, or it can only confirm its own assumption. `unsafeWindow`
+    // is that independent handle; `window` is what our own code sees, and the
+    // relationship between the two is what distinguishes page-context
+    // injection from a script-manager sandbox.
+    {
+      pageGlobal: typeof unsafeWindow !== "undefined" ? unsafeWindow : null,
+      selfGlobal: typeof window !== "undefined" ? window : null,
+    },
+  );
 
   // In an ISOLATED world `window.WebSocket` is not the page's, and the tap would
   // observe nothing while appearing perfectly healthy. Assert, loudly.
   if (!result.pageWorld) {
-    render("incompatible", "could not attach to the page — picks are NOT being captured");
+    render("incompatible", `could not attach to the page — picks are NOT being captured (${result.reason})`);
     return;
   }
 
@@ -331,7 +346,7 @@ function start(): void {
     W.alert(
       `${status.state}\n\n${EXPLANATIONS[status.state]}\n\n` +
         `buffered: ${status.buffered}\nunrecognised: ${status.unrecognisedCount}\n` +
-        `picks in ledger: ${ledgerFilled}/${ledgerSlots || "?"}\nversion: ${TAP_VERSION}`,
+        `picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}\nversion: ${TAP_VERSION}`,
     );
   });
   GM_registerMenuCommand("Draft Genie: paste pairing token", () => {

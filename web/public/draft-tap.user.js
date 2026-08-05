@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Draft Genie draft tap
 // @namespace    https://draft.neelamjai.com/
-// @version      0.1.2
+// @version      0.1.3
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
@@ -23,7 +23,7 @@
 "use strict";
 (() => {
   // tap/meta.ts
-  var TAP_VERSION = "0.1.2";
+  var TAP_VERSION = "0.1.3";
   var CONTRACT_VERSION = 1;
   var INGEST_ORIGIN = "https://draft.neelamjai.com";
   var DRAFT_HOST = "fantasydraft.espn.com";
@@ -306,7 +306,8 @@
     buffering: "Cannot reach Draft Genie \u2014 picks are being saved and will be sent when it returns.",
     "version-rejected": "Draft Genie does not understand this version of the tap. Update it.",
     incompatible: "ESPN's draft messages no longer match what this tap understands, or it could not attach to the page. Picks are NOT being captured \u2014 update the tap.",
-    "draft-finished": "Draft complete. Nothing further to send."
+    "draft-finished": "Draft complete. Nothing further to send.",
+    "draft-end-unknown": "The draft room has gone quiet and this tap cannot confirm the draft finished \u2014 it never saw a complete pick list. If the draft is over, nothing is wrong. If it is not, reload the draft room."
   };
   function isDegraded(status2) {
     return status2.unrecognisedCount > 0 || status2.state === "incompatible" || status2.state === "version-rejected" || status2.state === "buffering";
@@ -359,11 +360,52 @@
     });
     return proxy;
   }
-  function install(scope, hooks) {
+  function sharesRealmWithUs(other) {
+    const Ctor = other?.Object;
+    if (typeof Ctor !== "function") return false;
+    if (Ctor === Object) return true;
+    try {
+      return new Ctor() instanceof Object;
+    } catch {
+      return false;
+    }
+  }
+  function provePageWorld(scope, wrapped, probe) {
+    if (wrapped.length === 0) return { pageWorld: false, reason: "no transport constructor was wrapped" };
+    const page = probe?.pageGlobal;
+    if (!page) {
+      return {
+        pageWorld: false,
+        reason: "no page global available (unsafeWindow not granted) \u2014 cannot prove the page will use our wrapper"
+      };
+    }
+    if (page !== scope) {
+      return { pageWorld: false, reason: "wrapper was installed on a different global than the page's" };
+    }
+    const names = [
+      ["WebSocket", "ws"],
+      ["EventSource", "sse"]
+    ];
+    for (const [name, transport] of names) {
+      if (!wrapped.includes(transport)) continue;
+      if (!isWrapped(page[name])) {
+        return { pageWorld: false, reason: `${name} on the page global is not our wrapper` };
+      }
+    }
+    const self = probe?.selfGlobal;
+    if (self && page !== self && sharesRealmWithUs(page)) {
+      return {
+        pageWorld: false,
+        reason: "page global is a same-realm object distinct from window \u2014 not a real page handle"
+      };
+    }
+    return { pageWorld: true };
+  }
+  function install(scope, hooks, probe) {
     const addEL = scope.EventTarget?.prototype.addEventListener;
     if (!addEL) {
       hooks.onError?.("no EventTarget in scope \u2014 cannot observe");
-      return { wrapped: [], pageWorld: false };
+      return { wrapped: [], pageWorld: false, reason: "no EventTarget in scope" };
     }
     const wrapped = [];
     for (const [name, transport] of [
@@ -380,8 +422,73 @@
         hooks.onError?.(`install ${name}: ${e.message}`);
       }
     }
-    return { wrapped, pageWorld: wrapped.length > 0 };
+    return { wrapped, ...provePageWorld(scope, wrapped, probe) };
   }
+
+  // tap/draftEnd.ts
+  var IDLE_UNCERTAIN_MS = 10 * 60 * 1e3;
+  var DraftEnd = class {
+    constructor(ports, idleMs = IDLE_UNCERTAIN_MS) {
+      this.ports = ports;
+      this.idleMs = idleMs;
+    }
+    seen = /* @__PURE__ */ new Set();
+    total = 0;
+    over = false;
+    timer = null;
+    /** FR-024: once true, the tap stops relaying picks. */
+    get finished() {
+      return this.over;
+    }
+    get seenCount() {
+      return this.seen.size;
+    }
+    /** 0 means "not yet known" — never treated as a total. */
+    get totalSlots() {
+      return this.total;
+    }
+    /**
+     * Record picks from either source. `total` is supplied only by the ledger.
+     *
+     * Identity is the player id (FR-005a): the same value in both sources, and
+     * NOT the field US1 exists to disambiguate, which US1 did not resolve.
+     */
+    notePicks(playerIds, total) {
+      if (typeof total === "number" && total > 0) this.total = total;
+      for (const id of playerIds) this.seen.add(id);
+      this.armIdle();
+      if (this.over || this.total <= 0 || this.seen.size < this.total) return;
+      this.over = true;
+      this.clear();
+      this.ports.render("draft-finished", `${this.seen.size}/${this.total} picks`);
+      this.ports.flush();
+    }
+    /** Should this frame still be relayed? */
+    shouldRelay(kind) {
+      return !this.over || kind === "status";
+    }
+    /**
+     * A quiet room is ambiguous — ended, paused, or a dead stream all look
+     * identical. SC-014 forbids letting idle and dead read the same, so after a
+     * long silence with picks seen but no confirmed completion, say so.
+     */
+    armIdle() {
+      this.clear();
+      if (this.over) return;
+      this.timer = this.ports.setTimer(() => {
+        if (this.over || this.seen.size === 0) return;
+        const s = this.ports.currentState();
+        if (s === "incompatible" || s === "version-rejected") return;
+        this.ports.render("draft-end-unknown", `${this.seen.size}/${this.total || "?"} picks, then silence`);
+      }, this.idleMs);
+    }
+    clear() {
+      if (this.timer !== null) {
+        this.ports.clearTimer(this.timer);
+        this.timer = null;
+      }
+    }
+  };
 
   // tap/main.ts
   var W = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
@@ -548,10 +655,14 @@
   }
   function onFrame(raw, transport) {
     const c = classify(raw);
+    if (!draftEnd.shouldRelay(c.kind === "unrecognised" ? "status" : c.kind)) return;
     switch (c.kind) {
       case "pick": {
         const payload = filterPickFields(c.fields);
-        if (payload) enqueue("pick", payload, transport);
+        if (payload) {
+          enqueue("pick", payload, transport);
+          draftEnd.notePicks([payload.playerId]);
+        }
         return;
       }
       case "ledger": {
@@ -560,7 +671,7 @@
           if (ledger) {
             const picks = filledPicks(ledger);
             enqueue("ledger", picks.map(filterLedgerPick), transport);
-            noteLedger(ledger.totalSlots, picks.length);
+            draftEnd.notePicks(picks.map((p) => p.playerId), ledger.totalSlots);
           }
         } catch (e) {
           status.unrecognisedCount++;
@@ -579,28 +690,40 @@
         return;
     }
   }
-  var ledgerSlots = 0;
-  var ledgerFilled = 0;
+  var draftEnd = new DraftEnd({
+    render: (state, detail) => render(state, detail),
+    flush: () => flush(),
+    currentState: () => status.state,
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (h) => clearTimeout(h)
+  });
   function onDraftState(raw) {
     const phase = Number(raw.replace(/\n$/, "").split(" ")[1] ?? NaN);
     if (Number.isFinite(phase)) render(status.state, `draft phase ${phase}`);
   }
-  function noteLedger(total, filled) {
-    ledgerSlots = total;
-    ledgerFilled = filled;
-    if (total > 0 && filled >= total) render("draft-finished");
-  }
   function start() {
-    const result = install(W, {
-      isDraftChannel,
-      onFrame: (raw, transport) => onFrame(raw, transport),
-      onChannel: (event) => {
-        if (event === "open") render(token() ? "watching" : "not-paired");
+    const result = install(
+      W,
+      {
+        isDraftChannel,
+        onFrame: (raw, transport) => onFrame(raw, transport),
+        onChannel: (event) => {
+          if (event === "open") render(token() ? "watching" : "not-paired");
+        },
+        onError: (m) => render("incompatible", m)
       },
-      onError: (m) => render("incompatible", m)
-    });
+      // The probe must reach the page global INDEPENDENTLY of the scope we
+      // installed on, or it can only confirm its own assumption. `unsafeWindow`
+      // is that independent handle; `window` is what our own code sees, and the
+      // relationship between the two is what distinguishes page-context
+      // injection from a script-manager sandbox.
+      {
+        pageGlobal: typeof unsafeWindow !== "undefined" ? unsafeWindow : null,
+        selfGlobal: typeof window !== "undefined" ? window : null
+      }
+    );
     if (!result.pageWorld) {
-      render("incompatible", "could not attach to the page \u2014 picks are NOT being captured");
+      render("incompatible", `could not attach to the page \u2014 picks are NOT being captured (${result.reason})`);
       return;
     }
     const params = new URLSearchParams(W.location.search);
@@ -629,7 +752,7 @@ ${EXPLANATIONS[status.state]}
 
 buffered: ${status.buffered}
 unrecognised: ${status.unrecognisedCount}
-picks in ledger: ${ledgerFilled}/${ledgerSlots || "?"}
+picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}
 version: ${TAP_VERSION}`
       );
     });

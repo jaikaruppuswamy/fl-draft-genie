@@ -94,11 +94,21 @@ describe("wrapConstructor — URL scoping", () => {
 
 describe("install", () => {
   it("wraps both transports and reports page-world membership", () => {
-    const scope = { WebSocket: FakeSocket, EventSource: FakeSocket, EventTarget };
-    const r = install(scope as never, hooks());
+    const scope = { WebSocket: FakeSocket, EventSource: FakeSocket, EventTarget, Object };
+    // The probe must be supplied. Wrapping a global says nothing about WHOSE
+    // global it is, so without a page handle `pageWorld` is unproven, not true
+    // — see the preflight tests in status.test.ts.
+    const r = install(scope as never, hooks(), { pageGlobal: scope as never, selfGlobal: scope as never });
     expect(r.wrapped).toEqual(["ws", "sse"]);
     expect(r.pageWorld).toBe(true);
     expect(isWrapped(scope.WebSocket)).toBe(true);
+  });
+
+  it("wraps successfully but withholds page-world when no page handle is given", () => {
+    const scope = { WebSocket: FakeSocket, EventSource: FakeSocket, EventTarget, Object };
+    const r = install(scope as never, hooks());
+    expect(r.wrapped).toEqual(["ws", "sse"]);
+    expect(r.pageWorld).toBe(false);
   });
 
   it("is idempotent — a second install does not double-wrap", () => {

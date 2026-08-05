@@ -18,7 +18,8 @@ export type TapState =
   | "buffering"
   | "version-rejected"
   | "incompatible"
-  | "draft-finished";
+  | "draft-finished"
+  | "draft-end-unknown";
 
 export interface TapStatus {
   state: TapState;
@@ -42,6 +43,9 @@ export const EXPLANATIONS: Record<TapState, string> = {
     "ESPN's draft messages no longer match what this tap understands, or it could not attach to the page. " +
     "Picks are NOT being captured — update the tap.",
   "draft-finished": "Draft complete. Nothing further to send.",
+  "draft-end-unknown":
+    "The draft room has gone quiet and this tap cannot confirm the draft finished — it never saw a complete " +
+    "pick list. If the draft is over, nothing is wrong. If it is not, reload the draft room.",
 };
 
 export function describe(status: TapStatus): string {

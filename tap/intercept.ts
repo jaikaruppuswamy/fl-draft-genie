@@ -104,16 +104,111 @@ export function wrapConstructor<T extends abstract new (...a: never[]) => unknow
 
 export interface InstallResult {
   wrapped: Transport[];
-  /** False when the global we wrapped is not the page's — in an isolated world
-   *  we would observe nothing while appearing perfectly healthy. */
+  /** False when the global we wrapped is not provably the page's — in an
+   *  isolated world we would observe nothing while appearing perfectly
+   *  healthy. Never true on the strength of a guess: see `provePageWorld`. */
   pageWorld: boolean;
+  /** Why page-world membership could not be proven. Drives the badge text. */
+  reason?: string;
 }
 
-export function install(scope: GlobalLike, hooks: InterceptHooks): InstallResult {
+export interface PageWorldProbe {
+  /** The page's own global, obtained INDEPENDENTLY of `scope` — i.e. from
+   *  `unsafeWindow`, not from `window`. Null/undefined means unavailable. */
+  pageGlobal?: GlobalLike | null;
+  /** The global our own code sees (`window`). Compared against `pageGlobal`
+   *  to tell the page realm from a script-manager sandbox. */
+  selfGlobal?: GlobalLike | null;
+}
+
+/**
+ * Do our realm and `other`'s realm share intrinsics?
+ *
+ * Cross-realm intrinsics are DISTINCT objects, so an instance built by another
+ * realm's `Object` fails `instanceof` against ours. This is the only test here
+ * that actually observes a realm boundary rather than inferring one.
+ */
+function sharesRealmWithUs(other: GlobalLike | null | undefined): boolean {
+  const Ctor = (other as { Object?: ObjectConstructor } | null | undefined)?.Object;
+  if (typeof Ctor !== "function") return false;
+  if (Ctor === Object) return true;
+  try {
+    return new Ctor() instanceof Object;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Prove — not assume — that the wrapper the page will use is ours.
+ *
+ * The previous version returned `wrapped.length > 0`, which says only that a
+ * global existed and we replaced something. In an isolated world BOTH of those
+ * are still true: `window.WebSocket` exists there and is perfectly writable, we
+ * wrap our own private copy, ESPN keeps using its own, and the tap reports
+ * healthy while observing nothing. That is precisely the silent failure T041
+ * describes, so the check has to establish page membership positively.
+ *
+ * The proof obligations, in order:
+ *
+ *  1. Something was actually wrapped.
+ *  2. A page global was supplied at all. Without `unsafeWindow` we are holding
+ *     `window`, and we CANNOT distinguish the page's window from an isolated
+ *     copy — so we report unproven rather than assuming the happy case.
+ *  3. We installed onto that same object, not a different one.
+ *  4. Our marker is readable back off it, which is what ESPN's `new WebSocket`
+ *     will resolve against.
+ *  5. `pageGlobal` is genuinely the PAGE's. If it is a distinct object from our
+ *     own `window`, it must also be cross-realm; a distinct same-realm object
+ *     is not a page handle and must not be trusted. If it IS our `window`, then
+ *     `unsafeWindow === window`, which is what page-context injection looks
+ *     like under `@sandbox raw` / `@inject-into page`.
+ */
+export function provePageWorld(
+  scope: GlobalLike,
+  wrapped: Transport[],
+  probe: PageWorldProbe | undefined,
+): { pageWorld: boolean; reason?: string } {
+  if (wrapped.length === 0) return { pageWorld: false, reason: "no transport constructor was wrapped" };
+
+  const page = probe?.pageGlobal;
+  if (!page) {
+    return {
+      pageWorld: false,
+      reason: "no page global available (unsafeWindow not granted) — cannot prove the page will use our wrapper",
+    };
+  }
+  if (page !== scope) {
+    return { pageWorld: false, reason: "wrapper was installed on a different global than the page's" };
+  }
+
+  const names = [
+    ["WebSocket", "ws"],
+    ["EventSource", "sse"],
+  ] as const;
+  for (const [name, transport] of names) {
+    if (!wrapped.includes(transport)) continue;
+    if (!isWrapped((page as Record<string, unknown>)[name])) {
+      return { pageWorld: false, reason: `${name} on the page global is not our wrapper` };
+    }
+  }
+
+  const self = probe?.selfGlobal;
+  if (self && page !== self && sharesRealmWithUs(page)) {
+    return {
+      pageWorld: false,
+      reason: "page global is a same-realm object distinct from window — not a real page handle",
+    };
+  }
+
+  return { pageWorld: true };
+}
+
+export function install(scope: GlobalLike, hooks: InterceptHooks, probe?: PageWorldProbe): InstallResult {
   const addEL = scope.EventTarget?.prototype.addEventListener;
   if (!addEL) {
     hooks.onError?.("no EventTarget in scope — cannot observe");
-    return { wrapped: [], pageWorld: false };
+    return { wrapped: [], pageWorld: false, reason: "no EventTarget in scope" };
   }
   const wrapped: Transport[] = [];
   for (const [name, transport] of [
@@ -130,5 +225,5 @@ export function install(scope: GlobalLike, hooks: InterceptHooks): InstallResult
       hooks.onError?.(`install ${name}: ${(e as Error).message}`);
     }
   }
-  return { wrapped, pageWorld: wrapped.length > 0 };
+  return { wrapped, ...provePageWorld(scope, wrapped, probe) };
 }
