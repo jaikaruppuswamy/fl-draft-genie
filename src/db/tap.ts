@@ -134,6 +134,18 @@ export interface RetainedBatch {
 }
 
 export async function retainBatch(db: D1Database, b: RetainedBatch, now: Date): Promise<void> {
+  // Stamp `received_at` AS LATE AS POSSIBLE — here, immediately before the
+  // insert — rather than carrying the handler's entry time.
+  //
+  // 005's feed cursor is a high-water mark over `(received_at, id)`, so a row
+  // that commits with a timestamp EARLIER than one the session has already
+  // read is never read again: a pick lost behind a 202. The handler stamps its
+  // clock three D1 round-trips before this insert, and two concurrent batches
+  // can easily reorder across that gap. Narrowing the window to a single
+  // statement does not make it impossible, but it removes the part that was
+  // both large and avoidable. The residual is bounded by the session's
+  // re-read on rebuild.
+  const receivedAt = new Date(Math.max(now.getTime(), Date.now())).toISOString();
   await db
     .prepare(
       `INSERT INTO tap_batches
@@ -149,7 +161,7 @@ export async function retainBatch(db: D1Database, b: RetainedBatch, now: Date): 
       b.season,
       b.installId,
       b.sessionId,
-      now.toISOString(),
+      receivedAt,
       b.firstSeq,
       b.lastSeq,
       b.messages.length,

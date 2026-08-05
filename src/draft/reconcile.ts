@@ -50,7 +50,20 @@ export interface DraftState {
   myTeamId: number | null;
   /** 0 means "not yet known" — never treated as a total. */
   totalPicks: number;
-  /** Dense, ascending by `overall`. */
+  /**
+   * Ledger-confirmed picks, at their REAL overall numbers. Authoritative.
+   */
+  confirmed: Pick[];
+  /**
+   * Streamed picks no ledger has confirmed yet, in ARRIVAL order.
+   *
+   * Kept separate because an incremental frame carries no ordinal — `SELECTED`
+   * has none — so its overall can only ever be derived. Mixing the two lost
+   * data: a ledger merged by ordinal onto position-derived numbers evicts
+   * whatever the stream had parked at those slots. See `applyLedger`.
+   */
+  pending: Pick[];
+  /** Derived: `confirmed`, then `pending` numbered from the ledger's high water. */
   picks: Pick[];
   /** overall → the revision in which that turn's event last fired. */
   deckFired: Record<number, number>;
@@ -71,6 +84,8 @@ export function initialState(over: Partial<DraftState> = {}): DraftState {
     order: [],
     myTeamId: null,
     totalPicks: 0,
+    confirmed: [],
+    pending: [],
     picks: [],
     deckFired: {},
     clockFired: {},
@@ -118,29 +133,84 @@ function toPick(o: PickObservation, overall: number): Pick {
   };
 }
 
-/** Merge a ledger snapshot, which is authoritative where it speaks. */
-function applyLedger(current: Pick[], ledger: PickObservation[]): Pick[] {
-  const byOverall = new Map(current.map((p) => [p.overall, p]));
-  let nextDerived = current.length + 1;
+/**
+ * Merge a ledger snapshot. It is authoritative for the range it covers.
+ *
+ * THE BUG THIS REPLACES lost picks outright. The old version merged into a map
+ * keyed on `overall` only, so when a dropped frame had shifted the derived
+ * numbering, a *truthful* ledger silently evicted whatever the stream had
+ * parked at the slots it restated. Reproduced: tab A drops one frame and
+ * relays 10 of 11 real picks; tab B's 8-row ledger then arrives; the result is
+ * 10 picks for 11 real ones with one player deleted, still dense, so nothing
+ * detects it — and `frontier` is wrong for the rest of the draft. The revision
+ * bumped, which only made consumers re-apply the corrupted list.
+ *
+ * The fix is to stop mixing the two sources. A ledger row carries a REAL
+ * ordinal; a `SELECTED` frame carries none and can only be positioned by
+ * derivation. So ledger rows become `confirmed` at their stated overalls, and
+ * anything the ledger claims is removed from `pending` by PLAYER IDENTITY —
+ * never by position.
+ */
+function applyLedger(s: DraftState, ledger: PickObservation[]): { confirmed: Pick[]; pending: Pick[] } {
+  if (ledger.length === 0) return { confirmed: s.confirmed, pending: s.pending };
+
+  const byOverall = new Map(s.confirmed.map((p) => [p.overall, p]));
+  // Rows without an ordinal cannot be placed by this path at all; they are
+  // treated as stream arrivals rather than invented into a slot.
+  const ordinalLess: PickObservation[] = [];
+  let covered = 0;
+
   for (const o of ledger) {
-    // A ledger row without an ordinal is appended in order, same as a frame.
-    const overall = o.overallPickNumber ?? nextDerived++;
+    if (o.overallPickNumber === undefined) {
+      ordinalLess.push(o);
+      continue;
+    }
+    const overall = o.overallPickNumber;
+    covered = Math.max(covered, overall);
     const existing = byOverall.get(overall);
-    // FIRST-SEEN-WINS on observed_at: a rebuild collapses every pick onto one
-    // observation time otherwise, destroying the per-pick timing 008 needs.
+    // FIRST-SEEN-WINS on observed_at, so a rebuild cannot flatten the per-pick
+    // timing 008 depends on.
     byOverall.set(overall, { ...toPick(o, overall), observedAt: existing?.observedAt ?? o.observedAt });
   }
-  return sortPicks([...byOverall.values()]);
+
+  const confirmed = sortPicks([...byOverall.values()]);
+  const claimed = new Set(confirmed.map((p) => p.playerId));
+
+  // Drop by IDENTITY, not position: a player the ledger has now placed must not
+  // survive at whatever slot derivation had guessed for it.
+  const pending = [...s.pending, ...ordinalLess.map((o) => toPick(o, 0))].filter((p) => !claimed.has(p.playerId));
+  return { confirmed, pending };
 }
 
-/** Append incremental picks, collapsing anything already known by identity. */
-function applyIncremental(current: Pick[], picks: PickObservation[]): Pick[] {
-  const known = new Set(current.map((p) => p.playerId));
-  const out = [...current];
+/** Record streamed picks, collapsing anything already known by identity. */
+function applyIncremental(s: DraftState, picks: PickObservation[]): Pick[] {
+  const known = new Set([...s.confirmed, ...s.pending].map((p) => p.playerId));
+  const pending = [...s.pending];
   for (const o of picks) {
     if (known.has(o.playerId)) continue; // two tabs, or a replayed batch
     known.add(o.playerId);
-    out.push(toPick(o, out.length + 1));
+    pending.push(toPick(o, 0)); // position assigned by `materialise`
+  }
+  return pending;
+}
+
+/**
+ * Build the visible pick list: ledger truth first, then streamed arrivals
+ * numbered from the ledger's high-water mark.
+ *
+ * Numbering only the UNCONFIRMED tail is what makes a dropped frame a
+ * bounded error instead of a permanent one: the next ledger that covers the
+ * gap repairs the numbering, and nothing is ever evicted in the meantime.
+ */
+function materialise(confirmed: Pick[], pending: Pick[]): Pick[] {
+  const out = [...confirmed];
+  const taken = new Set(confirmed.map((p) => p.overall));
+  let next = 1;
+  for (const p of pending) {
+    while (taken.has(next)) next++;
+    taken.add(next);
+    out.push({ ...p, overall: next });
+    next++;
   }
   return sortPicks(out);
 }
@@ -176,9 +246,20 @@ export interface ReduceResult {
  * committing on every no-op sweep (research §7).
  */
 export function reconcile(state: DraftState, obs: Observation): ReduceResult {
-  let picks = state.picks;
-  if (obs.ledger) picks = applyLedger(picks, obs.ledger);
-  if (obs.picks.length) picks = applyIncremental(picks, obs.picks);
+  // Ledger FIRST: it is authoritative, and applying it before the stream means
+  // an incremental frame for a pick the ledger already placed is recognised as
+  // a duplicate rather than appended a second time.
+  let confirmed = state.confirmed;
+  let pending = state.pending;
+  if (obs.ledger) {
+    const merged = applyLedger(state, obs.ledger);
+    confirmed = merged.confirmed;
+    pending = merged.pending;
+  }
+  if (obs.picks.length) {
+    pending = applyIncremental({ ...state, confirmed, pending }, obs.picks);
+  }
+  const picks = materialise(confirmed, pending);
 
   const diverged = firstDivergence(state.picks, picks);
   if (diverged === null) {
@@ -205,7 +286,7 @@ export function reconcile(state: DraftState, obs: Observation): ReduceResult {
     }
   }
 
-  let next: DraftState = { ...state, picks, revision, deckFired, clockFired };
+  let next: DraftState = { ...state, confirmed, pending, picks, revision, deckFired, clockFired };
   const events: DraftEvent[] = [];
 
   for (const p of picks) {

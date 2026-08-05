@@ -51,7 +51,17 @@ interface Stored {
   scope: SessionScope | null;
   state: DraftState;
   cursor: FeedCursorRow | null;
-  /** Terminal once the draft completes; stops the alarm rescheduling. */
+  /**
+   * TERMINAL and intentional: set only by `shutdown()`, when the league is
+   * disconnected. Deliberately NOT set on completion.
+   *
+   * It used to latch on `state.complete` too, with no clearing path anywhere —
+   * so a single premature completion (a wrong `totalPicks` from pre-draft data,
+   * for instance) silenced the session for the rest of a live draft, and
+   * `arm()`, whose whole job is to correct late-arriving pre-draft data, could
+   * not undo it. Completion is a BELIEF derived from data and must stay
+   * revisable; a disconnect is a decision and does not.
+   */
   closed: boolean;
 }
 
@@ -77,6 +87,7 @@ export class DraftSession extends DurableObject<Env> {
    */
   async arm(scope: SessionScope): Promise<void> {
     const s = await this.load();
+    if (s.closed) return; // disconnected: an explicit decision, not a belief
     await this.ctx.storage.put("scope", scope);
     if (!s.scope) {
       await this.ctx.storage.put(
@@ -85,11 +96,17 @@ export class DraftSession extends DurableObject<Env> {
       );
     } else {
       // Refresh the parts the draft's structure depends on; keep the picks.
+      const totalPicks = scope.totalPicks || s.state.totalPicks;
       await this.ctx.storage.put("state", {
         ...s.state,
         order: scope.order.length ? scope.order : s.state.order,
         myTeamId: scope.myTeamId ?? s.state.myTeamId,
-        totalPicks: scope.totalPicks || s.state.totalPicks,
+        totalPicks,
+        // RE-EVALUATE completion against the corrected total. Pre-draft data
+        // arrives late and can be wrong; if it said 24 picks and the truth is
+        // 72, the session must come back to life rather than stay silent for
+        // the rest of the draft.
+        complete: totalPicks > 0 && s.state.picks.length >= totalPicks,
       });
     }
     await this.ensureAlarm();
@@ -157,7 +174,25 @@ export class DraftSession extends DurableObject<Env> {
    * productive sweep from an idle one.
    */
   private async pump(): Promise<number> {
+    // SERIALISED. `pump` is a read-modify-write whose middle is a D1 query —
+    // a NON-storage await, which does not close the Durable Object input gate.
+    // Two nudges (or a nudge racing the alarm) would otherwise both reduce from
+    // the same base state: the loser's commit rolls the winner's picks and
+    // cursor backwards, and both emit the same turn events, breaking
+    // "exactly once per revision".
+    //
+    // `blockConcurrencyWhile` is the documented way to hold the gate across an
+    // arbitrary await. The work is a single D1 read plus one storage put, so
+    // the serialisation costs nothing a draft can notice.
+    return this.ctx.blockConcurrencyWhile(() => this.pumpOnce());
+  }
+
+  private async pumpOnce(): Promise<number> {
     const s = await this.load();
+    // Note this does NOT stop on `state.complete`. A completed session still
+    // accepts frames, because a later ledger can prove the completion wrong —
+    // and a session that refuses to look is one that cannot self-heal. What
+    // completion stops is the ALARM, in `ensureAlarm`.
     if (!s.scope || s.closed) return 0;
 
     const rows = await readBatchesAfter(
@@ -201,7 +236,6 @@ export class DraftSession extends DurableObject<Env> {
     await this.ctx.storage.put({
       state,
       ...(cursorMoved ? { cursor: observation.cursor } : {}),
-      ...(state.complete ? { closed: true } : {}),
     });
 
     if (events.length) this.broadcast(events, state);

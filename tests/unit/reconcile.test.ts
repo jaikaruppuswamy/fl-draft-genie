@@ -245,3 +245,61 @@ describe("frontier", () => {
     expect(frontier(reconcile(base(), obs({ picks: [pick(5, 100)] })).state)).toBe(2);
   });
 });
+
+describe("a ledger that is STALER than the stream (regression)", () => {
+  // This lost picks outright. The old merge keyed on `overall` only, so when a
+  // dropped frame had shifted the derived numbering, a truthful ledger evicted
+  // whatever the stream had parked at the slots it restated — silently, and
+  // still dense, so nothing detected it.
+  //
+  // Reachable in normal operation: two tabs relaying one league is supported
+  // (010 SC-013), their batches interleave in one cursor read, and the tap's
+  // 750 ms batch window and durable buffer both put a ledger behind the stream.
+  const streamThenLedger = (dropped: number) => {
+    let s = base();
+    const real = [1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011];
+    for (const pid of real) {
+      if (pid === dropped) continue; // tab A's socket dropped this frame
+      s = reconcile(s, obs({ picks: [pick(0, pid)] })).state;
+    }
+    // Tab B's INIT ledger, truthful, covering real picks 1..8.
+    const ledger = real.slice(0, 8).map((pid, i) => pick(0, pid, { overallPickNumber: i + 1 }));
+    return reconcile(s, obs({ ledger }));
+  };
+
+  it("LOSES NOTHING when the ledger lags the stream", () => {
+    const r = streamThenLedger(1003);
+    expect(r.state.picks).toHaveLength(11);
+    expect(r.state.picks.some((p) => p.playerId === 1009)).toBe(true);
+  });
+
+  it("renumbers the tail correctly instead of leaving it shifted", () => {
+    const r = streamThenLedger(1003);
+    expect(r.state.picks.map((p) => p.playerId)).toEqual([
+      1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011,
+    ]);
+    expect(frontier(r.state)).toBe(12);
+  });
+
+  it("survives two dropped frames, not just one", () => {
+    let s = base();
+    for (const pid of [1001, 1002, 1005, 1006, 1007, 1008, 1009, 1010]) {
+      s = reconcile(s, obs({ picks: [pick(0, pid)] })).state;
+    }
+    const ledger = [1001, 1002, 1003, 1004, 1005, 1006].map((pid, i) =>
+      pick(0, pid, { overallPickNumber: i + 1 }),
+    );
+    const r = reconcile(s, obs({ ledger }));
+    expect(r.state.picks.map((p) => p.playerId)).toEqual([1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010]);
+  });
+
+  it("still treats a ledger that merely confirms the stream as a no-op", () => {
+    // The benign direction must stay free, or every sweep commits.
+    let s = base();
+    for (const pid of [1001, 1002, 1003]) s = reconcile(s, obs({ picks: [pick(0, pid)] })).state;
+    const ledger = [1001, 1002, 1003].map((pid, i) => pick(0, pid, { overallPickNumber: i + 1 }));
+    const r = reconcile(s, obs({ ledger }));
+    expect(r.events).toEqual([]);
+    expect(r.state.revision).toBe(0);
+  });
+});
