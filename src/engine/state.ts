@@ -92,9 +92,13 @@ export function deriveState(i: DeriveInput): EngineState {
           totalPicks: i.totalPicks > 0 ? i.totalPicks : undefined,
         });
 
+  // NULL, not 0. `totalPicks === 0` means the draft's length is not yet
+  // established (no session armed, or pre-draft data not in). Returning 0 there
+  // is a CLAIM — "you have no picks left" — and it makes FR-025 announce that
+  // the roster cannot be completed before the draft has started.
   const myRemainingPicks =
-    i.myTeamId === null || i.totalPicks <= 0
-      ? 0
+    i.myTeamId === null || i.totalPicks <= 0 || i.order.length === 0
+      ? null
       : remainingSchedule({
           order: i.order,
           frontier,

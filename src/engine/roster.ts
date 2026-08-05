@@ -42,8 +42,9 @@ export interface RosterStatus {
   needs: RosterNeed[];
   /** Total mandatory slots still to fill. */
   unfilledMandatory: number;
-  remainingPicks: number;
-  /** Every remaining pick is forced (FR-025). */
+  /** NULL when the draft's length is not yet known — see `EngineState`. */
+  remainingPicks: number | null;
+  /** Every remaining pick is forced (FR-025). Never true while picks are unknown. */
   forced: boolean;
   /** Already impossible — more unfilled slots than picks left. */
   unsatisfiable: boolean;
@@ -54,7 +55,7 @@ export interface RosterStatus {
 export function rosterStatus(
   roster: RosterSnapshot,
   myRoster: readonly RosteredPlayer[],
-  remainingPicks: number,
+  remainingPicks: number | null,
 ): RosterStatus {
   const required = new Map<string, number>();
   for (const slot of roster.slots) {
@@ -90,10 +91,19 @@ export function rosterStatus(
     needs,
     unfilledMandatory,
     remainingPicks,
-    // `> 0` matters: with nothing unfilled and no picks left, nothing is
+    // Both of these are CLAIMS about the future, so neither may be made while
+    // the number of remaining picks is unknown (null). Before a draft is armed
+    // the honest position is "you still need these positions" — not "every pick
+    // is forced" and certainly not "this roster cannot be completed".
+    //
+    // `> 0` also matters: with nothing unfilled and no picks left, nothing is
     // "forced" — the roster is simply complete.
-    forced: unfilledMandatory > 0 && remainingPicks > 0 && remainingPicks <= unfilledMandatory,
-    unsatisfiable: unfilledMandatory > remainingPicks,
+    forced:
+      remainingPicks !== null &&
+      unfilledMandatory > 0 &&
+      remainingPicks > 0 &&
+      remainingPicks <= unfilledMandatory,
+    unsatisfiable: remainingPicks !== null && unfilledMandatory > remainingPicks,
     neededPositions,
   };
 }
@@ -107,6 +117,9 @@ export function fillsNeed(position: string, status: RosterStatus): boolean {
 export function mandatoryWarning(status: RosterStatus): string | null {
   if (status.unfilledMandatory === 0) return null;
   const positions = [...status.neededPositions].sort().join(", ");
+  // With the pick count unknown, say what IS known and stop there rather than
+  // inventing "0 picks left".
+  if (status.remainingPicks === null) return `${positions} still unfilled`;
   const picks = status.remainingPicks === 1 ? "1 pick" : `${status.remainingPicks} picks`;
   return `${positions} still unfilled, ${picks} left`;
 }

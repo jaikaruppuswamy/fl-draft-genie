@@ -59,6 +59,27 @@ export interface LeagueDetail extends LeagueSummary {
   warning?: string;
 }
 
+// --- 006: the preferred-player list -----------------------------------------
+
+export interface PreferredPlayer {
+  espn_player_id: number;
+  /** Null once the player has left the board entirely (FR-021). */
+  name: string | null;
+  position: string | null;
+  team: string | null;
+  /**
+   * False for a released or retired player. The row survives deliberately —
+   * deleting it would erase the owner's intent because of something a nightly
+   * projection refresh noticed — and the page says plainly they cannot be used.
+   */
+  on_board: boolean;
+}
+
+export interface PreferredResponse {
+  season: number;
+  players: PreferredPlayer[];
+}
+
 export interface BoardPlayer {
   espn_player_id: number;
   name: string;
@@ -182,6 +203,11 @@ export const apiClient = {
   syncLeague: (id: string) => request<LeagueDetail>("POST", `/api/leagues/${id}/sync`),
   deleteLeague: (id: string) => request<void>("DELETE", `/api/leagues/${id}`),
   getBoard: (id: string) => request<BoardResponse>("GET", `/api/leagues/${id}/board`),
+  getPreferred: (id: string) => request<PreferredResponse>("GET", `/api/leagues/${id}/preferred`),
+  addPreferred: (id: string, playerId: number) =>
+    request<void>("PUT", `/api/leagues/${id}/preferred/${playerId}`),
+  removePreferred: (id: string, playerId: number) =>
+    request<void>("DELETE", `/api/leagues/${id}/preferred/${playerId}`),
   getPlayerDetail: (id: string, playerId: number) =>
     request<PlayerDetail>("GET", `/api/leagues/${id}/board/players/${playerId}`),
   refreshProjections: () =>

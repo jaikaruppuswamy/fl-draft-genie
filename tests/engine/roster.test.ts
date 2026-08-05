@@ -138,6 +138,37 @@ describe("already unsatisfiable", () => {
   });
 });
 
+describe("the pick count is UNKNOWN (null), not zero", () => {
+  // Found by rendering the page before a draft was armed: with no session,
+  // `totalPicks` is 0, so remaining picks came out as 0, so eight unfilled
+  // slots against "0 picks left" was reported as UNSATISFIABLE — the engine
+  // announcing that a roster could not be completed before the draft started.
+  //
+  // Same shape as 005 treating `totalPicks = 0` as a real total, which made
+  // completion unreachable in production. Zero is a claim; null is an absence.
+
+  it("claims nothing is unsatisfiable when the pick count is unknown", () => {
+    const s = rosterStatus(ROSTER, [], null);
+    expect(s.unfilledMandatory).toBe(8);
+    expect(s.unsatisfiable).toBe(false);
+    expect(s.forced).toBe(false);
+  });
+
+  it("still warns about what IS known", () => {
+    expect(mandatoryWarning(rosterStatus(ROSTER, ALL_BUT_K, null))).toBe("K still unfilled");
+  });
+
+  it("says nothing about picks it cannot count", () => {
+    expect(mandatoryWarning(rosterStatus(ROSTER, ALL_BUT_K, null))).not.toMatch(/0 picks/);
+  });
+
+  it("DOES report unsatisfiable once the count is genuinely known to be 0", () => {
+    // The distinction has to cut both ways, or the fix just disables the rule.
+    const s = rosterStatus(ROSTER, ALL_BUT_K, 0);
+    expect(s.unsatisfiable).toBe(true);
+  });
+});
+
 describe("determinism (FR-017)", () => {
   it("orders needs and warnings identically across calls", () => {
     const a = rosterStatus(ROSTER, have("RB"), 8);

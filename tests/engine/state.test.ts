@@ -185,10 +185,19 @@ describe("remaining picks (drives FR-025)", () => {
     expect(s.myRemainingPicks).toBe(3);
   });
 
-  it("is 0 when the draft length is not yet known", () => {
-    // `totalPicks: 0` means "not established" — never a total. Treating it as
-    // one is what made completion unreachable in production during 005.
-    expect(base({ totalPicks: 0 }).myRemainingPicks).toBe(0);
+  it("is NULL — not 0 — when the draft length is not yet known", () => {
+    // `totalPicks: 0` means "not established", never a total. Returning 0 here
+    // is a claim that the owner has no picks left, and it made the engine
+    // announce an unsatisfiable roster before the draft had started.
+    expect(base({ totalPicks: 0 }).myRemainingPicks).toBeNull();
+  });
+
+  it("is null when the order is unknown", () => {
+    expect(base({ order: [] }).myRemainingPicks).toBeNull();
+  });
+
+  it("is null when the owner's team is unknown", () => {
+    expect(base({ myTeamId: null }).myRemainingPicks).toBeNull();
   });
 });
 

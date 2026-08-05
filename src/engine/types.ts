@@ -76,8 +76,16 @@ export interface EngineState {
    * `picksUntilTurn()` already returns null for this, correctly.
    */
   gapToNextTurn: number | null;
-  /** How many picks the owner still has, including this one. Drives FR-025. */
-  myRemainingPicks: number;
+  /**
+   * How many picks the owner still has, including this one. Drives FR-025.
+   *
+   * **NULL means UNKNOWN**, not zero — no session is armed, or the draft's
+   * length has not been established. Zero is a claim ("you have no picks
+   * left"); null is an absence. Conflating them makes the engine announce that
+   * a roster cannot be completed before the draft has even started, which is
+   * the same mistake as 005 treating `totalPicks = 0` as a real total.
+   */
+  myRemainingPicks: number | null;
   /** The positions of picks already made, newest last — drives run detection. */
   recentPositions: string[];
   /** 005's verdict. Non-null means withhold and say why (FR-012). */
