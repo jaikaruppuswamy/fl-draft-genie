@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Draft Genie draft tap
 // @namespace    https://draft.neelamjai.com/
-// @version      0.1.1
+// @version      0.1.2
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
@@ -23,7 +23,7 @@
 "use strict";
 (() => {
   // tap/meta.ts
-  var TAP_VERSION = "0.1.1";
+  var TAP_VERSION = "0.1.2";
   var CONTRACT_VERSION = 1;
   var INGEST_ORIGIN = "https://draft.neelamjai.com";
   var DRAFT_HOST = "fantasydraft.espn.com";
@@ -152,7 +152,8 @@
   function decodeInitFrame(frame, atob) {
     const trimmed = frame.replace(/\n$/, "");
     if (!trimmed.startsWith("INIT ")) return null;
-    const b64 = trimmed.slice(5).trim();
+    const b64 = trimmed.slice(5).trim().split(/\s+/)[0] ?? "";
+    if (!b64) throw new LedgerFormatError("INIT frame carried no payload");
     const bin = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "="));
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);

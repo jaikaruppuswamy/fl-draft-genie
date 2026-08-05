@@ -16,7 +16,20 @@ const oracle = JSON.parse(readFileSync("tests/fixtures/tap/oracle-2026.json", "u
 };
 
 const initFrames = frames.filter((f) => f.data?.startsWith("INIT "));
-const nodeAtob = (s: string) => Buffer.from(s, "base64").toString("binary");
+/**
+ * A STRICT atob, matching the browser rather than Node.
+ *
+ * `Buffer.from(s, "base64")` silently ignores characters outside the base64
+ * alphabet. The browser's `atob` throws. Using the lenient version here meant
+ * these tests passed against a payload the real tap could not decode — the bug
+ * reached production. The helper now rejects exactly what the browser rejects.
+ */
+const nodeAtob = (s: string) => {
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(s)) {
+    throw new Error("Failed to execute 'atob': The string to be decoded is not correctly encoded.");
+  }
+  return Buffer.from(s, "base64").toString("binary");
+};
 const decode = (i: number) => decodeInitFrame(initFrames[i]!.data!, nodeAtob)!;
 
 describe("decodeLedger", () => {
@@ -92,6 +105,19 @@ describe("decodeLedger", () => {
 
   it("fails loudly when no pick array is present, rather than returning nothing", () => {
     expect(() => decodeLedger(new Uint8Array(4000))).toThrow(/layout may have changed/);
+  });
+
+  it("decodes an INIT frame whose payload is followed by the trailing '#' block", () => {
+    // The real frame is `INIT <base64> <2048 '#'>`. Feeding the whole tail to a
+    // strict atob throws — which is what happened in production.
+    const real = initFrames[1]!.data!;
+    expect(real).toMatch(/#{100,}/);
+    expect(() => decodeInitFrame(real, nodeAtob)).not.toThrow();
+    expect(filledPicks(decodeInitFrame(real, nodeAtob)!).length).toBeGreaterThan(0);
+  });
+
+  it("throws a clear error when the INIT frame carries no payload", () => {
+    expect(() => decodeInitFrame("INIT   \n", nodeAtob)).toThrow(/no payload/);
   });
 
   it("ignores frames that are not INIT", () => {

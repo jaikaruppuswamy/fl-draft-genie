@@ -152,8 +152,19 @@ Other observed frames — all discarded by FR-006, none relayed:
 | `PONG` | keep-alive | **inbound** keep-alive — `PING` is client→server only and we never send it. Belongs in FR-017a's known-non-draft allowlist |
 
 ```
-INIT <base64>\n
+INIT <base64> <2048 '#' characters>\n
 ```
+
+**The frame is not just base64.** It carries a second space-separated field: a
+block of exactly 2048 `#` characters, whose meaning we do not interpret. A
+decoder that passes everything after `INIT ` to `atob` throws in the browser
+(*"The string to be decoded is not correctly encoded"*) — take the **first
+whitespace-delimited token only**.
+
+This did not surface in unit tests because Node's `Buffer.from(s, "base64")`
+silently ignores characters outside the alphabet while the browser's `atob`
+rejects them. Any test helper standing in for `atob` must be **strict**, or it
+will pass against payloads the real tap cannot decode.
 
 The full pick ledger. Verified to contain **zero strings and zero GUIDs** (64%
 null bytes, fixed-width integer records), so its blob is safe to commit and

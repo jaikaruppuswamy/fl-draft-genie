@@ -115,11 +115,25 @@ export function filledPicks(ledger: Ledger): LedgerPick[] {
   return ledger.slots.filter((s): s is LedgerPick => s !== null);
 }
 
-/** Decode a raw `INIT <base64>` frame. Returns null if it is not one. */
+/**
+ * Decode a raw `INIT` frame. Returns null if it is not one.
+ *
+ * The frame is NOT just base64. Its observed shape is:
+ *
+ *   INIT <base64> <2048 '#' characters>
+ *
+ * — two space-separated fields, the second a block of `#` whose meaning we do
+ * not interpret. Passing the whole tail to `atob` throws in the browser
+ * ("string to be decoded is not correctly encoded"). It did NOT throw under
+ * Node, because `Buffer.from(s, "base64")` silently ignores characters outside
+ * the alphabet — so the unit tests passed while production failed. Take the
+ * first whitespace-delimited token only.
+ */
 export function decodeInitFrame(frame: string, atob: (s: string) => string): Ledger | null {
   const trimmed = frame.replace(/\n$/, "");
   if (!trimmed.startsWith("INIT ")) return null;
-  const b64 = trimmed.slice(5).trim();
+  const b64 = trimmed.slice(5).trim().split(/\s+/)[0] ?? "";
+  if (!b64) throw new LedgerFormatError("INIT frame carried no payload");
   const bin = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "="));
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
