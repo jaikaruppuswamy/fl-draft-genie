@@ -28,6 +28,17 @@ it is the single most important thing this feature does.
 Draft Genie remains **read-only against ESPN** (Constitution VI). The owner picks
 in ESPN's own interface. This screen advises and never acts.
 
+## Clarifications
+
+### Session 2026-08-05
+
+- Q: How much of the draft board is visible during the draft — full grid, or a focused view? → A: **Settled by the ratified design, not by a decision here.** `/design/draft` is a two-column layout: the full grid of every team's picks on the left, and a fixed 318px rail on the right carrying the recommendation queue, roster needs and byes. No focus mode.
+- Q: Where does the full reasoning go, given the rail has room for about one line per player? → A: The rail shows the single strongest reason per player, always visible without a tap; the full explanation opens in a detail panel, reusing the existing player-detail sheet pattern.
+- Q: Should the screen alert the owner on deck / on the clock, and how? → A: **Visual only.** An unmistakable on-screen state change, no sound and no browser notification. Nothing to arm, nothing to permit, nothing that can silently fail.
+- Q: How is SC-001 proven before draft day rather than after it? → A: By **replaying the archived draft into the screen at its real recorded timing** and measuring signal-to-render offline. SC-001 must be a number before the draft, not a promise.
+- Q: Refresh the recommendation on every pick, or only near the owner's turn? → A: **Every pick.** The rail is never more than one pick stale, so being ready before the clock stops depending on catching a single moment — and the snake-turnaround problem dissolves entirely.
+- Q: What ends the draft on screen, given the completion path has never run in production? → A: **Either signal.** The draft is complete when the completion event arrives **or** when every pick has been observed. The screen must not depend solely on a path with no production evidence.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Tell me who to take, before the clock starts (Priority: P1) 🎯 MVP
@@ -46,9 +57,9 @@ attached.
 
 **Acceptance Scenarios**:
 
-1. **Given** the owner is two picks away, **When** the draft advances, **Then** a
-   ranked shortlist is on screen with an explanation per player, before the
-   owner's turn begins.
+1. **Given** any pick lands, **When** it is processed, **Then** the recommendation
+   on screen refreshes — so a ranked shortlist with reasoning is already current
+   whenever the owner's turn begins, rather than being fetched at that moment.
 2. **Given** the owner is on the clock, **When** they look at the screen, **Then**
    the recommendation is already there — no spinner, no empty state.
 3. **Given** a pick is made by another team, **When** it lands, **Then** the
@@ -76,9 +87,10 @@ the value the preference contributed.
 
 **Acceptance Scenarios**:
 
-1. **Given** a recommended player, **When** the card is shown, **Then** the value,
-   each adjustment that applied with its direction, and the alternatives are
-   visible.
+1. **Given** a recommended player, **When** the card is shown, **Then** its value
+   and strongest reason are visible with no interaction, and the full breakdown —
+   every adjustment with its direction and size, plus the alternatives — is one
+   interaction away.
 2. **Given** a player on the owner's preferred list, **When** they appear,
    **Then** they are visibly badged as preferred and the screen shows what the
    preference was worth.
@@ -143,16 +155,26 @@ manual steps; sever the connection and confirm the screen says so and recovers.
 
 - **The snake turnaround.** The owner picks back-to-back, so the on-deck warning
   for their second pick cannot arrive two picks early — it structurally cannot
-  exist. See FR-004; this is the one case where the inherited obligation *as
-  written* is impossible to satisfy.
+  exist. This is the case where the inherited obligation *as written* was
+  impossible to satisfy; FR-003's refresh-every-pick removes the problem rather
+  than working around it. Still worth testing explicitly (SC-009), because it is
+  where a regression would show first.
 - **The owner's very first pick** — the screen must be ready before the draft
   starts, not only once the first pick has landed.
 - **A correction.** 005 bumps its revision and replays affected turns; a
   recommendation computed for a superseded state must not stay on screen.
 - **The draft completes.** Untested territory: draft-end detection, the archive
   write and the keeper path have never run against real data together
-  (production holds zero archived drafts). The screen must handle completion
-  arriving, *and* handle it never arriving.
+  (production holds zero archived drafts). FR-022 concludes completion from
+  either the signal or the pick count, so neither untested path is load-bearing
+  alone.
+- **The two completion routes disagree** — the signal says done, the pick count
+  says otherwise, or the reverse. The screen shows complete and surfaces the
+  disagreement (FR-022b); it is the first real evidence about which route to
+  trust.
+- **The draft length is wrong**, as it was during the only live test. A too-low
+  total would declare completion early, which is why the signal route exists
+  alongside it.
 - **The tap is on a different device** from this screen — the ratified design
   assumes exactly that, so this screen may be the only place a tap failure is
   visible to the owner.
@@ -171,20 +193,30 @@ manual steps; sever the connection and confirm the screen says so and recovers.
 - **FR-002**: A recommendation MUST be **on screen before the owner's turn
   begins**, in the ordinary case — not requested when the turn starts
   (Constitution V).
-- **FR-003**: The screen MUST request a recommendation on the **earliest signal
-  that exists for that turn**. In the ordinary case that is the on-deck signal,
-  which arrives up to two picks ahead.
-- **FR-004**: At a **snake turnaround**, where the owner's second turn is
-  structurally at most one pick away and no earlier signal can exist, the screen
-  MUST request on the on-the-clock signal for that turn. This is not a relaxation
-  of FR-002 — it is the earliest moment that exists. *(005's event model already
-  says so; 006's contract asserted "never on the clock" without the exception,
-  and that wording needs correcting — see Dependencies.)*
+- **FR-003**: The screen MUST refresh the recommendation on **every pick**, so it
+  is never more than one pick stale — whoever the pick belonged to, and however
+  far away the owner's turn is.
+- **FR-003a**: Consequently, **being ready before the clock does not depend on
+  catching a single moment.** FR-002 is satisfied by construction rather than by
+  timing: there is no one request that can be missed, arrive late, or fail and
+  leave the owner with nothing when their turn begins.
+- **FR-004**: The **on-deck** and **on-the-clock** signals drive the screen's
+  **visual state** (FR-023), not its fetching. This dissolves the snake
+  turnaround as a special case entirely: the owner's second consecutive pick
+  needs no earlier warning, because the recommendation is already current from
+  the pick they just made. *(This satisfies the obligation inherited from 006
+  more strongly than the wording it inherited — see Dependencies.)*
 - **FR-005**: A recommendation MUST be **recomputed and re-shown when a pick
   lands**, so a player taken by another team never remains recommended.
-- **FR-006**: Every recommended player MUST show its **reasoning**: the value,
-  each rule adjustment that applied with its direction and size, and the
-  alternatives considered (Constitution VII).
+- **FR-006**: Every recommended player MUST show, **without any interaction**,
+  its value and the **single strongest reason** it is being recommended. No
+  recommended player is ever shown as a bare name (Constitution VII).
+- **FR-006a**: The **full reasoning** — every rule adjustment that applied with
+  its direction and size, any missing inputs, and the alternatives considered —
+  MUST be reachable in **one interaction** from the recommendation, in a detail
+  panel. The rail is 318px wide by ratified design and cannot hold eight
+  adjustments legibly at arm's length; hiding the headline reason behind a tap
+  would be the opposite error.
 - **FR-007**: A player on the owner's **preferred list** MUST be visibly marked
   as such, and the screen MUST show **what the preference contributed** — 006
   emits both as first-class fields for this purpose.
@@ -221,9 +253,41 @@ manual steps; sever the connection and confirm the screen says so and recovers.
   this screen (Constitution VI). The owner picks in ESPN.
 - **FR-021**: The pick feed MUST remain **bounded** on a device left open for the
   length of a draft.
-- **FR-022**: When the draft **completes**, the screen MUST say so. It MUST also
-  behave sensibly if completion never arrives, because that path has never run
-  against real data.
+- **FR-022**: The screen MUST treat the draft as **complete** when **either** the
+  completion signal arrives **or** every pick in the draft has been observed —
+  whichever happens first. It MUST then show a final summary of the owner's
+  roster and stop offering recommendations.
+- **FR-022a**: Neither route may be the only one. The completion signal has
+  **never fired in production** — 005's own archive count is zero, because the
+  draft length was unknown during the only live test — so a screen that waited
+  solely on it would be relying on a path with no evidence behind it. Equally,
+  the pick count depends on a draft length that has itself been wrong before, so
+  it cannot be the only route either. Two independent routes to the same
+  conclusion is the point.
+- **FR-022b**: If the draft is complete by **one route but not the other**, the
+  screen MUST still show it as complete, and the disagreement MUST be visible to
+  the owner rather than resolved silently. That divergence is the first evidence
+  anyone will have about which route is trustworthy.
+- **FR-023**: The screen MUST make **on deck** and **on the clock** unmistakable
+  through a **visual state change** — legible at arm's length on an iPad, without
+  the owner reading any text. No sound and no browser notification.
+- **FR-023a**: The visual alert is understood to reach the owner **only while
+  they are looking at the screen**. This is an accepted limitation, not an
+  oversight: the alternatives that would reach further both fail silently — audio
+  is blocked without a prior gesture, and notifications need a permission the
+  owner may decline. The screen MUST NOT imply it will fetch the owner's
+  attention from elsewhere.
+- **FR-024**: **SC-001 and SC-009 MUST be verifiable offline**, by replaying an
+  archived draft into the screen at its real recorded per-pick timing and
+  measuring the interval from the earliest available signal to the recommendation
+  being on screen. No live draft, and no network.
+  *Why this is a requirement and not a testing note*: SC-001 is the reason this
+  feature exists, and a criterion that can only be checked during the one hour
+  that cannot be repeated is not a criterion. This project has three times
+  shipped work marked done that production later showed was never exercised —
+  005's archive write, 010's page-world preflight, and the arming path. The
+  archived corpus carries a real `observedAt` per pick, so the measurement is
+  available without waiting for August.
 
 ### Key Entities
 
@@ -241,8 +305,11 @@ manual steps; sever the connection and confirm the screen says so and recovers.
 - **SC-001**: In at least **95% of the owner's turns**, a recommendation is on
   screen before the turn begins, measured from the earliest signal available for
   that turn. *(This is 006's SC-005, measurable for the first time.)*
-- **SC-002**: **100%** of recommendations shown carry visible reasoning; none is
-  a bare name.
+  **Verified offline**, by replaying an archived draft at its real recorded
+  timing — not deferred to draft day (FR-024).
+- **SC-002**: **100%** of recommendations shown carry a visible value and reason
+  with no interaction; none is a bare name. The full breakdown is reachable in
+  one interaction for 100% of them.
 - **SC-003**: A pick made by any team appears on screen within **2 seconds** in
   95% of cases and within 10 seconds in all cases — matching the delivery budget
   005 already meets.
@@ -258,6 +325,12 @@ manual steps; sever the connection and confirm the screen says so and recovers.
   without degradation.
 - **SC-009**: At a snake turnaround, a recommendation for the owner's **second
   consecutive pick** is on screen when that turn begins, in at least 95% of cases.
+- **SC-010**: On deck and on the clock are **distinguishable from the ordinary
+  state, and from each other, without reading text** — verifiable from a
+  screenshot alone.
+- **SC-011**: The screen reaches its completed state in **100%** of trials by
+  each route independently — with the completion signal alone, and with the pick
+  count alone — proving neither is load-bearing by itself.
 
 ## Assumptions
 
@@ -287,13 +360,26 @@ manual steps; sever the connection and confirm the screen says so and recovers.
 - **The ratified design** — `/design/draft` and the "Organic" system already in
   `web/src/styles.css`.
 
-**A contract correction this feature forces**: 006's `contracts/api.md` §1a and
-ROADMAP's note under 007 both say consumers must request on the on-deck signal
-and **never** on the clock. 005's own event model documents the exception — at a
-snake turnaround the owner's second turn can only ever be one pick away, so the
-on-deck signal for it cannot exist. FR-004 states the correct rule; 006's
-contract wording should be amended to match rather than left contradicting the
-implementation it governs.
+**A contract correction this feature forces.** 006's `contracts/api.md` §1a, and
+ROADMAP's note under 007, both say consumers MUST request on the on-deck signal
+and **never** on the clock.
+
+That wording is wrong twice over, and clarification found both:
+
+1. **It is impossible at a snake turnaround.** 005's event model is explicit —
+   `on_deck` fires "as early as the draft's structure allows, at most two picks
+   ahead", and the owner's second consecutive turn can only ever be one pick
+   away, so an on-deck signal for it cannot exist. The rule as written could not
+   be honoured 12 times in a 12-round draft.
+2. **It prescribes a mechanism where it meant an outcome.** What 006 actually
+   needed was "a recommendation is current when the turn begins". Refreshing on
+   every pick (FR-003) delivers that far more robustly than any single trigger,
+   because there is no one request whose failure leaves the owner with nothing.
+
+006's contract should be **restated as the outcome** — the recommendation must be
+current when the owner's turn begins — rather than prescribing which event to
+listen for. Left as-is it governs an implementation it disagrees with, and it
+would push a future consumer toward the fragile design.
 
 ## Out of Scope
 
@@ -306,14 +392,3 @@ implementation it governs.
 - **Automated picking.** Constitution VI is absolute.
 - **Phone layouts** — outside the constitution's stated delivery target.
 
-## Clarifications Needed
-
-- [NEEDS CLARIFICATION: How much of the draft board should be visible during the
-  draft — the full grid of every team's picks, or a focused view centred on the
-  owner's turn with the grid available on demand? The ratified design shows a
-  full grid, but an iPad at arm's length may favour focus. This decides what the
-  primary live layout is.]
-- [NEEDS CLARIFICATION: Should the screen alert the owner when they are on deck
-  or on the clock — and if so, visually only, or with sound? The tap is expected
-  to be on another device and this screen may be backgrounded, which is exactly
-  when an alert matters and exactly when a browser is least able to give one.]
