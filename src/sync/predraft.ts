@@ -16,6 +16,9 @@ import { tierTableEmpty } from "../db/tiers";
 import { computeSignals } from "../signals/compute";
 import { signalsTableEmpty } from "../db/signals";
 import { currentSeason } from "../espn/leagueRef";
+import { sessionsNeedingAttention } from "../db/draft";
+import { sweepAction } from "../draft/restore";
+import { sessionStub } from "../draft/session";
 
 export async function scanPreDraftWindow(env: Env, now: Date): Promise<number> {
   const due = await findPreDraftWindowConnections(env.DB, now);
@@ -26,8 +29,47 @@ export async function scanPreDraftWindow(env: Env, now: Date): Promise<number> {
   return due.length;
 }
 
+/**
+ * 005 T042 — restore draft sessions that died with no client attached.
+ *
+ * This is the half of Constitution V that does not depend on anyone watching.
+ * A deploy restarts every Durable Object, and the owner may be looking at ESPN
+ * rather than Draft Genie when it happens — the tap keeps relaying into the
+ * log, the log keeps accepting, and nothing wakes the session up. A nudge is
+ * cheap and idempotent: a healthy session finds its cursor current and commits
+ * nothing.
+ */
+export async function sweepDraftSessions(env: Env, now: Date): Promise<number> {
+  const rows = await sessionsNeedingAttention(env.DB);
+  let acted = 0;
+  for (const row of rows) {
+    const action = sweepAction(row, now.getTime());
+    if (action.kind === "skip") continue;
+    const stub = sessionStub(env, row.connection_id, row.season);
+    try {
+      if (action.kind === "abort") {
+        await stub.abort();
+        await env.DB.prepare(
+          `UPDATE draft_sessions SET status = 'aborted', last_error = ?, updated_at = ? WHERE connection_id = ?`,
+        )
+          .bind(action.why, now.toISOString(), row.connection_id)
+          .run();
+      } else {
+        await stub.nudge();
+      }
+      acted++;
+    } catch (e) {
+      // One bad session must never stop the sweep for the others.
+      logInfo(`draft sweep skipped ${row.connection_id}: ${(e as Error).message}`);
+    }
+  }
+  if (acted > 0) logInfo(`draft sweep touched ${acted} session(s)`);
+  return acted;
+}
+
 export async function runScheduledMaintenance(env: Env, now: Date): Promise<void> {
   await scanPreDraftWindow(env, now);
+  await sweepDraftSessions(env, now);
 
   const season = currentSeason(now);
   const serving = await getServingSet(env.DB, season);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Draft Genie draft tap
 // @namespace    https://draft.neelamjai.com/
-// @version      0.1.5
+// @version      0.1.6
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
@@ -23,7 +23,7 @@
 "use strict";
 (() => {
   // tap/meta.ts
-  var TAP_VERSION = "0.1.5";
+  var TAP_VERSION = "0.1.6";
   var CONTRACT_VERSION = 1;
   var INGEST_ORIGIN = "https://draft.neelamjai.com";
   var DRAFT_HOST = "fantasydraft.espn.com";
@@ -494,6 +494,18 @@
     }
   };
 
+  // tap/heartbeat.ts
+  var HEARTBEAT_MS = 15e3;
+  var HEARTBEAT_MIN_GAP_MS = 5e3;
+  function shouldSendHeartbeat(i) {
+    if (!i.paired) return { send: false, reason: "not-paired" };
+    if (i.lastSentAt === null) return { send: true, reason: "first" };
+    const since = i.now - i.lastSentAt;
+    if (since < HEARTBEAT_MIN_GAP_MS) return { send: false, reason: "too-soon" };
+    if (i.triggeredByEvent) return { send: true, reason: "event" };
+    return since >= HEARTBEAT_MS ? { send: true, reason: "due" } : { send: false, reason: "too-soon" };
+  }
+
   // tap/main.ts
   var W = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   var NATIVE_TO_STRING = Function.prototype.toString;
@@ -650,13 +662,38 @@
   function reportStatus(state, detail) {
     if (!token() || state === lastReportedState) return;
     lastReportedState = state;
+    postStatus(state, detail, false);
+  }
+  var lastHeartbeatAt = null;
+  function heartbeat(triggeredByEvent) {
+    const decision = shouldSendHeartbeat({
+      now: clock.now(),
+      lastSentAt: lastHeartbeatAt,
+      paired: Boolean(token()),
+      triggeredByEvent
+    });
+    if (!decision.send) return;
+    lastHeartbeatAt = clock.now();
+    postStatus(status.state, status.detail, true);
+  }
+  function postStatus(state, detail, isHeartbeat) {
+    if (!token()) return;
     try {
       GM_xmlhttpRequest({
         method: "POST",
         url: `${INGEST_ORIGIN}/api/tap/status`,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}`, "X-Tap-Install": installId() },
         anonymous: true,
-        data: JSON.stringify({ state, detail: scrubDetail(detail), tapVersion: TAP_VERSION })
+        data: JSON.stringify({
+          state,
+          detail: scrubDetail(detail),
+          tapVersion: TAP_VERSION,
+          heartbeat: isHeartbeat,
+          // Whether OUR timers are being throttled. The receiver cannot observe
+          // this and must not guess it.
+          hidden: Boolean(W.document?.hidden),
+          league: { espnLeagueId: league.espnLeagueId, season: league.season }
+        })
       });
     } catch {
     }
@@ -754,14 +791,18 @@
       W.addEventListener(ev, () => {
         sequencer.reanchor();
         flush();
+        heartbeat(true);
       });
     }
     W.document.addEventListener("visibilitychange", () => {
+      heartbeat(true);
       if (!W.document.hidden) {
         sequencer.reanchor();
         flush();
       }
     });
+    setInterval(() => heartbeat(false), HEARTBEAT_MS);
+    heartbeat(false);
     render(token() ? "watching" : "not-paired");
     GM_registerMenuCommand("Draft Genie: status", () => {
       const text = `${status.state}

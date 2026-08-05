@@ -9,7 +9,13 @@ export default defineWorkersConfig(async () => {
       include: ["tests/**/*.test.ts"],
       // tests/tap/** belongs to the node project — see vitest.config.ts. Without
       // this exclude the workers pool also collects them and they fail there.
-      exclude: ["tests/tap/**"],
+      //
+      // tests/draft/** belongs to vitest.draft.config.ts, which runs with
+      // isolatedStorage: false because WebSockets in Durable Objects are
+      // unsupported with per-file storage isolation. This include glob is
+      // `tests/**/*.test.ts`, so without the exclude every DO test ALSO runs
+      // here, under the isolation that cannot support it.
+      exclude: ["tests/tap/**", "tests/draft/**"],
       poolOptions: {
         workers: {
           singleWorker: true,

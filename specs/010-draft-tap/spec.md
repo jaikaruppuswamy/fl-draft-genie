@@ -323,6 +323,19 @@ identifiers in the file.
 
 - **FR-015**: The companion MUST show whether it is paired, connected, and
   relaying, including how recently it last relayed something.
+- **FR-015a**: The companion MUST report liveness **periodically and
+  independently of pick traffic**, not only when its state changes. A tap that
+  speaks only on change is silent exactly when it is healthy, which the receiver
+  cannot distinguish from a tap that has died — and pick silence cannot settle
+  it either, since observed gaps run from ~1 s between autodrafted picks to 90 s+
+  between human ones. The report MUST include whether the tap's tab is
+  **hidden**, because a background tab's timers are throttled to roughly one per
+  minute (research §"Gotchas") and a receiver applying a single lapse threshold
+  would declare a healthy backgrounded tap dead. The tap cannot defeat that
+  throttling but is the only party able to observe it. Liveness MUST also be
+  reported on wake events (`visibilitychange`, `pageshow`, `focus`, `online`),
+  including the transition *into* hidden, for the same reason FR-008's flush is
+  event-driven. Consumed by 005 FR-007c/FR-007e.
 - **FR-016**: Each failure mode — not paired, Draft Genie unreachable, message
   format unrecognised, not a draft page — MUST be reported distinctly and in
   plain language, with what to do about it.

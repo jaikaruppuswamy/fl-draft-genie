@@ -20,6 +20,11 @@ import { now } from "../env";
 import { logError, logInfo } from "./logging";
 import { issuePairing, listPairings, retainBatch, revokePairing, summariseBatches, touchPairing, verifyPairing } from "../db/tap";
 import { findConnection, getConnectionById } from "../db/leagues";
+import { sessionStub } from "../draft/session";
+import { armingScope } from "../draft/arming";
+import { getSnapshot } from "../db/leagues";
+import { recordHeartbeat, upsertSession } from "../db/draft";
+import type { Env } from "../env";
 
 /** The tap runs on ESPN's origin; nothing else needs these routes. */
 const ALLOWED_ORIGINS = new Set(["https://fantasy.espn.com"]);
@@ -30,6 +35,21 @@ const SUPPORTED_CONTRACT_VERSIONS = new Set([1]);
 
 /** Brace-form or bare SWID. Nothing numeric-only can match this. */
 const GUID_ON_WIRE = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/;
+
+/**
+ * 005 FR-007e. `hidden` is load-bearing, not telemetry: a background tab's
+ * timers are throttled to ~1/minute, so a receiver applying one lapse
+ * threshold would declare a healthy backgrounded tap dead. The tap is the only
+ * party that can observe this, so it reports it.
+ */
+const statusBody = z.object({
+  state: z.string().min(1).max(40),
+  detail: z.string().max(300).optional(),
+  tapVersion: z.string().max(20).optional(),
+  heartbeat: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  league: z.object({ espnLeagueId: z.string().max(32), season: z.number().int() }).optional(),
+});
 
 const relayMessage = z.object({
   v: z.number().int(),
@@ -65,6 +85,48 @@ function corsHeaders(origin: string | undefined): Record<string, string> {
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
+}
+
+
+/**
+ * 005 FR-007g — arm the session from ANY tap frame, heartbeat included.
+ *
+ * Arming on the heartbeat rather than the first pick is what makes a missing
+ * or broken tap visible BEFORE the draft starts, while there is still time to
+ * fix it. The tap heartbeats from the moment the draft room opens.
+ *
+ * Idempotent and cheap: it reads the snapshot 001 already maintains rather
+ * than calling ESPN, so a 15-second heartbeat cannot breach FR-008's bound.
+ */
+async function armSession(
+  env: Env,
+  connection: { id: string; my_team_id: number },
+  accountId: string,
+  espnLeagueId: string,
+  season: number,
+  at: Date,
+): Promise<void> {
+  const snapshot = await getSnapshot(env.DB, connection.id);
+  const armed = armingScope({
+    accountId,
+    connectionId: connection.id,
+    espnLeagueId,
+    season,
+    myTeamId: connection.my_team_id,
+    snapshot,
+  });
+  await upsertSession(
+    env.DB,
+    {
+      connectionId: connection.id,
+      accountId,
+      season,
+      status: armed.supported ? "armed" : "unsupported",
+      scheduledAt: armed.scheduledAt,
+    },
+    at,
+  );
+  if (armed.supported) await sessionStub(env, connection.id, season).arm(armed.scope);
 }
 
 export function tapRoutes() {
@@ -171,9 +233,45 @@ export function tapRoutes() {
       );
     }
 
-    // 005 owns applying these to a draft session. Until it lands, the ingest
-    // validates, authorises and acknowledges — which is exactly the seam the
-    // two features were split at.
+    // 005 FR-007h — NUDGE AFTER THE ACK, never before it, and never inside it.
+    //
+    // The ordering is the whole design. The tap discards its buffer only on
+    // `accepted_through`, so the ack is a durability boundary: it must follow
+    // the `retainBatch` write above, and it must NOT wait on the session. A
+    // restarting or migrating Durable Object would otherwise stall the tap's
+    // buffer — the outcome FR-008's buffering guarantees exist to prevent.
+    //
+    // `waitUntil` runs this after the response is sent. The nudge carries no
+    // frame data; the session pulls from the log it was just written to. A
+    // dropped nudge therefore costs latency, never a pick, and the session's
+    // 5 s safety alarm bounds that latency inside SC-001's 10 s ceiling.
+    // FR-007g: any frame arms. Cheap and idempotent (reads 001's snapshot).
+    await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at);
+
+    if (body.messages.length > 0) {
+      // Accessing `executionCtx` THROWS when the app is invoked without one.
+      // Guarded rather than assumed, because the nudge is an optimisation and
+      // must never be able to fail a relay whose frames are already durable —
+      // the worst case here is the session collecting them on its next alarm.
+      let scheduled = false;
+      try {
+        const ctx = c.executionCtx;
+        ctx.waitUntil(
+          (async () => {
+            try {
+              await sessionStub(c.env, connection.id, body.league.season).nudge();
+            } catch (e) {
+              logError("tap nudge failed; the session will catch up on its alarm", e as Error);
+            }
+          })(),
+        );
+        scheduled = true;
+      } catch {
+        scheduled = false;
+      }
+      if (!scheduled) logInfo("tap batch stored without a nudge; the session's alarm will collect it");
+    }
+
     return withCors(
       Response.json({ accepted_through: acceptedThrough, session_known: true, server_time: at.toISOString() }, { status: 202 }),
       cors,
@@ -187,8 +285,54 @@ export function tapRoutes() {
     if (!token) return withCors(jsonError(401, "unpaired", "This browser is not linked to Draft Genie."), cors);
     const verified = await verifyPairing(c.env.DB, token, c.req.header("X-Tap-Install") ?? null, now(c.env));
     if (!verified.ok) return withCors(jsonError(401, `pairing_${verified.reason}`, "Re-pair this browser."), cors);
-    const body = (await c.req.json().catch(() => ({}))) as { state?: string; detail?: string };
-    logInfo(`tap status: ${String(body.state)} ${String(body.detail ?? "")}`.trim());
+    const parsed = statusBody.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return withCors(jsonError(400, "invalid_status", "Malformed status report."), cors);
+    const body = parsed.data;
+
+    // Same boundary the batch route enforces. `detail` is free-ish text built
+    // from wrapper errors and ESPN message fragments, and the draft-room URL
+    // carries the owner's SWID as a query parameter — so it is a real path for
+    // an identifier to reach the log. The tap scrubs it; this does not trust
+    // that, because a privacy control asserted only at the source is asserted
+    // once, by the party most likely to be out of date.
+    const detail = body.detail ?? "";
+    if (GUID_ON_WIRE.test(detail) || /https?:\/\//.test(detail)) {
+      return withCors(jsonError(400, "payload_not_clean", "Status detail must not carry identifiers."), cors);
+    }
+
+    // 005 FR-007e: liveness. Any status — heartbeat or state change — proves
+    // the tap is attached, so both refresh it. Picks do too; this only has to
+    // cover the silence between them.
+    const at = now(c.env);
+    await touchPairing(c.env.DB, verified.pairingId, c.req.header("X-Tap-Install") ?? null, at);
+
+    // FR-007g: a HEARTBEAT arms the session, which is the whole reason a
+    // missing tap is visible before the first pick rather than after it.
+    if (body.league) {
+      const connection = await findConnection(
+        c.env.DB,
+        verified.accountId,
+        body.league.espnLeagueId,
+        body.league.season,
+      );
+      if (connection) {
+        await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at);
+        // `hidden` decides WHICH lapse threshold applies: a background tab's
+        // timers throttle to ~1/minute, and one threshold would declare a
+        // healthy backgrounded tap dead.
+        await recordHeartbeat(
+          c.env.DB,
+          connection.id,
+          { hidden: body.hidden === true, tapState: body.state, tapVersion: body.tapVersion ?? null },
+          at,
+        );
+      }
+    }
+
+    logInfo(
+      `tap ${body.heartbeat ? "heartbeat" : "status"}: ${body.state}` +
+        `${body.hidden ? " (hidden)" : ""}${detail ? ` ${detail}` : ""}`,
+    );
     return withCors(new Response(null, { status: 204 }), cors);
   });
 

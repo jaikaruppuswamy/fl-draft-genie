@@ -68,8 +68,9 @@ duplicates are expected (FR-010) and are not an error.
 
 ## POST /api/tap/status
 
-Tap-side state changes with no draft data. Feeds 005's FR-007c "not receiving
-picks" detection and the diagnostic surface.
+Tap-side state changes **and periodic liveness**, with no draft data. Feeds
+005's FR-007c "not receiving picks" detection and the diagnostic surface. Full
+shape and the `hidden` semantics are at the end of this document.
 
 ## GET /api/tap/health
 
@@ -237,3 +238,37 @@ Per research §2 the reader is **ours**, never a port of ESPN's: their
 - **Unrecognised messages are reported, not dropped.** 005 will receive
   `kind: "status"` messages saying the tap saw something it did not understand;
   that is a signal to surface, not noise to ignore.
+
+
+## `POST /api/tap/status` — state changes and periodic liveness
+
+Sent on every state change **and** on a 15 s timer regardless of change
+(FR-015a, consumed by 005 FR-007e).
+
+```jsonc
+{
+  "state": "relaying",          // TapState
+  "detail": "",                 // scrubbed of URLs and identifiers by the tap,
+                                // and re-screened at the boundary — 400 if not
+  "tapVersion": "0.1.6",
+  "heartbeat": true,            // false for a state-change report
+  "hidden": false,              // whether THIS TAP's timers are being throttled
+  "league": { "espnLeagueId": "…", "season": 2026 }
+}
+```
+
+`204` on success. `400 invalid_status` on a malformed body; `400
+payload_not_clean` if `detail` carries a GUID or URL; `401 pairing_*` as for
+`/batch`.
+
+**`hidden` is load-bearing, not telemetry.** A background tab's timers are
+throttled to ~1/minute after five chained timers with the tab hidden five
+minutes. A receiver applying one lapse threshold would therefore mark a healthy
+backgrounded tap dead — and the ratified design *expects* the tab to be
+backgrounded, since the tap runs where the draft room is open and the UI runs
+wherever the owner is looking. The tap cannot defeat the throttling; it is
+simply the only party that can see it. 005 applies **45 s** when `hidden` is
+false and **150 s** when true.
+
+Any status report — heartbeat or change — refreshes liveness. Picks do too; the
+heartbeat only has to cover the silence between them.

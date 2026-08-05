@@ -221,3 +221,65 @@ describe("GET /api/tap/health", () => {
     expect((await res.json() as { ok: boolean }).ok).toBe(true);
   });
 });
+
+describe("POST /api/tap/status — heartbeat (005 FR-007e)", () => {
+  const status = (body: unknown, headers: Record<string, string> = {}) =>
+    app.request(
+      "/api/tap/status",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: ORIGIN,
+          Authorization: `Bearer ${token}`,
+          "X-Tap-Install": INSTALL,
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      },
+      env,
+    );
+
+  it("accepts a heartbeat from a healthy, UNCHANGED tap", async () => {
+    // The defect this closes: the tap reported only on state change, so a
+    // working tap was silent — indistinguishable from a dead one.
+    const res = await status({ state: "relaying", tapVersion: "0.1.6", heartbeat: true, hidden: false });
+    expect(res.status).toBe(204);
+  });
+
+  it("accepts the hidden flag, which decides the receiver's lapse threshold", async () => {
+    // A background tab's timers stretch to ~1/minute. The tap is the only party
+    // that can observe this, so it reports it rather than the server guessing.
+    expect((await status({ state: "relaying", heartbeat: true, hidden: true })).status).toBe(204);
+  });
+
+  it("refreshes liveness on the pairing, so silence is measurable", async () => {
+    const before = await env.DB.prepare("SELECT last_used_at FROM tap_pairings LIMIT 1").first<{ last_used_at: string | null }>();
+    await status({ state: "watching", heartbeat: true });
+    const after = await env.DB.prepare("SELECT last_used_at FROM tap_pairings LIMIT 1").first<{ last_used_at: string | null }>();
+    expect(after!.last_used_at).not.toBeNull();
+    expect(after!.last_used_at).not.toBe(before!.last_used_at ?? null);
+  });
+
+  it("400s a malformed status instead of logging whatever arrived", async () => {
+    expect((await status({})).status).toBe(400);
+    expect((await status({ state: "" })).status).toBe(400);
+  });
+
+  it("REJECTS a detail carrying an identifier or URL", async () => {
+    // The status channel reached the server log with only URLs scrubbed, and by
+    // the tap alone. A privacy control asserted only at the source is asserted
+    // once, by the party most likely to be out of date.
+    expect((await status({ state: "incompatible", detail: "owner {AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}" })).status).toBe(400);
+    expect((await status({ state: "incompatible", detail: "at https://fantasy.espn.com/x?swid=1" })).status).toBe(400);
+  });
+
+  it("401s an unpaired heartbeat", async () => {
+    const res = await app.request(
+      "/api/tap/status",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: "relaying" }) },
+      env,
+    );
+    expect(res.status).toBe(401);
+  });
+});

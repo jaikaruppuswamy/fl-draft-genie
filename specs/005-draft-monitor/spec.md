@@ -18,8 +18,8 @@ regeneration via `/speckit-plan` once the tap's frame shape is known.
 
 ### Session 2026-08-02
 
-- Q: How often should Draft Genie check ESPN for new picks while a draft is live? → A: Two-tier adaptive — 10 s baseline, tightening to 3 s when the owner is within 3 picks of their turn.
-- Q: Should the server keep watching ESPN while a draft is live but no client is connected? → A: Hybrid — the session stays alive for the whole draft, polling at a slow 30 s cadence while unattended and returning to the 10 s / 3 s tiers as soon as a client connects.
+- ~~Q: How often should Draft Genie check ESPN for new picks while a draft is live? → A: Two-tier adaptive — 10 s baseline, tightening to 3 s when the owner is within 3 picks of their turn.~~ **WITHDRAWN** (round 3: Gate 0 disproved polling; round 4 replaced the tiers with a flat push budget).
+- ~~Q: Should the server keep watching ESPN while a draft is live but no client is connected? → A: Hybrid — the session stays alive for the whole draft, polling at a slow 30 s cadence while unattended and returning to the 10 s / 3 s tiers as soon as a client connects.~~ **WITHDRAWN** (rounds 3–4: nothing polls for picks; the session is armed by the tap and fed by push, attended or not — SC-001a still holds).
 - Q: Which ESPN draft formats should live monitoring support this season? → A: Snake only, but with the state model and event contract shaped so a second format (auction) can be added later without reworking existing consumers — shape only, no auction implementation.
 - Q: What should be visible in the app when this ships, given 007 owns the designed draft room? → A: A deliberately plain per-league diagnostic page (session status, live pick feed, on-the-clock, picks-until-your-turn, staleness age) — explicitly throwaway scaffolding that 007 replaces wholesale, not styled to the design system.
 - Q: How long should a completed draft's full pick-by-pick record be kept? → A: Indefinitely, as season history — matching 002's retention of every season's projection sets, so 008's replay lab inherits a real corpus.
@@ -28,7 +28,7 @@ regeneration via `/speckit-plan` once the tap's frame shape is known.
 
 - Q: `on_deck` cannot fire two picks ahead at snake round boundaries, where the owner picks back-to-back — what should the spec promise? → A: An ordinal guarantee — `on_deck` fires as early as the draft's structure allows, at most two picks ahead, always exactly once and always before `on_the_clock`, carrying the real `picks_until` (2, 1, or 0). 006 pre-computes its second pick off `on_the_clock(T)`.
 - Q: "Exactly once" contradicts the correction path, which replays turn events after a reversed pick — which wins? → A: Exactly-once is scoped **per revision**. Every event carries the revision it was emitted under; a correction bumps the revision and replays the affected turns under the new number. Consumers dedupe on (revision, kind, overall) and treat a bump as "rewind and re-apply".
-- Q: Should SC-001 keep promising 100% of picks within 12 s when the platform's timer can be delayed up to a minute during failover? → A: No — 95th percentile at the tier bound (12 s baseline, 4 s near the owner's turn, 35 s unattended), with a hard ceiling for 100% of **the tier bound plus the documented 60 s failover delay**. A flat 60 s ceiling was refined to tier+60 s because the delay lands on top of the polling interval, not instead of it.
+- ~~Q: Should SC-001 keep promising 100% of picks within 12 s when the platform's timer can be delayed up to a minute during failover? → A: No — 95th percentile at the tier bound (12 s baseline, 4 s near the owner's turn, 35 s unattended), with a hard ceiling for the tier bound plus the documented 60 s failover delay.~~ **WITHDRAWN** (round 4: there is no polling timer to be delayed; SC-001 is now a flat p95 ≤ 2 s / 100% ≤ 10 s push budget).
 
 ### Session 2026-08-03 (round 3, after Gate 0 failed)
 
@@ -42,6 +42,20 @@ confirmed no better. No read API can see a draft in progress. See research.md
 - Q: Where does a dead session rebuild draft state from, now that ESPN cannot report picks mid-draft? → A: **Both, with distinct roles.** Every ingested frame is persisted server-side and replaying that log is the automatic rebuild path; whenever a fresh full pick ledger arrives from the tap (draft-room page load or reconnect) it is reconciled against the rebuilt state, and any divergence is corrected through the existing revision mechanism (FR-012/FR-019).
 - Q: What should happen during a draft when no tap is feeding (mobile app, iPad, tap not installed)? → A: **Detect and refuse to guess.** When ESPN reports the room open but no tap frames have arrived for a threshold period, the session enters an explicit **not receiving picks** state, surfaced prominently with repair instructions, and withholds recommendations rather than issuing them against a board known to be stale.
 - Q: Should the userscript be built inside 005 or split into its own feature? → A: **Its own feature, sequenced first.** A new feature (`010-draft-tap`) owns the userscript and lands **before** 005 resumes, so the reconciler is written against real captured frames rather than a protocol guess — the `SELECTED` field-1 meaning is currently unresolved. 005's boundary is the documented ingest contract.
+
+### Session 2026-08-05 (round 4, after 010 shipped)
+
+**Context**: `010-draft-tap` is built, deployed and has fed two real drafts.
+Round 3 decided the transport in principle; this round settles the questions
+that only became answerable once the tap existed and was measured. Observed
+end-to-end latency across a 72-pick draft: median 0.202 s, p95 0.223 s, max
+0.900 s, 72/72 under 3 s.
+
+- Q: SC-001's latency promise is tier-shaped, but nothing polls any more — what should it promise? → A: **A flat push budget: p95 ≤ 2 s, 100% ≤ 10 s**, measured from the tap's `observed_at` to client delivery. One number, no tiers: the tap pushes at the same rate regardless of whose turn it is, so the attended/near-turn distinction has no mechanism behind it. The bound sits ~10× above measured p95 so a congested draft-night network does not fail it.
+- Q: The tap truncates its buffer only on `accepted_through` — when should ingest ack, if a Durable Object is the live authority? → A: **After the D1 log write; the DO is fed from that log.** This is what round 3 already implies — "every ingested frame is persisted server-side and replaying that log is the automatic rebuild path" — so the log *is* the durable commit and acking on it loses nothing when the DO is behind, restarting or migrating. It also keeps a DO round-trip off the ingest path, which FR-008's buffering guarantees depend on.
+- Q: What threshold decides "not receiving picks"? → A: **A tap heartbeat, independent of pick traffic.** Pick silence is ambiguous by measurement: autodraft produced ~1 pick/second while human picks sit 90 s+ apart, so no silence threshold separates "slow draft" from "dead tap". The tap reports liveness on a timer instead. **This requires a change in 010**: the tap currently reports only on state *change*, so a healthy quiet tap says nothing at all.
+- Q: With nothing polling, what brings a session into existence? → A: **The first tap frame arms it lazily**, and the session fetches pre-draft data (order, settings, teams) from ESPN at that moment — that data is still readable, since Gate 0 disproved only live pick visibility. Because the heartbeat above is itself a frame, the tap attaching when the draft room opens arms the session *before* the first pick, which recovers the pre-draft visibility a pick-triggered arming would have lost.
+- Q: Which of 010's degraded tap states withhold recommendations? → A: **`incompatible` and `version-rejected` withhold; `buffering` and `draft-end-unknown` do not.** Withhold when the board is known-stale: `incompatible` means picks are provably being missed, `version-rejected` means the tap speaks a contract this server rejects. `buffering` is the tap working *correctly* through an outage — the picks are safe and will arrive — so it degrades the freshness indicator, not the advice. `draft-end-unknown` means the picks in hand are most likely complete.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -90,7 +104,10 @@ Mid-draft the owner reloads the page, loses Wi-Fi for a minute, or switches
 from laptop to iPad. Draft Genie comes back with the complete, correct draft
 state — every pick so far, current rosters, whose turn it is — not a partial
 or empty board. The same holds if Draft Genie's own draft session is lost
-(deploy, crash, restart): it rebuilds the entire draft from ESPN.
+(deploy, crash, restart): it rebuilds the entire draft by **replaying the
+persisted frame log** (ratified round 3 — ESPN cannot report an in-progress
+draft, so it is not a rebuild source), reconciled against the full pick ledger
+the tap re-sends whenever the draft room reloads.
 
 **Why this priority**: Constitution V — a live draft cannot be paused or
 replayed. A monitor that is correct only while nothing goes wrong is not
@@ -292,9 +309,12 @@ yields one `draft_complete` — all in draft order.
   roster, and the `inProgress`/`drafted` flags that mark the room opening and
   the draft finishing. Those keep the pre-draft cadence and FR-008's bounds;
   only *picks* move to the tap.
-- **FR-007c**: When ESPN reports the draft room open but **no tap frames have
-  arrived for a threshold period**, the session MUST enter an explicit **not
-  receiving picks** state (ratified round 3). That state MUST be surfaced
+- **FR-007c**: When the tap's **heartbeat** (FR-007e) lapses, the session MUST
+  enter an explicit **not receiving picks** state (ratified round 3; the trigger
+  was settled in round 4). Liveness MUST NOT be inferred from pick silence
+  alone: measured drafts put ~1 second between autodrafted picks and 90 s+
+  between human ones, so no silence threshold separates a slow draft from a dead
+  tap. That state MUST be surfaced
   prominently with instructions to install or repair the tap, MUST NOT be
   presented as an empty or up-to-date board, and MUST withhold recommendations
   rather than issue them against a board known to be stale. A silently empty
@@ -305,6 +325,46 @@ yields one `draft_complete` — all in draft order.
   another user's session (FR-018), the credential MUST be revocable and
   distinct from the ESPN cookie pair, and it MUST NOT grant any capability
   beyond appending frames to that one draft session.
+- **FR-007e**: The tap MUST report **liveness on a timer, independently of pick
+  traffic**, and the session MUST treat a lapsed heartbeat — not pick silence —
+  as the trigger for FR-007c. The heartbeat MUST carry whether the tap's tab is
+  **hidden**, and the session MUST apply a **wider lapse threshold when it is**:
+  a background tab's timers are throttled to roughly one per minute, so a single
+  threshold sized for a visible tab declares a perfectly healthy backgrounded tap
+  dead. This is not a rare case — the ratified design expects the draft room and
+  the recommendation UI on different devices, so the tap's tab is usually the one
+  nobody is looking at. Only the tap can observe its own throttling, so it
+  reports it rather than the session guessing. The heartbeat MUST carry the tap's state and
+  version (010 FR-015/FR-022) so a tap that is attached but *degraded* is
+  distinguishable from one that is absent. **This obliges a change in 010**,
+  which today reports only on state change and so goes silent precisely when it
+  is healthy.
+- **FR-007f**: Recommendations MUST be withheld whenever the board is
+  known-stale, which is: the not-receiving-picks state (FR-007c), a tap
+  reporting **`incompatible`** (its protocol no longer matches, so picks are
+  provably being missed), or a tap reporting **`version-rejected`** (it speaks a
+  contract this server refuses). A tap reporting **`buffering`** MUST NOT
+  withhold — it is the tap working correctly through an outage, its picks are
+  retained and will arrive, so it degrades the freshness indicator only. A tap
+  reporting **`draft-end-unknown`** MUST NOT withhold either: the picks in hand
+  are most likely the complete set.
+- **FR-007g**: A draft session MUST be **armed lazily by the first frame from a
+  tap** for that league connection, including a heartbeat frame. On arming, the
+  session MUST fetch the pre-draft data ESPN still exposes — draft type,
+  scheduled time, published order, teams (FR-007b) — because Gate 0 disproved
+  only live pick visibility, not pre-draft reads. Since the tap heartbeats from
+  the moment the draft room opens, the session exists **before the first pick**,
+  and a missing or broken tap is therefore visible while there is still time to
+  fix it.
+- **FR-007h**: Ingest MUST acknowledge a batch (`accepted_through`) **once the
+  frames are durably written to the server-side log**, and the live session MUST
+  be fed from that log rather than sitting in the ingest request path. The tap
+  discards its buffer only on that acknowledgement, so the ack MUST NOT be sent
+  before a durable write — but it MUST NOT wait on the live session either, or a
+  restarting or migrating session would stall the tap's buffer, which is the
+  outcome FR-008's buffering guarantees exist to prevent. Replaying the log is
+  the same path used to rebuild a dead session, so this keeps the recovery path
+  exercised continuously rather than only after a crash.
 - **FR-008**: Observation MUST stay respectful of ESPN: a bounded, documented
   maximum request rate per league, exponential back-off on errors, no polling
   while a session is idle/armed beyond a slow heartbeat, and no polling at all
@@ -450,19 +510,30 @@ yields one `draft_complete` — all in draft order.
 ### Measurable Outcomes
 
 - **SC-001**: With the tap feeding, **95%** of picks are reflected in Draft
-  Genie's state within **5 seconds** of the pick appearing in the user's own
-  draft room, and 100% within 15 seconds. The budget is the tap's batching
-  interval plus one ingest round-trip — there is no polling cadence any more, so
-  the old tier structure and its failover ceiling no longer apply. Measured over
-  a replayed frame corpus, so it is checkable offline.
+  Genie's state within **2 seconds** of the pick appearing in the user's own
+  draft room, and **100% within 10 seconds** (ratified round 4). Measured from
+  the tap's `observed_at` to client delivery. There is no polling cadence any
+  more, so the old tier structure and its 60 s failover ceiling do not apply —
+  and no near-turn tier exists, because the tap pushes at one rate regardless of
+  whose turn it is. The bound sits roughly 10× above the p95 measured across a
+  real 72-pick draft (0.223 s), which is deliberate headroom for a congested
+  draft-night network rather than a promise tuned to a good day. Checkable
+  offline against the replayed frame corpus.
 - **SC-001a**: With no client connected, picks are still ingested and recorded
   at the same latency — ingest does not depend on anyone watching — and a client
   connecting later is served a complete, current snapshot with zero missing
   picks.
-- **SC-001b**: When the draft room is open and no frames have arrived for the
-  threshold period, the session reports **not receiving picks** within 30
-  seconds and issues no recommendations, in 100% of trials (FR-007c). A stale
+- **SC-001b**: When the tap's heartbeat lapses, the session reports **not
+  receiving picks** within 30 seconds and issues no recommendations, in 100% of
+  trials (FR-007c/FR-007e). A draft that is merely slow — including a 90 s gap
+  between human picks — never triggers it. A stale
   board is never presented as a current one.
+- **SC-001c**: Recommendations are withheld in 100% of trials where the tap
+  reports `incompatible` or `version-rejected`, and are **not** withheld where
+  it reports `buffering` or `draft-end-unknown` (FR-007f). Both halves are
+  asserted: a rule that only ever withholds is as wrong as one that never does,
+  because withholding through an ordinary outage makes the feature look broken
+  during the one hour it matters.
 - **SC-002**: A connected client sees a state change within 1 second of the
   session recording it.
 - **SC-003**: Across a full draft, every one of the owner's turns has exactly

@@ -14,33 +14,37 @@ npm run build && npm run dev
 `new_sqlite_classes` migration. If alarms stop firing after a hot reload,
 restart `wrangler dev` — a known local quirk, not a bug in the session.
 
-## Gate 0 — validate the premise (do this first)
+## Gate 0 — closed, FAILED (2026-08-03)
 
-Everything below assumes ESPN's `mDraftDetail` reflects picks *during* a draft.
-That is **not established** (research §0). Before building, capture a real
-draft — a mock draft in any connected league is enough:
+Do not run this. It is recorded because the result is what shaped everything
+below.
+
+Gate 0 asked whether `mDraftDetail` reflects picks *during* a draft. It does
+not: **207 samples across ~30 real picks over 17.5 minutes showed it frozen**,
+and `mRoster`/`mTeam` are no better — every DRAFT transaction in a finished
+draft shares one `proposedDate` equal to `completeDate`. ESPN writes the draft
+to its league database **once, at completion**. No read API can see a draft in
+progress (research §0).
+
+Picks therefore arrive from `010-draft-tap`, which is built, deployed and has
+fed two real drafts. This feature is developed against its committed corpus, so
+**no live draft is required to build or test 005**:
+
+- `tests/fixtures/tap/replay-full.jsonl` — 72 messages from a real 6-team,
+  12-round draft relayed by the shipped tap
+- `tests/fixtures/tap/oracle-live-2026.json` — the same draft as ESPN reported
+  it *after* completion, produced by a different mechanism than the one under
+  test, which is what makes SC-010's comparison meaningful
+
+## Setup
 
 ```bash
-npx tsx scripts/capture-draft.ts --connection <id> --out tests/fixtures/espn/draft
+npm run migrate:local && npm run dev
 ```
 
-**Sample continuously at ≤ 5 s for the whole draft** — not at a handful of
-moments. SC-003's separate-observation clause and SC-010's replay corpus are
-both defined over a continuous sequence; a sparse capture collapses every event
-into batches and makes them unexercisable. Retain the four landmarks
-(**order published + skeleton**, **room open** with `inProgress:true` and zero
-filled picks, **mid-draft**, **complete**) as named files.
-
-The script sanitizes on write: SWID GUIDs, manager names and league/team names
-are replaced by a **deterministically derived** placeholder mapping (no lookup
-table of real values is ever written). Run the sanitization gate before the
-first commit — a raw capture committed once lives in git history permanently.
-
-**Pass**: pick count grows between mid-draft captures → proceed.
-**Fail**: the view is frozen and flushes at completion → **stop**. SC-001 is
-unachievable by polling; return to `/speckit-clarify` with the capture, because
-the alternative transport raises a Constitution VI question this plan does not
-answer.
+To exercise the feed without a draft, insert a batch into `tap_batches` and
+assert what the session pulls — the live path and the rebuild path read the same
+log through the same cursor, so this covers both.
 
 ## Validation scenarios
 
@@ -60,9 +64,22 @@ answer.
    fresh snapshot, by design.
 5. **Unattended recovery (FR-014a, SC-005)** — destroy the session with **no
    client connected**; the 5-minute cron restores it with no client action.
-6. **Cadence (FR-007/FR-007a)** — with `vi.useFakeTimers({ toFake: ['Date'] })`:
-   30 s unattended, 10 s with a socket attached, 3 s once within 3 picks of the
-   owner's turn. Assert via `getAlarm()`, never wall-clock.
+6. **Feed ordering (FR-007h)** — assert the ack precedes the nudge and follows
+   the `tap_batches` write: a session that is unavailable must not delay
+   `accepted_through`, and a batch acked but never nudged must still arrive
+   within the 5 s safety alarm. Drop the nudge deliberately and confirm no pick
+   is lost — only delayed.
+6a. **Liveness (FR-007c/e)** — with `vi.useFakeTimers({ toFake: ['Date'] })`:
+   a 45 s heartbeat gap on a **visible** tab enters `not_receiving` within 15 s;
+   the same gap on a **hidden** tab does **not**, because its timers are
+   throttled to ~1/minute — only 150 s does. And a **90 s gap between picks with
+   heartbeats still arriving** never does. That second half is
+   the one that matters — it is the false alarm a silence-based rule would
+   raise on every slow human round.
+6b. **Withholding (FR-007f, SC-001c)** — `incompatible` and `version-rejected`
+   withhold recommendations; `buffering` and `draft-end-unknown` do not. Assert
+   both directions: a rule that only ever withholds is as wrong as one that
+   never does.
 7. **Outage (US2 AS4, SC-007)** — point `ESPN_BASE_URL` at a dead host for 60 s:
    state keeps serving, `staleness.degraded` true with a rising age, back-off
    climbs, and every pick made during the outage lands within one cycle of
@@ -106,14 +123,58 @@ isolation — research §6).
 `@cloudflare/vitest-pool-workers` — `evictDurableObject` is absent from the
 installed 0.8.71.
 
+## What implementation changed (recorded 2026-08-05)
+
+Two deliberate deviations from [plan.md](plan.md), both kept because they are
+better rather than easier:
+
+1. **Liveness is evaluated ON READ, not by a 15 s alarm.** The plan specified an
+   alarm to drive the `not_receiving` state. The shipped code computes it from
+   `last_heartbeat_at` and the stored `hidden` flag whenever the status route is
+   asked. That satisfies SC-001b *more* tightly — detection is immediate for
+   whoever is asking rather than up to 15 s stale — and needs no extra alarm, so
+   it does not keep the Durable Object resident. Every consumer, including 006,
+   asks through that route.
+
+2. **Arming reads 001's stored snapshot instead of calling ESPN.** The plan said
+   the session would fetch pre-draft data on arm. 001's cron already fetches and
+   stores exactly that inside the pre-draft window, and arming happens on every
+   heartbeat — so re-fetching would duplicate work *and* put an ESPN request on a
+   15-second path, blowing FR-008's bound for no new information.
+
+**SC-001, measured.** The server's share of the budget is p50 **1 ms**, p95
+**2 ms**, max **2 ms** across the 72-message corpus, against a 2 s p95 promise;
+a full replay takes ~73 ms. The end-to-end figure is 010's production
+measurement — median 0.202 s, p95 0.223 s, 72/72 under 3 s. `latency.test.ts`
+guards only the part this feature controls and says so, because a synthetic
+harness cannot measure a browser, the tap's batching, or the public internet.
+
+**The oracle agrees.** Replayed against ESPN's own post-completion record, the
+tap-built draft matches on all 72 picks — zero missing, zero extra, zero
+mismatched.
+
+**One correct-looking gap that is not a gap.** In the corpus, the owner's turn at
+overall 23 gets no `on_the_clock`: the ledger at message 22 reveals three picks
+the stream never delivered, jumping the frontier 22 → 25 and crossing that turn.
+The pick had already been made, so announcing it afterwards would be false. If
+you see a turn with no alert, check whether a ledger crossed it before assuming
+a bug.
+
 ## Draft-day notes (feeds 009's runbook)
 
 - **Deploy the DO migration well before draft day.** Migrations cannot be
   gradually deployed, and deploying a new Worker version restarts every Durable
-  Object and disconnects every WebSocket. Clients auto-reconnect and polling
-  resumes on its own, but "no deploys during a draft" belongs in the runbook.
+  Object and disconnects every WebSocket. Clients auto-reconnect and the
+  session re-pulls from the log on its own, but "no deploys during a draft" belongs in the runbook.
 - Alarm timing is best-effort — Cloudflare documents delays of up to a minute
-  during failover. The 3 s tier is a target, not a guarantee.
+  during failover. That no longer sits on the pick path: picks arrive by nudge,
+  and the alarm is only the backstop that enforces SC-001's 10 s ceiling.
+- **The draft-room tab is the tap.** Closing it stops the feed and the session
+  will report *not receiving picks* within ~60 s. That is correct behaviour, not
+  a fault.
+- **Force a Tampermonkey update check before draft day** and confirm the badge
+  shows the expected version. A stale edge cache has been observed serving an
+  old userscript after deploy.
 - A live session bills ~1,382 GB-s for a 3-hour draft. A session stuck `armed`
   would burn ~11,000 GB-s/day, which is what the absolute armed deadline exists
   to prevent — verify it fires on a postponed draft.

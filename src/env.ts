@@ -15,6 +15,14 @@ export interface EmailSendingBinding {
 
 export interface Env {
   DB: D1Database;
+  /**
+   * 005: the live draft session authority, one per league connection + season.
+   *
+   * Typed with the class so RPC calls (`stub.nudge()`) are checked. The import
+   * is TYPE-ONLY, so it is erased at compile time and creates no runtime cycle
+   * between env and the Durable Object that depends on it.
+   */
+  DRAFT_SESSION: DurableObjectNamespace<import("./draft/session").DraftSession>;
   ASSETS?: Fetcher;
   EMAIL?: EmailSendingBinding;
   SESSION_SECRET: string;

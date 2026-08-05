@@ -126,6 +126,37 @@ export interface TapPairing {
   bound: boolean;
 }
 
+
+/** 005 — draft session status, including WHY advice is withheld. */
+export interface DraftStatus {
+  armed: boolean;
+  status: string;
+  detail?: string;
+  season?: number;
+  tap?: {
+    state: string | null;
+    version: string | null;
+    /** A hidden tab's timers throttle to ~1/minute, so the tolerance widens. */
+    hidden: boolean;
+    lastHeartbeatAt: string | null;
+    lapsed: boolean;
+  };
+  withholding: "not_receiving" | "incompatible" | "version_rejected" | null;
+  completedAt?: string | null;
+}
+
+export interface DraftSnapshot {
+  status: "idle" | "live" | "complete";
+  revision: number;
+  seq: number;
+  picks: { overall: number; teamId: number; playerId: number; observedAt: string }[];
+  onTheClock: number | null;
+  picksUntilMyTurn: number | null;
+  orderTrust: "observed" | "projected" | "unknown";
+  totalPicks: number;
+  complete: boolean;
+}
+
 export const apiClient = {
   requestCode: (email: string) => request<void>("POST", "/api/auth/request", { email }),
   verifyCode: (email: string, code: string) =>
@@ -139,6 +170,11 @@ export const apiClient = {
       swid,
     }),
   listLeagues: () => request<{ leagues: LeagueSummary[] }>("GET", "/api/leagues"),
+
+  // 005 — the throwaway diagnostic surface (FR-025). 007 replaces the page
+  // that consumes these wholesale, so the shapes are deliberately minimal.
+  getDraftStatus: (id: string) => request<DraftStatus>("GET", `/api/leagues/${id}/draft`),
+  getDraftSnapshot: (id: string) => request<DraftSnapshot>("GET", `/api/leagues/${id}/draft/snapshot`),
   getLeague: (id: string) => request<LeagueDetail>("GET", `/api/leagues/${id}`),
   connectLeague: (league_ref: string) => request<LeagueDetail>("POST", "/api/leagues", { league_ref }),
   completeConnect: (connect_token: string, espn_team_id: number) =>

@@ -1,124 +1,232 @@
 # Implementation Plan: Draft Monitor
 
-**Branch**: `005-draft-monitor` | **Date**: 2026-08-02 | **Spec**: [spec.md](spec.md)
+**Branch**: `005-draft-monitor` | **Date**: 2026-08-05 (round 4 rewrite) | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `/specs/005-draft-monitor/spec.md`
 
+> **This plan was rewritten after Gate 0 failed and `010-draft-tap` shipped.**
+> The previous version architected a polling loop against `mDraftDetail`; 207
+> samples across ~30 real picks proved that view frozen during a live draft, and
+> `mRoster`/`mTeam` are no better — ESPN writes the draft to its league database
+> once, at completion. Picks now arrive by ingest from the browser tap. The
+> server-side half of the old plan — the reducer, the snake projection, the event
+> model, WebSocket delivery, the D1 archive — survives intact. The intake half is
+> replaced.
+
 ## Summary
 
-A `DraftSession` Durable Object per league connection per season is the sole
-authority for live draft state. One self-rescheduling alarm polls ESPN's
-`mDraftDetail` at the ratified tiers (3 s / 10 s / 30 s / 60 s armed), a pure
-`reconcile()` reducer turns each observation into ordered events
-(`pick_made`, `on_deck`, `on_the_clock`, `draft_complete`), and hibernatable
-WebSockets fan state out to browsers behind a snapshot-then-cursor hand-off.
-D1 holds a session header row that the existing 5-minute cron uses as its
-work-list (arming and restoring dead sessions) plus a permanent archive
-written once at completion. A deliberately plain diagnostic page proves it
-works; 007 replaces that page wholesale.
+A `DraftSession` Durable Object per league connection per season remains the
+sole authority for live draft state. It is no longer fed by polling ESPN: the
+tap's ingest route writes accepted frames to a durable server-side log
+(`tap_batches`), acknowledges, and then **nudges** the session, which **pulls**
+from that log by cursor. The same pure `reconcile()` reducer turns each batch
+into ordered events (`pick_made`, `on_deck`, `on_the_clock`, `draft_complete`),
+and hibernatable WebSockets fan state out to browsers behind a
+snapshot-then-cursor hand-off. D1 holds a session header row plus a permanent
+archive written once at completion. A deliberately plain diagnostic page proves
+it works; 007 replaces that page wholesale.
 
-**Gate 0 first**: implementation opens with an empirical capture of a real
-ESPN draft, because the premise that `mDraftDetail` updates *during* a draft
-is not established (research §0). Everything else is written against the
-fixtures that capture produces.
+**Gate 0 is closed** (failed, 2026-08-03) and no longer opens implementation.
+The premise it was built to test is disproven, the replacement transport is
+built and deployed, and this feature is written against **real captured frames**
+— a 617-frame corpus and a 72-message live relay — rather than a protocol guess.
 
 ## Technical Context
 
 **Stack**: unchanged (Workers / Hono / D1 / React) plus **one new platform
 primitive — Durable Objects**. No new npm dependencies.
 
-**Storage**: DO SQLite-backed storage (synchronous KV blob) is the live
-authority; D1 migration `0005_draft.sql` adds `draft_sessions` (cron
-work-list, cascades from `league_connections`) and the permanent **three-table**
-archive `draft_archives` + `draft_picks` + `draft_keepers` (all keyed by
-`account_id`, cascading from `accounts`, none carrying an FK to
-`league_connections` — so disconnecting a league does not destroy retained
-history, research §5). `draft_archives` is where `my_team_id`, `order_json` and
-`teams_json` live: putting them in `draft_sessions` would put them back on the
-cascade path and defeat FR-013.
+### The feed: notify-then-pull (FR-007h)
 
-**Transport**: WebSocket Hibernation API (`ctx.acceptWebSocket`) — mandatory,
-not optional: `ctx.getWebSockets()` returns 0 for `server.accept()` sockets,
-so FR-007a's attended/unattended cadence flip cannot otherwise be implemented.
+This is the one genuinely new mechanism, and its shape is fixed by a
+constraint that is easy to miss: **the tap discards its local buffer only when
+the server returns `accepted_through`**. That makes the acknowledgement a
+durability boundary, not a courtesy.
 
-**External calls**: `?view=mDraftDetail` alone on the live poll path;
-`mSettings` + `mTeam` + `mRoster` at arm, rebuild and state transitions.
-`mRoster` is new to this repo (keepers, research §4).
+```text
+tap ──POST /api/tap/batch──▶ Worker
+                              1. authorise, re-assert the privacy filter
+                              2. INSERT INTO tap_batches        ← durable commit
+                              3. 202 { accepted_through }       ← tap may now forget
+                              4. ctx.waitUntil(session.nudge()) ← after the ack
+                                            │
+                              DraftSession ◀┘
+                                 pulls tap_batches by cursor, reduces, fans out
+```
 
-**Documented ESPN rate bound (FR-008, validated by SC-008)** — the number
-FR-008 requires and the spec deliberately left to the plan:
+Three properties this buys, each of which a naive design loses:
 
-- **≤ 25 requests per minute per league**, and **at most one request in flight
-  per session** (the single in-flight gate is also correctness, not just
-  politeness — research §7). The 3 s tier alone is 20 `mDraftDetail` polls/min;
-  the headroom covers a rebuild or state transition landing in the same minute,
-  which adds `mSettings` + `mTeam` + `mRoster`. A flat 20 would be breached by
-  the plan's own request pattern.
+- **The ack never waits on the session.** A restarting, migrating or
+  briefly-unavailable DO cannot stall the tap's buffer — the outcome FR-008's
+  buffering guarantees exist to prevent.
+- **Nothing is lost if the nudge is.** The nudge carries no data, only "there is
+  new work". The log is the source of truth, so a dropped nudge costs latency,
+  never a pick.
+- **The recovery path is the only path.** Rebuilding a dead session replays the
+  same log through the same cursor read. There is no separate, rarely-exercised
+  restore routine to rot — which is what round 3 meant by making the persisted
+  log the automatic rebuild path.
+
+**Cursor**: keyset on `(received_at, id)`, ordered, over the existing
+`idx_tap_batches_league` index — `WHERE account_id = ? AND espn_league_id = ?
+AND season = ? AND (received_at > ?1 OR (received_at = ?1 AND id > ?2))`. No
+migration is required for the feed; `tap_batches` is already shaped for it.
+A keyset cursor is chosen over an offset so that a batch inserted during a read
+cannot shift the window, and over "dedupe on re-read" so that correctness does
+not depend on the reducer's idempotency — that idempotency is a safety net here,
+not the mechanism.
+
+**Safety alarm**: 5 s while the room is open. SC-001 promises **100% within
+10 s**, and a lost nudge must not breach it — so the ceiling is enforced by a
+timer rather than by hoping `waitUntil` always runs. This alarm makes no
+external request; it is a D1 cursor read.
+
+### Liveness: heartbeat, not silence (FR-007e)
+
+Pick silence is not evidence. Measured across real drafts: **~1 s** between
+autodrafted picks and **90 s+** between human ones, so no silence threshold
+separates a slow draft from a dead tap.
+
+- The tap posts a **heartbeat every 15 s** carrying its state, version and
+  whether its tab is **hidden**.
+- **Lapse = 45 s** while the tab is visible (three intervals, so one dropped
+  request is not an alarm) and **150 s while it is hidden**.
+- A **15 s liveness alarm** evaluates the lapse, so detection lands well inside
+  SC-001b's 30 s.
+
+The two thresholds are not belt-and-braces. A hidden tab's timers are throttled
+to **1/minute** after five chained timers with the tab hidden five minutes —
+010's own research recorded this, and it is why the tap's flush is event-driven
+rather than timed. A flat 45 s threshold would therefore mark a healthy tap dead
+roughly every minute of a backgrounded draft, and the ratified design *expects*
+the tab to be backgrounded: the tap runs where the draft room is open, the UI
+runs wherever the owner is looking. The tap cannot defeat the throttling, but it
+can observe it, so it states it and the session picks the matching bound.
+
+The tap also heartbeats on `visibilitychange`, `pageshow`, `focus` and `online`
+— including on the transition *into* hidden, so the session learns to relax its
+threshold before the throttling starts rather than after a false alarm.
+
+> ✅ **Cross-feature dependency — DISCHARGED (2026-08-05).** 010 tap **0.1.6**
+> emits the periodic heartbeat with the `hidden` flag, and `/api/tap/status`
+> accepts, validates and privacy-screens it. 005 can now build FR-007c against a
+> real signal.
+
+### Arming (FR-007g)
+
+The **first frame from a tap arms the session** — heartbeat included. Because
+the tap heartbeats from the moment the draft room opens, the session exists
+*before the first pick*, so a missing or broken tap is visible while there is
+still time to fix it. On arming, the session fetches the pre-draft data ESPN
+still exposes (draft type, scheduled time, published order, teams): Gate 0
+disproved live pick visibility, **not** pre-draft reads.
+
+### ESPN's post-completion flush as a production oracle
+
+The one thing Gate 0 proved ESPN *does* write reliably is the **completed**
+draft. 010 used that as an independent oracle in tests — it is what disproved
+the field-3 reading (5/70) and confirmed the ledger offsets (31/31).
+
+This plan promotes it to a **production correctness check**: on `drafted`, the
+session fetches the authoritative `mDraftDetail` and reconciles the tap-built
+draft against it before archiving. Divergence bumps the revision through the
+existing correction path (FR-012/FR-019). Every archived draft is therefore
+verified against a source that did not produce it — the strongest available
+check that the tap missed nothing, at a cost of one request per draft.
+
+**Storage**: DO SQLite-backed storage is the live authority; D1 migration
+`0008_draft.sql` adds `draft_sessions` (cron work-list, cascades from
+`league_connections`) and the permanent **three-table** archive
+`draft_archives` + `draft_picks` + `draft_keepers` — all keyed by `account_id`,
+cascading from `accounts`, none carrying an FK to `league_connections`, so
+disconnecting a league does not destroy retained history (research §5).
+Numbered `0008` because 010 took `0006` and `0007`.
+
+**Transport**: WebSocket Hibernation API (`ctx.acceptWebSocket`) — still
+mandatory, though for a different reason than before. The old plan needed
+`ctx.getWebSockets()` to drive an attended/unattended *cadence flip*; there is
+no cadence any more. It is now required because the session must survive
+eviction between picks while keeping client sockets attached, and because
+`server.accept()` sockets are invisible to `ctx.getWebSockets()` and so cannot
+be enumerated after a restart.
+
+**External calls** (much reduced — FR-008): `mSettings` + `mTeam` + `mRoster` at
+arm, rebuild and state transitions; a slow **60 s** `mDraftDetail` poll while the
+room is open, purely to observe the `inProgress`/`drafted` flags; one
+`mDraftDetail` read at completion for the oracle above. **Zero ESPN requests sit
+on the pick path.**
+
+**Documented ESPN rate bound (FR-008, validated by SC-008)**:
+
+- **≤ 5 requests per minute per league**, and at most one in flight per session.
+  The old bound was 25/min, sized around a 3 s poll tier that no longer exists;
+  the new pattern's busiest minute is an arm (3 reads) overlapping one liveness
+  poll. Stating 25 now would document headroom the design cannot use.
 - **Back-off ladder** on consecutive errors: 5 s → 10 s → 20 s → 40 s → **60 s
-  cap**, reset to the normal tier on the first success. `espn_rejected`
-  (credentials) climbs the same ladder; `league_not_found` (404) does **not** —
-  it goes terminal, or the session hammers a 404 forever.
-- **No polling at all** in `complete`, `aborted` or `unsupported` — the alarm
-  is not rescheduled, and `ensureRunning()` will not re-arm a completed
-  session.
+  cap**, reset on first success. `espn_rejected` climbs the same ladder;
+  `league_not_found` (404) goes terminal rather than hammering a 404 forever.
+- **No ESPN polling at all** in `complete`, `aborted` or `unsupported`.
 
 **Armed absolute deadline (FR-002 / postponed-draft edge case)**:
 `scheduled_at + 6 hours`, then `aborted`. Re-arm is not manual — the cron
-re-arms when the league re-sync publishes a *different* `draft_at`, which is
-how a rescheduled draft comes back without the owner doing anything.
+re-arms when a league re-sync publishes a different `draft_at`.
 
-**Performance**: pick visible ≤ 12 s attended baseline / ≤ 4 s inside the
-3-pick tier at the **95th percentile**, with 100% inside the tier bound + 60 s
-(SC-001, ratified in clarification round 2). The ceiling exists because
-Cloudflare documents alarms as delayable by up to a minute during failover —
-the spec now states a percentile plus a ceiling rather than an absolute the
-platform does not offer, and T048 measures both over the replayed draft.
+**Performance**: **p95 ≤ 2 s, 100% ≤ 10 s** from the tap's `observed_at` to
+client delivery (SC-001, ratified round 4). Measured end-to-end across a real
+72-pick draft with the shipped tap: **median 0.202 s, p95 0.223 s, max 0.900 s**,
+72/72 under 3 s. The budget therefore sits roughly 10× above observed p95 —
+deliberate headroom for a congested draft-night network, not a number tuned to a
+good day. There are no tiers, because the tap pushes at one rate regardless of
+whose turn it is, and no 60 s failover ceiling, because no polling timer remains
+to be delayed.
 
-**Cost**: a polling DO does not hibernate (10 s of no events required; the
-baseline tier sits exactly at that threshold), so a 3-hour draft bills ≈
-1,382 GB-s of duration. Fine per draft; the postponed-draft edge case needs a
-**hard absolute deadline** rather than an indefinite heartbeat, or one stuck
-armed session burns ~11,000 GB-s/day.
+**Cost**: materially better than the polling design on the ESPN axis (zero
+requests per pick) and unchanged on the DO axis: the 5 s / 15 s alarms keep the
+object resident while a room is open, so a 3-hour draft still bills ≈ 1,382 GB-s.
+Alarms are scheduled **only while the room is open** — armed and completed
+sessions schedule nothing, which is what keeps a postponed draft from burning
+~11,000 GB-s/day.
 
-**Testing**: Vitest workers pool, **two projects** under one `npm test` — plus
-a root-level config for `tests/draft/**` with `isolatedStorage: false`
-(WebSockets in DOs are unsupported with per-file isolation). The existing
-config is **not** untouched: its include glob is already
-`tests/**/*.test.ts`, which matches `tests/draft/**`, so it must gain a
-matching **exclude** or every DO test also runs under the isolated-storage
-project that cannot support it. Bulk logic is tested through the pure reducer,
-DO-free; ESPN is faked with `fetchMock` + `disableNetConnect()`, which is what
-makes SC-008 structural.
+**Testing**: Vitest, now **three projects** under one `npm test` — the existing
+workers pool, the `node` project 010 added for `tap/**`, and a new root-level
+config for `tests/draft/**` with `isolatedStorage: false` (WebSockets in DOs are
+unsupported with per-file isolation). The workers config's include glob matches
+`tests/draft/**`, so it must gain a matching **exclude** or every DO test also
+runs under the isolated-storage project that cannot support it. Bulk logic is
+tested through the pure reducer, DO-free; the feed is tested by writing rows to
+`tap_batches` and asserting what the session pulls; ESPN is faked with
+`fetchMock` + `disableNetConnect()`, which is what makes SC-008 structural.
 
-**Fixture sanitization (constitution: Security & Privacy)**: ESPN's
-`mSettings`/`mTeam` payloads carry `members[].id` and `teams[].owners[]`, which
-**are SWID GUIDs**, plus real names. Every captured fixture is sanitized on
-write against the placeholder mapping already fixed by
-`tests/fixtures/espn/README.md` (001's house norm) before it reaches the repo.
+**Replay corpus**: 010 committed `tests/fixtures/tap/replay-full.jsonl` (72 live
+messages) and `oracle-live-2026.json`. SC-010 replays the former and compares
+against the latter — a corpus produced by a different mechanism than the one
+under test, which is what makes the check meaningful.
 
-**Known dependency bump**: `evictDurableObject` is absent from the installed
-`@cloudflare/vitest-pool-workers@0.8.71`; bump before writing the FR-017
-eviction test, not after.
+**Known dependency bump**: `evictDurableObject` is still absent from the
+installed `@cloudflare/vitest-pool-workers@0.8.71` (verified 2026-08-05). Bump
+before writing the FR-017 eviction test, not after.
 
 ## Constitution Check
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I Spec-first | PASS | Spec + 5 ratified clarifications + adversarial review precede this plan |
-| II Any-league | PASS | Session keyed by connection id; draft type, order, team count all read from the league's own ESPN settings; nothing hardcoded |
+| I Spec-first | PASS | Spec + 4 ratified clarification rounds + two adversarial reviews precede this plan; the plan was rewritten rather than patched when its premise fell |
+| II Any-league | PASS | Session keyed by connection id; draft type, order and team count read from the league's own ESPN settings; nothing hardcoded |
 | III League currency | PASS | This feature computes no points. The available-player set defers to 002's per-league board |
-| IV Rules are code | PASS | Cadence tiers, `on_deck` threshold, back-off ladder and reconciliation are constants and code — no settings surface |
-| V Draft day | PASS | Safety alarm armed before the fallible poll; `alarm()` total; cron restores dead sessions without a client; rebuild-from-ESPN; snapshot-then-cursor reconnect |
-| VI Read-only | PASS | `mDraftDetail`/`mRoster` are GET reads through the existing read-only client; `disableNetConnect()` makes "zero writes" structural in test. The ESPN draft-room WebSocket is explicitly **not** adopted (research §0) |
-| VII Explainable | N/A | No recommendations in this feature — 006 owns it |
-| VIII Simplicity | PASS (1 justified addition) | One new primitive (DO), one new migration, one new module tree, zero new dependencies. See Complexity Tracking |
+| IV Rules are code | PASS | Heartbeat interval, lapse threshold, back-off ladder, `on_deck` threshold and reconciliation are constants and code — no settings surface |
+| V Draft day | PASS | The durable log is written before the ack, so a session crash cannot lose a pick the tap has already discarded; cron restores dead sessions without a client; rebuild replays the same log the live path reads; snapshot-then-cursor reconnect |
+| VI Read-only | PASS | ESPN sees only GET reads through the existing client, and **fewer** than the polling design. The tap opens no connection to ESPN and has no send path (010, asserted against the shipped artifact) |
+| VII Explainable | N/A | No recommendations in this feature — 006 owns it. FR-007f decides only *when to withhold* |
+| VIII Simplicity | PASS (1 justified addition) | One new primitive (DO), one new migration, one new module tree, zero new dependencies. The feed adds no queue, no new service and no new binding beyond the DO itself |
 
 **Post-Phase-1 re-check**: PASS. The design added no services, no config
-surfaces and no user-facing knobs. The one deliberate narrowing — FR-014's
-"identical rebuilt state" defined over a `stateFingerprint` that excludes the
-delivery cursor and event log — is documented in research §7 and
-data-model.md rather than left implicit, because a rebuild collapses N
-observations into one and provably cannot reproduce the original event stream.
+surfaces and no user-facing knobs. Two deliberate narrowings are documented
+rather than left implicit: FR-014's "identical rebuilt state" is defined over a
+`stateFingerprint` that excludes the delivery cursor and event log (a rebuild
+collapses N observations into one and provably cannot reproduce the original
+event stream — research §7), and FR-007f's withholding rule deliberately does
+**not** fire on `buffering`, because a tap correctly riding out an outage still
+holds every pick.
 
 ## Project Structure
 
@@ -129,71 +237,81 @@ specs/005-draft-monitor/
 ├── plan.md, research.md, data-model.md, quickstart.md
 ├── contracts/api.md          # HTTP + WebSocket protocol
 ├── checklists/requirements.md
-└── tasks.md (next phase)
+└── tasks.md (next phase — regenerated for this plan)
 ```
 
 ### Source Code (additions)
 
 ```text
-migrations/0005_draft.sql
+migrations/0008_draft.sql
 src/draft/
-├── session.ts          # DraftSession DO: alarm loop, WS hibernation, RPC surface
+├── session.ts          # DraftSession DO: nudge/pull, alarms, WS hibernation, RPC
+├── feed.ts             # PURE cursor arithmetic + batch→observation mapping
 ├── reconcile.ts        # PURE reducer: observation → (state, events). No platform deps
-├── cadence.ts          # PURE nextPollDelayMs() over the four tiers + back-off ladder
+├── liveness.ts         # PURE heartbeat lapse + withholding rules (FR-007c/e/f)
+├── schedule.ts         # PURE ESPN refresh cadence + back-off ladder (replaces cadence.ts)
 ├── snake.ts            # PURE order projection, teamAt(n), remaining schedule, orderTrust
-└── archive.ts          # completion → D1 archive (chunked batch, first-seen-wins)
+└── archive.ts          # completion → oracle reconcile → D1 archive
 src/espn/
-├── types.ts            # (extend) draftDetail.picks[], mRoster roster entries
-├── parsers.ts          # (extend) parseDraftObservation()
-└── client.ts           # (extend) mRoster view
+├── types.ts            # (extend) completed draftDetail.picks[], mRoster entries
+└── parsers.ts          # (extend) parseCompletedDraft() for the oracle check
+src/api/tap.ts          # (extend) nudge the session after the ack; heartbeat route
 src/db/draft.ts         # draft_sessions header, archive reads/writes
+src/db/tap.ts           # (extend) cursor read over tap_batches
 src/api/draft.ts        # session status, snapshot, WS upgrade proxy
 src/api/app.ts          # (extend) mount /api/leagues/:id/draft
 src/db/leagues.ts       # (extend) deleteConnection calls shutdown() RPC
-src/sync/predraft.ts    # (extend) arm + restore sweep on the 5-minute cron
+src/sync/predraft.ts    # (extend) restore sweep on the 5-minute cron
 src/index.ts            # (extend) re-export DraftSession
 src/env.ts              # (extend) DRAFT_SESSION binding
-wrangler.jsonc          # durable_objects binding + new_sqlite_classes migration
+wrangler.jsonc          # durable_objects binding + legacy `migrations` array
 web/src/pages/DraftDiagnostics.tsx   # throwaway plain page (FR-025)
 web/src/lib/draftSocket.ts           # reconnect + cursor resume
-vitest.draft.config.ts               # second project, isolatedStorage: false
-tests/draft/*.test.ts                # DO, alarm, WebSocket
-tests/unit/reconcile.test.ts, cadence.test.ts, snake.test.ts
-tests/fixtures/espn/draft/*.json     # Gate 0 capture: 4 moments + full replay corpus
+vitest.draft.config.ts               # third project, isolatedStorage: false
+tests/draft/*.test.ts                # DO, alarm, WebSocket, feed
+tests/unit/{reconcile,liveness,snake,feed,schedule}.test.ts
 ```
 
 **Structure Decision**: same single-Worker layout. `src/draft/` mirrors
 `projections/`, `tiers/` and `signals/`, with the deliberate rule that
-`reconcile.ts`, `cadence.ts` and `snake.ts` import **nothing from the
-platform** — that is what makes FR-021 (offline replay) true by construction
-and keeps the DO a thin shell around tested logic.
+`feed.ts`, `reconcile.ts`, `liveness.ts`, `schedule.ts` and `snake.ts` import
+**nothing from the platform** — that is what makes FR-021 (offline replay) true
+by construction and keeps the DO a thin shell around tested logic. 010 proved
+the value of that rule the hard way: its draft-end detection was four lines
+inside the impure shell, where nothing could test it, and it shipped wrong in
+two ways a single test would have caught.
+
+> **`wrangler.jsonc` must use the legacy `migrations` array, not `exports`.**
+> 010's research established empirically that `exports` silently provisions a
+> KV-backed DO under the installed vitest pool while production is SQLite-backed
+> — the tests would pass against a different storage engine than production runs.
 
 ## Implementation Phases
 
-**Gate 0 — validate the premise.** Capture a real ESPN draft by **sampling
-continuously at ≤ 5 s for the whole draft** (retaining the four landmarks:
-order published + skeleton, room open, mid-draft, complete) — SC-003 and
-SC-010 are defined over a continuous observation sequence, and a sparse capture
-collapses every event into batches. Fixtures are sanitized on write. If
-`mDraftDetail` proves frozen during live drafts, **stop** and return to
-`/speckit-clarify`: SC-001 is unachievable by polling, and the alternative
-transport carries a Constitution VI question this plan does not answer.
+**Phase A — pure core.** `reconcile.ts`, `snake.ts`, `feed.ts`, `liveness.ts`,
+`schedule.ts` + unit tests against the committed frame corpus. Delivers SC-010's
+replay check against the independent oracle with no DO in sight.
 
-**Phase A — pure core.** `reconcile.ts`, `cadence.ts`, `snake.ts` + unit tests
-against the captured fixtures. Delivers SC-010's replay check with no DO.
+**Phase B — the session and the feed.** DO, nudge/pull, cursor, D1 header, lazy
+arming, safety alarm, rebuild-from-log. Delivers US1/US3 state, FR-007g/h and
+FR-014/FR-014a. **This is the phase whose correctness is hardest to see**, so it
+is the phase whose tests are written first.
 
-**Phase B — the session.** DO, alarm loop, D1 header, cron arm/restore,
-rebuild. Delivers US1/US3 state and FR-014/FR-014a.
+**Phase C — liveness and delivery.** Heartbeat ingestion, lapse detection,
+withholding, WebSocket upgrade, snapshot-then-cursor, client reconnect,
+diagnostic page. Delivers US2's reload survival, FR-007c/e/f and FR-025.
 
-**Phase C — delivery.** WebSocket upgrade, snapshot-then-cursor, client
-reconnect, diagnostic page. Delivers US2's reload survival and FR-025.
+**Phase D — archive + hardening.** Completion oracle reconcile, archive,
+`shutdown()` on disconnect, credential-sweep test, absolute armed deadline.
 
-**Phase D — archive + hardening.** Completion archive, `shutdown()` on
-disconnect, credential-sweep test, absolute armed deadline.
+**Blocked on 010**: FR-007e's heartbeat. Phase C's lapse detection can be built
+and tested against synthesised heartbeats, but cannot be validated end-to-end
+until the tap emits them.
 
 ## Complexity Tracking
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| New platform primitive: Durable Objects | Nothing else on Workers can hold a sub-minute durable timer *and* live WebSockets *and* single-writer state per league. Ratified in 001 | Cron-only polling floors at 1 minute — ~20× slower than the ratified 3 s tier, and unable to push. D1 + client-driven polling violates FR-015 and dies when the tab closes (FR-007a) |
-| Second Vitest project config | WebSockets in DOs are unsupported with per-file storage isolation, which the existing suite depends on | One config for everything means either no WebSocket tests, or turning isolation off for the whole existing suite and making every current D1 test share state |
+| New platform primitive: Durable Objects | Single-writer authority per league with live WebSockets and a sub-minute durable timer. Nothing else on Workers offers all three | Stateless Workers cannot hold the reduced state or push to clients; D1 + client polling violates FR-015 and dies when the tab closes |
+| Third Vitest project config | WebSockets in DOs are unsupported with per-file storage isolation, which the existing suite depends on | One config means either no WebSocket tests, or turning isolation off for the whole suite and making every current D1 test share state |
+| Nudge + pull rather than passing frames inline | FR-007h forbids the ack waiting on the session, and a dropped nudge must not lose a pick | Passing frames in the nudge makes the DO's availability a durability dependency — the tap would discard picks the session never received. A queue would add a binding and a second delivery system for no gain over a log the feature already writes |
