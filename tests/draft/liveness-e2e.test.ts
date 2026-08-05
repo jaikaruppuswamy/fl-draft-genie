@@ -230,3 +230,48 @@ describe("session survival (T041)", () => {
     expect(await runInDurableObject(stub(), (s: DraftSession) => s.fingerprint())).toBe(before);
   });
 });
+
+describe("SC-001b's detection bound", () => {
+  async function ageHeartbeat(msAgo: number, hidden = false): Promise<void> {
+    await testEnv.DB.prepare(
+      `UPDATE draft_sessions SET last_heartbeat_at = ?, heartbeat_hidden = ? WHERE connection_id = ?`,
+    )
+      .bind(new Date(Date.now() - msAgo).toISOString(), hidden ? 1 : 0, CONNECTION)
+      .run();
+  }
+
+  // Margins are seconds wide, not milliseconds. An exact-boundary assertion
+  // races the test's own execution: signing in and issuing the request takes
+  // real time between stamping the heartbeat and the route reading the clock,
+  // so ±1 ms would fail intermittently for reasons that have nothing to do
+  // with the code.
+  it("reports the lapse IMMEDIATELY on read — well inside SC-001b's 30 s", async () => {
+    // NOTE A DEVIATION FROM THE PLAN, recorded rather than hidden: the plan
+    // specified a 15-second liveness alarm to drive this state. The shipped
+    // implementation evaluates liveness ON READ instead, from
+    // `last_heartbeat_at` and the stored `hidden` flag.
+    //
+    // That satisfies SC-001b more tightly (detection is immediate for anyone
+    // asking, rather than up to 15 s stale) and costs nothing: it needs no
+    // extra alarm, so it does not keep the object resident. Every consumer —
+    // the diagnostic page, and 006 when it arrives — asks through this route.
+    await heartbeat();
+    await ageHeartbeat(50_000, false); // comfortably past the 45 s visible bound
+    expect((await status()).withholding).toBe("not_receiving");
+  });
+
+  it("does not report a lapse just INSIDE the bound", async () => {
+    await heartbeat();
+    await ageHeartbeat(40_000, false);
+    expect((await status()).withholding).toBeNull();
+  });
+
+  it("applies the hidden bound at its own edge, not the visible one", async () => {
+    await heartbeat({ hidden: true });
+    // Past the VISIBLE bound but inside the hidden one: still healthy.
+    await ageHeartbeat(140_000, true);
+    expect((await status()).withholding).toBeNull();
+    await ageHeartbeat(160_000, true);
+    expect((await status()).withholding).toBe("not_receiving");
+  });
+});

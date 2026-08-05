@@ -179,10 +179,10 @@ each `on_the_clock`, per revision.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T054 [P] Measure SC-001 over the replayed corpus in `tests/draft/latency.test.ts` — p95 ≤ 2 s and 100% ≤ 10 s from `observed_at` to delivery — and record the numbers, as 010 did (median 0.202 s, p95 0.223 s)
-- [ ] T055 [P] Verify SC-001b end-to-end in `tests/draft/liveness-e2e.test.ts` against the real tap heartbeat now that 0.1.6 emits it, including the hidden-tab threshold
-- [ ] T056 [P] Update `specs/005-draft-monitor/quickstart.md` with any drift found while implementing, and record draft-day notes for 009's runbook
-- [ ] T057 Run the full suite plus `scripts/privacy-sweep.ts`; confirm no fixture added by this feature carries a real identifier or member name
+- [X] T054 [P] Measure SC-001 over the replayed corpus in `tests/draft/latency.test.ts` — p95 ≤ 2 s and 100% ≤ 10 s from `observed_at` to delivery — and record the numbers, as 010 did (median 0.202 s, p95 0.223 s)
+- [X] T055 [P] Verify SC-001b end-to-end in `tests/draft/liveness-e2e.test.ts` against the real tap heartbeat now that 0.1.6 emits it, including the hidden-tab threshold
+- [X] T056 [P] Update `specs/005-draft-monitor/quickstart.md` with any drift found while implementing, and record draft-day notes for 009's runbook
+- [X] T057 Run the full suite plus `scripts/privacy-sweep.ts`; confirm no fixture added by this feature carries a real identifier or member name
 
 ---
 

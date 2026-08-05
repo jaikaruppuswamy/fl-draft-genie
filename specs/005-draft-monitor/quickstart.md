@@ -123,6 +123,43 @@ isolation — research §6).
 `@cloudflare/vitest-pool-workers` — `evictDurableObject` is absent from the
 installed 0.8.71.
 
+## What implementation changed (recorded 2026-08-05)
+
+Two deliberate deviations from [plan.md](plan.md), both kept because they are
+better rather than easier:
+
+1. **Liveness is evaluated ON READ, not by a 15 s alarm.** The plan specified an
+   alarm to drive the `not_receiving` state. The shipped code computes it from
+   `last_heartbeat_at` and the stored `hidden` flag whenever the status route is
+   asked. That satisfies SC-001b *more* tightly — detection is immediate for
+   whoever is asking rather than up to 15 s stale — and needs no extra alarm, so
+   it does not keep the Durable Object resident. Every consumer, including 006,
+   asks through that route.
+
+2. **Arming reads 001's stored snapshot instead of calling ESPN.** The plan said
+   the session would fetch pre-draft data on arm. 001's cron already fetches and
+   stores exactly that inside the pre-draft window, and arming happens on every
+   heartbeat — so re-fetching would duplicate work *and* put an ESPN request on a
+   15-second path, blowing FR-008's bound for no new information.
+
+**SC-001, measured.** The server's share of the budget is p50 **1 ms**, p95
+**2 ms**, max **2 ms** across the 72-message corpus, against a 2 s p95 promise;
+a full replay takes ~73 ms. The end-to-end figure is 010's production
+measurement — median 0.202 s, p95 0.223 s, 72/72 under 3 s. `latency.test.ts`
+guards only the part this feature controls and says so, because a synthetic
+harness cannot measure a browser, the tap's batching, or the public internet.
+
+**The oracle agrees.** Replayed against ESPN's own post-completion record, the
+tap-built draft matches on all 72 picks — zero missing, zero extra, zero
+mismatched.
+
+**One correct-looking gap that is not a gap.** In the corpus, the owner's turn at
+overall 23 gets no `on_the_clock`: the ledger at message 22 reveals three picks
+the stream never delivered, jumping the frontier 22 → 25 and crossing that turn.
+The pick had already been made, so announcing it afterwards would be false. If
+you see a turn with no alert, check whether a ledger crossed it before assuming
+a bug.
+
 ## Draft-day notes (feeds 009's runbook)
 
 - **Deploy the DO migration well before draft day.** Migrations cannot be
