@@ -6,7 +6,7 @@
 // would report a version it is not.
 
 /** Bumped on every shipped change. The build fails if the banner disagrees. */
-export const TAP_VERSION = "0.1.6";
+export const TAP_VERSION = "0.1.7";
 
 /** Wire-contract version, sent on every message. 005 rejects what it cannot read. */
 export const CONTRACT_VERSION = 1;

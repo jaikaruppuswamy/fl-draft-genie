@@ -123,3 +123,30 @@ describe("the shipped tap reports liveness on a timer", () => {
     expect(heartbeat).toMatch(/postStatus\(/);
   });
 });
+
+// The menu and the badge must survive a FAILED preflight.
+//
+// They were registered after the page-world check, so a failure produced
+// nothing at all: no badge (render bails before it is mounted), no status
+// command, and no way to paste a pairing token. The tap went silent in exactly
+// the situation it exists to shout about, and left the owner no tool to fix it.
+describe("diagnostics survive the failure they diagnose", () => {
+  it("mounts the badge and registers the menu BEFORE the page-world gate", () => {
+    const gate = bundle.indexOf("if (!result.pageWorld)");
+    const menu = bundle.indexOf("registerMenu()");
+    const badge = bundle.indexOf("mountBadge)");
+    expect(gate).toBeGreaterThan(-1);
+    expect(menu, "registerMenu() must be called before the preflight gate").toBeGreaterThan(-1);
+    expect(menu).toBeLessThan(gate);
+    expect(badge).toBeLessThan(gate);
+  });
+
+  it("still offers a way to paste a pairing token", () => {
+    expect(bundle).toMatch(/paste pairing token/);
+  });
+
+  it("says WHY, not just that something is wrong", () => {
+    // "incompatible" with no reason is a label with no next step (FR-016).
+    expect(bundle).toMatch(/status\.detail/);
+  });
+});

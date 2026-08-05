@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Draft Genie draft tap
 // @namespace    https://draft.neelamjai.com/
-// @version      0.1.6
+// @version      0.1.7
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
@@ -23,7 +23,7 @@
 "use strict";
 (() => {
   // tap/meta.ts
-  var TAP_VERSION = "0.1.6";
+  var TAP_VERSION = "0.1.7";
   var CONTRACT_VERSION = 1;
   var INGEST_ORIGIN = "https://draft.neelamjai.com";
   var DRAFT_HOST = "fantasydraft.espn.com";
@@ -778,15 +778,16 @@
         selfGlobal: typeof window !== "undefined" ? window : null
       }
     );
-    if (!result.pageWorld) {
-      render("incompatible", `could not attach to the page \u2014 picks are NOT being captured (${result.reason})`);
-      return;
-    }
     const params = new URLSearchParams(W.location.search);
     league.espnLeagueId = params.get("leagueId") ?? "";
     league.season = Number(params.get("seasonId") ?? (/* @__PURE__ */ new Date()).getFullYear());
     W.addEventListener("DOMContentLoaded", mountBadge);
     if (W.document.readyState !== "loading") mountBadge();
+    registerMenu();
+    if (!result.pageWorld) {
+      render("incompatible", `could not attach to the page \u2014 picks are NOT being captured (${result.reason})`);
+      return;
+    }
     for (const ev of ["online", "pageshow", "focus"]) {
       W.addEventListener(ev, () => {
         sequencer.reanchor();
@@ -804,11 +805,18 @@
     setInterval(() => heartbeat(false), HEARTBEAT_MS);
     heartbeat(false);
     render(token() ? "watching" : "not-paired");
+  }
+  function registerMenu() {
     GM_registerMenuCommand("Draft Genie: status", () => {
       const text = `${status.state}
 
 ${EXPLANATIONS[status.state]}
 
+` + // The DETAIL is what says *why* — without it "incompatible" is a label
+      // with no next step, which is the thing FR-016 forbids.
+      (status.detail ? `${scrubDetail(status.detail)}
+
+` : "") + `paired: ${token() ? "yes" : 'NO \u2014 use "paste pairing token" below'}
 buffered: ${status.buffered}
 unrecognised: ${status.unrecognisedCount}
 picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}

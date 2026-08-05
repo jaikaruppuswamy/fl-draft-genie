@@ -403,19 +403,30 @@ function start(): void {
     },
   );
 
-  // In an ISOLATED world `window.WebSocket` is not the page's, and the tap would
-  // observe nothing while appearing perfectly healthy. Assert, loudly.
-  if (!result.pageWorld) {
-    render("incompatible", `could not attach to the page — picks are NOT being captured (${result.reason})`);
-    return;
-  }
-
   const params = new URLSearchParams(W.location.search);
   league.espnLeagueId = params.get("leagueId") ?? "";
   league.season = Number(params.get("seasonId") ?? new Date().getFullYear());
 
+  // THE BADGE AND THE MENU COME FIRST, BEFORE ANY EARLY RETURN.
+  //
+  // They used to be registered after the page-world check, which meant a failed
+  // preflight produced NOTHING: no badge (because `render` bails when the badge
+  // is not mounted yet), no status command, and — worst — no way to paste a
+  // pairing token. The tap went completely silent in exactly the situation it
+  // exists to shout about, and the owner had no tool left to diagnose or fix it.
+  //
+  // Diagnostics must survive the failure they diagnose.
   W.addEventListener("DOMContentLoaded", mountBadge);
   if (W.document.readyState !== "loading") mountBadge();
+  registerMenu();
+
+  // In an ISOLATED world `window.WebSocket` is not the page's, and the tap would
+  // observe nothing while appearing perfectly healthy. Assert, loudly — but stay
+  // usable, so the owner can still pair, read the reason, and act on it.
+  if (!result.pageWorld) {
+    render("incompatible", `could not attach to the page — picks are NOT being captured (${result.reason})`);
+    return;
+  }
 
   // Event-driven flush. A chained setTimeout in a hidden tab is throttled to one
   // per second and then ONE PER MINUTE, which alone would fail the 60s recovery
@@ -438,9 +449,21 @@ function start(): void {
 
   render(token() ? "watching" : "not-paired");
 
+}
+
+/**
+ * Registered UNCONDITIONALLY, including when the preflight has failed — see
+ * `start()`. A tap that cannot observe must still be able to explain itself and
+ * accept a pairing token.
+ */
+function registerMenu(): void {
   GM_registerMenuCommand("Draft Genie: status", () => {
     const text =
       `${status.state}\n\n${EXPLANATIONS[status.state]}\n\n` +
+      // The DETAIL is what says *why* — without it "incompatible" is a label
+      // with no next step, which is the thing FR-016 forbids.
+      (status.detail ? `${scrubDetail(status.detail)}\n\n` : "") +
+      `paired: ${token() ? "yes" : "NO — use \"paste pairing token\" below"}\n` +
       `buffered: ${status.buffered}\nunrecognised: ${status.unrecognisedCount}\n` +
       `picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}\nversion: ${TAP_VERSION}`;
     // Carries no secret, but the same reasoning applies: use the reference we
