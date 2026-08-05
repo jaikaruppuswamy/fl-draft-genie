@@ -154,20 +154,45 @@ Object per draft room per 001's plan notes) — settled in `/speckit-plan`.
 **Summary**: The secret sauce. A pure, deterministic, offline-testable module:
 input = league context (scoring, roster needs), draft state (available players,
 my roster, current round/pick), player board (002) and signals (004), plus the
-user's preferred list; output = a ranked shortlist with an explanation per
-player (Principle VII). Core is value-based drafting (replacement-level value
+user's preferred list; output = a full ranked board whose shortlist head carries
+an explanation per player (Principle VII). Core is value-based drafting
+(replacement-level value
 by position, round-value awareness so we know what a player "should" cost),
 layered with rule adjustments: team offensive potential, SoS, bye-week
 conflicts, O-line ranking, positional scarcity/run detection, and a bounded
 boost for preferred players ("can go a bit higher than projected value").
 Rules are code, not config (Principle IV).
 
-**Open questions**: replacement-level baseline definition per league shape; how
-rule adjustments combine (additive points vs. multipliers vs. tie-breakers);
-size of the preferred-player boost bound; how roster-slot needs constrain
-recommendations in late rounds (K/DST timing); whether the engine also produces
-a full "best available" board or only a shortlist. The detailed rule tuning is
-deliberately its own future spec session(s).
+**Ratified in clarify (2026-08-05)** — five decisions, now binding on the spec:
+
+- **Output is the full ranked board**, not a shortlist alone: every available
+  player is ordered, with a designated shortlist head carrying the full
+  explanations and value/rank for the rest. 007 and 008 build against the whole
+  ordering. (Resolves "full board or only a shortlist".)
+- **006 owns the preferred-player list** — storage, a read/write API, and a plain
+  standalone page to enter it before draft day. The draft room stays 007's. No
+  other feature provided one, and without it the preference rule could never fire
+  on a real draft.
+- **The engine looks forward, not only back.** It estimates whether each player
+  survives to the owner's next turn, from ADP and the count of intervening picks.
+  No model of what specific opponents will do — derived from data already on
+  hand, so determinism holds.
+- **Mandatory slots (K/DST) are enforced only when forced.** While remaining
+  picks exceed unfilled mandatory slots, rank by value and warn; once they are
+  equal, every pick is forced and the shortlist head is mandated positions only.
+  A mandated position is never weighted up before that point.
+- **Adjustments combine additively in the league's own value currency**, each
+  carrying its own signed magnitude, and they must reconcile to the difference
+  between raw and final value. The preferred boost is one of them, capped
+  relative to the league's value spread rather than as a flat point count, and
+  distinctly marked with the exact value it contributed so the display can badge
+  the player and show what the preference was worth. (Resolves "how rule
+  adjustments combine" and the *unit* of the preferred bound.)
+
+**Still open — deliberately deferred to `/speckit-plan` and its own tuning
+session(s)**: the replacement-level baseline definition per league shape, and
+every numeric magnitude — the size of the preferred cap, and how heavily each
+signal and the survival estimate weigh.
 
 ## 007 — draft-room-ui
 

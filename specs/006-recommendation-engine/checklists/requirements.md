@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain — **3 open, all scope-level; see below**
+- [X] No [NEEDS CLARIFICATION] markers remain — **all 3 resolved in clarify, 2026-08-05**
 - [X] Requirements are testable and unambiguous
 - [X] Success criteria are measurable
 - [X] Success criteria are technology-agnostic (no implementation details)
@@ -31,20 +31,23 @@
 
 ## Notes
 
-The three open markers are all **scope** questions, which is why they are left
-for `/speckit-clarify` rather than guessed:
+The three open markers were all **scope** questions, which is why they were left
+for `/speckit-clarify` rather than guessed. All three are now resolved (see
+spec.md § Clarifications, Session 2026-08-05):
 
-1. **Ownership of the preferred-player list.** No feature currently provides one,
-   and 007 (the UI) comes after this. Guessing wrong either adds unowned storage
-   work to this feature or leaves US3 unimplementable.
-2. **Shortlist versus full ranked board.** This decides what 007 and 008 can
-   build against, and a shortlist-only contract is not something they can widen
-   later without reopening this feature.
-3. **Enforce versus advise on a mandated position.** This changes what the engine
-   is permitted to withhold, which is a product judgement rather than a technical
-   one.
+1. **Ownership of the preferred-player list** → 006 owns it: storage, API, and a
+   standalone pre-draft page. FR-018 to FR-021.
+2. **Shortlist versus full ranked board** → full ranked board, with a shortlist
+   head carrying the explanations. FR-001, FR-009.
+3. **Enforce versus advise on a mandated position** → enforce only once forced;
+   never weighted up before that. FR-025.
 
-ROADMAP's remaining open questions — the replacement-level baseline and the
-arithmetic by which adjustments combine — are deliberately NOT raised here. They
-are *how*, not *what*, and ROADMAP already records that the detailed rule tuning
-is its own later session.
+Two further decisions were taken in the same session, beyond the original
+markers: the engine estimates survival to the owner's next turn (FR-022 to
+FR-024), and adjustments combine additively in the league's own currency with
+each carrying its signed magnitude (FR-007, FR-026, FR-027).
+
+ROADMAP's remaining open questions — the replacement-level baseline, and every
+numeric magnitude including the size of the preferred cap — are still deliberately
+NOT raised here. They are *how*, not *what*, and ROADMAP records that the detailed
+rule tuning is its own later session.
