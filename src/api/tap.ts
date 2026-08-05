@@ -21,6 +21,10 @@ import { logError, logInfo } from "./logging";
 import { issuePairing, listPairings, retainBatch, revokePairing, summariseBatches, touchPairing, verifyPairing } from "../db/tap";
 import { findConnection, getConnectionById } from "../db/leagues";
 import { sessionStub } from "../draft/session";
+import { armingScope } from "../draft/arming";
+import { getSnapshot } from "../db/leagues";
+import { recordHeartbeat, upsertSession } from "../db/draft";
+import type { Env } from "../env";
 
 /** The tap runs on ESPN's origin; nothing else needs these routes. */
 const ALLOWED_ORIGINS = new Set(["https://fantasy.espn.com"]);
@@ -81,6 +85,48 @@ function corsHeaders(origin: string | undefined): Record<string, string> {
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
+}
+
+
+/**
+ * 005 FR-007g — arm the session from ANY tap frame, heartbeat included.
+ *
+ * Arming on the heartbeat rather than the first pick is what makes a missing
+ * or broken tap visible BEFORE the draft starts, while there is still time to
+ * fix it. The tap heartbeats from the moment the draft room opens.
+ *
+ * Idempotent and cheap: it reads the snapshot 001 already maintains rather
+ * than calling ESPN, so a 15-second heartbeat cannot breach FR-008's bound.
+ */
+async function armSession(
+  env: Env,
+  connection: { id: string; my_team_id: number },
+  accountId: string,
+  espnLeagueId: string,
+  season: number,
+  at: Date,
+): Promise<void> {
+  const snapshot = await getSnapshot(env.DB, connection.id);
+  const armed = armingScope({
+    accountId,
+    connectionId: connection.id,
+    espnLeagueId,
+    season,
+    myTeamId: connection.my_team_id,
+    snapshot,
+  });
+  await upsertSession(
+    env.DB,
+    {
+      connectionId: connection.id,
+      accountId,
+      season,
+      status: armed.supported ? "armed" : "unsupported",
+      scheduledAt: armed.scheduledAt,
+    },
+    at,
+  );
+  if (armed.supported) await sessionStub(env, connection.id, season).arm(armed.scope);
 }
 
 export function tapRoutes() {
@@ -199,6 +245,9 @@ export function tapRoutes() {
     // frame data; the session pulls from the log it was just written to. A
     // dropped nudge therefore costs latency, never a pick, and the session's
     // 5 s safety alarm bounds that latency inside SC-001's 10 s ceiling.
+    // FR-007g: any frame arms. Cheap and idempotent (reads 001's snapshot).
+    await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at);
+
     if (body.messages.length > 0) {
       // Accessing `executionCtx` THROWS when the app is invoked without one.
       // Guarded rather than assumed, because the nudge is an optimisation and
@@ -254,7 +303,31 @@ export function tapRoutes() {
     // 005 FR-007e: liveness. Any status — heartbeat or state change — proves
     // the tap is attached, so both refresh it. Picks do too; this only has to
     // cover the silence between them.
-    await touchPairing(c.env.DB, verified.pairingId, c.req.header("X-Tap-Install") ?? null, now(c.env));
+    const at = now(c.env);
+    await touchPairing(c.env.DB, verified.pairingId, c.req.header("X-Tap-Install") ?? null, at);
+
+    // FR-007g: a HEARTBEAT arms the session, which is the whole reason a
+    // missing tap is visible before the first pick rather than after it.
+    if (body.league) {
+      const connection = await findConnection(
+        c.env.DB,
+        verified.accountId,
+        body.league.espnLeagueId,
+        body.league.season,
+      );
+      if (connection) {
+        await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at);
+        // `hidden` decides WHICH lapse threshold applies: a background tab's
+        // timers throttle to ~1/minute, and one threshold would declare a
+        // healthy backgrounded tap dead.
+        await recordHeartbeat(
+          c.env.DB,
+          connection.id,
+          { hidden: body.hidden === true, tapState: body.state, tapVersion: body.tapVersion ?? null },
+          at,
+        );
+      }
+    }
 
     logInfo(
       `tap ${body.heartbeat ? "heartbeat" : "status"}: ${body.state}` +

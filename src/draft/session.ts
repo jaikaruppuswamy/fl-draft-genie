@@ -107,6 +107,9 @@ export class DraftSession extends DurableObject<Env> {
   async arm(scope: SessionScope): Promise<void> {
     const s = await this.load();
     if (s.closed) return; // disconnected: an explicit decision, not a belief
+    // An abort is about a draft that never started. If it is being armed
+    // again, the draft is back on and the abort no longer applies.
+    await this.ctx.storage.delete("aborted");
     await this.ctx.storage.put("scope", scope);
     if (!s.scope) {
       await this.ctx.storage.put("epoch", crypto.randomUUID());
@@ -214,6 +217,21 @@ export class DraftSession extends DurableObject<Env> {
   /** The digest FR-014 compares a rebuilt draft against. */
   async fingerprint(): Promise<string> {
     return stateFingerprint((await this.load()).state);
+  }
+
+  /**
+   * Give up on a draft that never started (FR-002, postponed drafts).
+   *
+   * Distinct from `shutdown()`: the session row survives so the owner can see
+   * WHY it stopped, and a re-published draft time re-arms it through the
+   * ordinary sync with no manual step. What stops is the billing — an armed
+   * session holds its alarm open indefinitely otherwise.
+   */
+  async abort(): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    const s = await this.load();
+    await this.ctx.storage.put("state", { ...s.state, complete: false });
+    await this.ctx.storage.put("aborted", true);
   }
 
   /** Stop everything and forget. Called when a league is disconnected. */
@@ -428,7 +446,8 @@ export class DraftSession extends DurableObject<Env> {
    */
   private async ensureAlarm(): Promise<void> {
     const s = await this.load();
-    if (!s.scope || s.closed || s.state.complete) {
+    const aborted = (await this.ctx.storage.get<boolean>("aborted")) === true;
+    if (!s.scope || s.closed || aborted || s.state.complete) {
       await this.ctx.storage.deleteAlarm();
       return;
     }
