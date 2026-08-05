@@ -14,8 +14,8 @@ Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
 ```
 001 league-onboarding ✅
  ├─→ 002 projections-pipeline ✅ ─→ 003 board-refinements ✅
- ├─→ 004 context-signals ──────────┬─→ 006 recommendation-engine ─┐
- └─→ 010 draft-tap 🔜 ─→ 005 draft-monitor ⛔ ─┘                  ├─→ 007 draft-room-ui
+ ├─→ 004 context-signals ✅ ────────┬─→ 006 recommendation-engine 🔜 ┐
+ └─→ 010 draft-tap ✅ ─→ 005 draft-monitor ✅ ─┘                  ├─→ 007 draft-room-ui
                                    └──────────────────────────────┴─→ 008 draft-replay-lab
 009 deployment-ops (exercised continuously since 001; hardening at the end)
 ```
@@ -149,7 +149,7 @@ pick one).
 **Open questions**: transport details for the ratified WebSocket push (Durable
 Object per draft room per 001's plan notes) — settled in `/speckit-plan`.
 
-## 006 — recommendation-engine
+## 006 — recommendation-engine 🔜 IN PROGRESS (spec 2026-08-05)
 
 **Summary**: The secret sauce. A pure, deterministic, offline-testable module:
 input = league context (scoring, roster needs), draft state (available players,
@@ -205,7 +205,7 @@ tuning sessions (Principle IV) validate their changes.
 for "the engine did well" (projected points of resulting roster vs. actuals);
 CLI or UI.
 
-## 010 — draft-tap 🔜 NEXT (blocks 005)
+## 010 — draft-tap ✅ SHIPPED (2026-08-05)
 
 **Summary**: The browser userscript that makes live drafting possible at all.
 Gate 0 (2026-08-03) proved ESPN's read API cannot see a draft in progress; the
