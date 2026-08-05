@@ -165,8 +165,12 @@ the degradation rather than silently ranking.
 - **The owner picks back-to-back** at a snake turn. The second recommendation
   must account for the player just taken by the first — and the gap to the "next
   turn" is one pick, not a round, so nothing is treated as safely surviving.
-- **A player has no ADP** — obscure, or newly added. Survival cannot be estimated
-  for them; they rank on what is known, per FR-013.
+- **A player has no ADP** — obscure, newly added, or sitting at ESPN's saturation
+  floor, which is the majority case. Survival cannot be estimated for them; they
+  rank on what is known, per FR-013.
+- **The late rounds, where almost everyone is at the ADP floor.** Survival stops
+  discriminating exactly when the draft does. The engine must fall back to value
+  and stated need without pretending the floor is a signal.
 - **A pick is corrected** after the fact (005 bumps its revision). A
   recommendation computed for a superseded state must not be presented as
   current.
@@ -259,6 +263,12 @@ the degradation rather than silently ranking.
   player certain to be gone is preferred over an equally valued player certain to
   last. The estimate MUST be derived from data already on hand: **no model of
   what specific opponents will do**, no network, no loss of determinism (FR-010).
+  ESPN's ADP **saturates at a floor** (measured 2026-08-05: 325 of 522 projected
+  players sit at ~169.9, against a maximum of 171.6). A value at that floor means
+  "outside our sample", not "goes at pick 170", and the engine MUST treat it as
+  an **absent** ADP under FR-013 — never as a real draft position. Ranking a
+  floored player as safely surviving would be a fabricated signal, and it would
+  fire hardest in the late rounds where it is least true.
 - **FR-023**: When there **is no next turn** — the owner's final pick of the
   draft — survival MUST NOT be applied, and its absence MUST NOT be reported as a
   missing signal. At a snake turnaround the gap is the real, small one; the
@@ -335,6 +345,8 @@ the degradation rather than silently ranking.
   gap to the owner's next turn and one well beyond it, the engine ranks the
   first higher and names the reason, in 100% of trials. At the owner's final
   pick the same pair ranks by value alone, with no survival reason given.
+  Players at ESPN's ADP floor are treated as having no ADP in 100% of cases —
+  no survival claim is made for them, in either direction.
 - **SC-013**: With one mandatory slot unfilled and two picks remaining, the
   shortlist head is ranked on value and carries the warning; with one pick
   remaining it contains only players filling that slot, in 100% of trials.
@@ -347,7 +359,18 @@ the degradation rather than silently ranking.
 ## Assumptions
 
 - The **player board (002/003)** supplies per-league scored projections, ADP and
-  bye weeks; this feature does not re-derive them.
+  bye weeks; this feature does not re-derive them. Verified against production
+  2026-08-05: ADP is present on 100% of the 522 projected players and already
+  reaches the client. The universe is 1026 active players, so ~504 carry neither
+  a projection nor an ADP; they also carry no value, so they rank last regardless.
+  ADP discriminates for roughly the first 170 picks — enough for a standard
+  draft's meaningful rounds, and enough at K and DST (real values from 85.3 and
+  89.4) for FR-025's endgame — but **not** to the end of a 16-round board. See
+  FR-022 on the floor.
+- **Player search** for the preferred-list page (FR-019) needs no new backend:
+  the board endpoint already returns the whole scored board, and client-side name
+  and position search already ships in the league board page. FR-019 reuses that
+  pattern rather than adding a search endpoint or a name index.
 - The **signals (004)** supply team offense, strength of schedule and O-line rank
   in a uniform shape, including their own freshness.
 - The **draft state (005)** supplies which players are gone, whose turn it is,
