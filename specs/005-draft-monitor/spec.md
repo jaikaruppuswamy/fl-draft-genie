@@ -104,7 +104,10 @@ Mid-draft the owner reloads the page, loses Wi-Fi for a minute, or switches
 from laptop to iPad. Draft Genie comes back with the complete, correct draft
 state — every pick so far, current rosters, whose turn it is — not a partial
 or empty board. The same holds if Draft Genie's own draft session is lost
-(deploy, crash, restart): it rebuilds the entire draft from ESPN.
+(deploy, crash, restart): it rebuilds the entire draft by **replaying the
+persisted frame log** (ratified round 3 — ESPN cannot report an in-progress
+draft, so it is not a rebuild source), reconciled against the full pick ledger
+the tap re-sends whenever the draft room reloads.
 
 **Why this priority**: Constitution V — a live draft cannot be paused or
 replayed. A monitor that is correct only while nothing goes wrong is not

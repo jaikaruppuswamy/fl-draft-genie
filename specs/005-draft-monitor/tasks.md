@@ -3,322 +3,259 @@
 description: "Task list for 005-draft-monitor"
 ---
 
-# Tasks: Draft Monitor
+# Tasks: Draft Monitor (005)
 
-**Input**: Design documents from `/specs/005-draft-monitor/`
+**Input**: Design documents from `specs/005-draft-monitor/`
 
-**Prerequisites**: plan.md, spec.md, research.md, data-model.md,
-contracts/api.md, quickstart.md — and the deployed 001/002 build (connections,
-credentials, player board).
+**Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/api.md](contracts/api.md), [quickstart.md](quickstart.md) — and the deployed 001/002 build (connections, credentials, player board).
 
-**Tests**: Included, per the project's established pattern. The pure reducer's
-unit tests and the full-draft replay ARE the acceptance evidence for SC-003,
-SC-010 and FR-021 — they are not optional here.
+> **Regenerated 2026-08-05 against the round-4 plan.** The previous list was
+> written for a polling design that Gate 0 disproved: its open tasks descended
+> from a `mDraftDetail` poll loop, a four-tier cadence function and a Gate 0
+> capture that produced frozen skeletons. None of that survives. What does
+> survive — the pure reducer, the snake projection, the event model, WebSocket
+> delivery, the D1 archive — is carried forward here with its reasoning intact.
 
-**Organization**: US1 (follow a live draft), US2 (survive reloads and crashes),
-US3 (session arms itself), US4 (event contract for 006/007/008).
-
-**Revision (2026-08-02)**: renumbered after `/speckit-analyze`. Batch 1
-remediation applied — fixture sanitization (was a constitution violation),
-archive metadata moved off the cascade path, terminal-state guards on the poll
-alarm, the restore predicate de-contradicted, the ESPN rate bound and back-off
-ladder given values in plan.md, and three tasks added (T005, T028, T061).
-Spec-level findings (FR-020's two-picks claim, FR-019 vs corrections, SC-001's
-"100%") are deliberately **not** addressed here — they belong to a
-`/speckit-clarify` pass.
+**Tests**: requested. The spec defines SC-001…SC-011 as measurable outcomes and
+FR-021 requires offline replay, so test tasks are first-class and — for the feed
+and the reducer — written **before** the implementation they cover.
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel (different files, no dependencies)
-- **[Story]**: US1–US4 per spec.md
+- **[P]** — parallelisable (different files, no dependency on an incomplete task)
+- **[US1]…[US4]** — the user story a task serves; absent for Setup, Foundational and Polish
+
+## Path Conventions
+
+Single Cloudflare Worker + React SPA, as in 001–004: `src/` (Worker), `web/src/`
+(SPA), `tests/` (Vitest), `migrations/` (D1). New module tree `src/draft/`.
+
+## Prerequisites already satisfied
+
+Do **not** re-do these; they are why this feature is unblocked.
+
+- **Gate 0** — closed, FAILED (2026-08-03). Do not attempt to poll for live picks.
+- **The transport** — `010-draft-tap` is built, deployed, and has fed two real drafts.
+- **The corpus** — `tests/fixtures/tap/replay-full.jsonl` (72 live messages) and
+  `tests/fixtures/tap/oracle-live-2026.json` (the same draft as ESPN reported it
+  afterwards, produced by a different mechanism — which is what makes SC-010
+  meaningful rather than circular).
+- **The heartbeat** — tap 0.1.6 emits periodic liveness with a `hidden` flag
+  (010 FR-015a). FR-007c/e are buildable against a real signal.
 
 ---
 
-## Phase 1: Gate 0 — Validate the premise (BLOCKING, stop-the-line)
+## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Establish that ESPN's `mDraftDetail` reflects picks *during* a
-draft. It is not established (research §0), and if it is false this feature's
-design does not work. Nothing else starts until this passes.
+- [ ] T001 Add the `DRAFT_SESSION` Durable Object binding to `wrangler.jsonc` using the **legacy `migrations` array with `new_sqlite_classes`**, never `exports`. 010's research established empirically that `exports` silently provisions a **KV-backed** DO under the installed vitest pool while production is SQLite-backed — the suite would pass against a different storage engine than production runs
+- [ ] T002 Extend `src/env.ts` with the `DRAFT_SESSION: DurableObjectNamespace` binding
+- [ ] T003 [P] Create `vitest.draft.config.ts` as a third project with `isolatedStorage: false`, and add a matching **exclude** to `vitest.workers.config.ts`. Its include glob is already `tests/**/*.test.ts`, which matches `tests/draft/**`, so without the exclude every DO test also runs under the isolated-storage project that cannot support WebSockets
+- [ ] T004 [P] Bump `@cloudflare/vitest-pool-workers` in `package.json` past `0.8.71`, which does **not** export `evictDurableObject` (verified 2026-08-05). Do this before T041 needs it, not after
+- [ ] T005 Write `migrations/0008_draft.sql`: `draft_sessions` (cron work-list, cascades from `league_connections`) plus the three-table archive `draft_archives` + `draft_picks` + `draft_keepers`, all keyed by `account_id` and cascading from `accounts` with **no FK to `league_connections`** — disconnecting a league must not destroy retained history (research §5). Numbered 0008 because 010 took 0006 and 0007
 
-- [X] T001 Write a read-only capture script `scripts/capture-draft.ts` that pulls `mDraftDetail`, `mSettings`, `mTeam` and `mRoster` for a given connection through the existing `src/espn/client.ts` and writes timestamped JSON under `tests/fixtures/espn/draft/` — **sanitizing on write, before any bytes reach the repo**. Every `members[].id` and `teams[].owners[]` GUID (these **are SWIDs**), every `displayName`/`firstName`/`lastName`, and every league and team name is replaced. The mapping MUST be **deterministically derived, never persisted**: order teams by ESPN `teamId` ascending and assign index *n* = 1..N, then emit GUID `{00000000-0000-4000-8000-0000000000NN}` (NN = zero-padded *n*), manager `Manager n`, team `Team n`, league `Test League` — except the connection's own team, which maps to the README's existing `{11111111-2222-3333-4444-555555555555}`. Recomputing the derivation gives the same mapping every run, so **no lookup table of real GUIDs exists to be committed**. Append this rule to `tests/fixtures/espn/README.md` so T006's gate and T058 have a real reference set to check against. Never print cookies. Committing a raw capture violates the constitution's Security & Privacy constraint and 001's house norm
-- [X] T002 Run the capture against a real ESPN draft (a mock draft in a connected league is sufficient) — **sampling continuously at a fixed short interval (≤ 5 s) for the whole draft, not at a handful of moments**, because SC-003's separate-observation clause and SC-010's replay corpus are both defined over a continuous observation sequence and a sparse capture collapses every event into batches. Retain the four named landmarks (order-published+skeleton, room-open with zero filled picks, mid-draft, complete) as `tests/fixtures/espn/draft/{order,open,mid,complete}.json`
-- [X] T003 Record the verdict in `specs/005-draft-monitor/research.md` §0 under a new "Gate 0 result" heading: does `picks[]` with `playerId > 0` grow between successive mid-draft samples? **If NO — STOP and run `/speckit-clarify`**; SC-001 is unachievable by polling and the alternative transport raises a Constitution VI question this plan does not answer. Write the verdict in placeholder terms only — no real GUIDs, manager names, or league/team names in prose (the same obligation the fixtures carry)
-- [X] T004 With the capture in hand, resolve the three UNVERIFIED items in research §4 and update it in place — placeholder terms only, as T003: (a) is skeleton `teamId` pre-filled on empty snake slots, (b) do keepers occupy real `overallPickNumber` slots in `picks[]` or appear only in `roster.entries[]`, (c) what `autoDraftTypeId` values actually appear
-- [ ] T005 Produce the keeper fixture that T024 and quickstart scenario 2 both require, in `tests/fixtures/espn/draft/keepers.json`: capture from a **real keeper league** if one is connected — **via `scripts/capture-draft.ts`, same derived mapping** — because a fresh mock draft structurally cannot contain keepers, so T004(b) cannot be answered from T002's capture alone. If no keeper league is available, hand-author the fixture to the shape research §4 describes using the same placeholder derivation, and record in research §4 that the keeper path ships **verified against a hand-authored fixture only**
-- [ ] T006 Assemble the full-draft replay corpus `tests/fixtures/espn/draft/replay-full.json` from the **already-sanitized** T002 samples (so the committed corpus inherits the same derived mapping); then **run the sanitization gate before the first commit of Phase 1** — a Node-side script (not a Workers-pool test; workerd has no `node:fs`) that walks `tests/fixtures/espn/draft/**` and fails on any GUID outside the derived set **or any string matching the real manager/team/league names supplied to the capture**. T058 re-asserts this in CI, but the gate that matters is this one: a raw capture committed once lives in git history permanently
-
-**Checkpoint**: ⛔ **GATE 0 FAILED (2026-08-03).** `mDraftDetail` does not
-reflect picks during a live snake draft — ~30 real picks over 17.5 minutes,
-207 samples, zero observable. See research.md §0 "Gate 0 result".
-
-**Phases 2–9 are BLOCKED.** Do not start T007. US1, US2 and US4 have no data
-source, and SC-001/SC-002/SC-003 are unachievable as specified.
-
-**The follow-up question is now closed too** (research §0 "Gate 0 follow-up"):
-`mRoster`/`mTeam` do **not** move live either — ESPN's league database is
-written **once, at completion** (all DRAFT transactions in a finished draft
-share one `proposedDate` equal to `completeDate`). No v3 read view can carry
-live picks. No further draft run is needed to establish this.
-
-The only live source is the ESPN draft-room channel, and a **server-side**
-connection to it is not available: `JOIN` registers a participant and the
-client must write a `PING` every 15 s, so no read-only posture exists —
-Constitution VI forbids it. What *does* work is a **passive tap on the user's
-own already-open draft room** (a browser userscript/extension mirroring frames
-to a Worker ingest route), confirmed against live drafts by multiple parties,
-with no extra connection and no send path.
-
-That trades a technical blocker for a **governance** one: it adds a browser
-artifact the constitution's Technical Constraints do not contemplate, and it
-does not exist on iPad Safari. `/speckit-clarify` must decide the delivery
-model before any further task here is meaningful.
-
-T005 (keeper fixture) and T006 (replay corpus) are moot until a source exists —
-a corpus of frozen skeletons has nothing to replay.
+**Checkpoint**: bindings and schema exist; nothing behavioural yet.
 
 ---
 
-## Phase 2: Setup
+## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T007 Add the Durable Object to `wrangler.jsonc`: `durable_objects.bindings` `{ name: "DRAFT_SESSION", class_name: "DraftSession" }` plus `migrations: [{ tag: "v1", new_sqlite_classes: ["DraftSession"] }]` — **use the legacy `migrations` array, not the `exports` field** (research §1: `exports` silently provisions a KV-backed DO under the installed test pool while production is SQLite-backed)
-- [ ] T008 [P] Create `migrations/0005_draft.sql` per data-model.md: `draft_sessions` (PK connection_id FK→league_connections CASCADE, account_id FK→accounts CASCADE, status CHECK, scheduled_at, last_observed_at, pick_count, completed_at, archived_at) + `idx_draft_sessions_open`; and the account-keyed archive `draft_archives` (PK `(account_id, connection_id, season)`, plus **espn_league_id**, league_name, team_count, **my_team_id, order_json, teams_json**, format, completed_at, archived_at, and an index on `(account_id, espn_league_id, season)`), `draft_picks`, `draft_keepers` — each of the three carrying `account_id TEXT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE` (the `0001_init.sql` convention) and **no FK to league_connections**, so deleting an account still removes everything while disconnecting a league cannot delete retained history. The three metadata columns belong in `draft_archives`, **not** `draft_sessions`, which cascades away with the connection. Apply locally
-- [ ] T009 [P] Extend `src/env.ts` with `DRAFT_SESSION: DurableObjectNamespace<DraftSession>` using a **type-only** import to avoid a runtime cycle, and re-export the `DraftSession` class from `src/index.ts` (which currently exports only `default`)
-- [ ] T010 [P] Create `vitest.draft.config.ts` at repo root (**not** in a subdirectory — the pool resolves `wrangler.configPath` relative to the config file's own directory) covering `tests/draft/**` with `isolatedStorage: false`, **add a matching exclude to the existing `vitest.config.ts`** — written as `exclude: [...configDefaults.exclude, "tests/draft/**"]`, because setting `test.exclude` *replaces* Vitest's defaults (node_modules, dist, …) rather than extending them — since its glob is already `tests/**/*.test.ts`, so without this every DO test also runs under the isolated-storage project that cannot support WebSockets. Wire both projects into `npm test` in `package.json`, alongside the Node-side fixture gate from T006
-- [ ] T011 [P] Bump `@cloudflare/vitest-pool-workers` past 0.8.71 so `evictDurableObject` exists, and confirm the existing suite still passes on the new version before any DO code depends on it
+**Purpose**: the pure core. Everything here imports **nothing from the
+platform** — that rule is what makes FR-021 (offline replay) true by
+construction and keeps the DO a thin shell. 010 proved its value the hard way:
+its draft-end detection was four lines inside the impure shell where nothing
+could test it, and it shipped wrong in two ways that one test would have caught.
 
----
+**⚠️ No user story work begins until this phase is complete.**
 
-## Phase 3: Foundational (Blocking Prerequisites)
+- [ ] T006 [P] Unit tests for the snake projection in `tests/unit/snake.test.ts`: `teamAt(n)` across both directions of the serpentine, observed fact preferred below the frontier, projection above it, and `orderTrust` degrading to `unknown` when the published order is absent
+- [ ] T007 [P] Implement pure `src/draft/snake.ts` — `teamAt()`, `picksUntilTurn()`, `remainingSchedule()`, `orderTrust` tri-state (T006 failing first)
+- [ ] T008 [P] Unit tests for the feed cursor in `tests/unit/feed.test.ts`: keyset ordering over `(received_at, id)`, a batch inserted mid-read is **not** skipped, ties on identical `received_at` resolve by `id`, and the cursor does **not** advance until the batch is committed
+- [ ] T009 [P] Implement pure `src/draft/feed.ts` — cursor arithmetic and batch→observation mapping (T008 failing first). **Empty slots are the `-1` sentinel; never filter on sign.** D/ST ids are legitimately near −16000, and `playerId > 0` is what made 010's capture script report 66 of 72 picks for a complete draft
+- [ ] T010 [P] Unit tests for liveness in `tests/unit/liveness.test.ts`: a 45 s heartbeat gap on a **visible** tab lapses; the same gap on a **hidden** tab does **not** (150 s does); and a 90 s gap **between picks** with heartbeats still arriving never lapses. That last case is the false alarm a silence-based rule raises on every slow human round
+- [ ] T011 [P] Implement pure `src/draft/liveness.ts` — lapse evaluation over `{ lastHeartbeatAt, hidden, now }` plus FR-007f's withholding predicate (T010 failing first)
+- [ ] T012 [P] Unit tests for `src/draft/schedule.ts` in `tests/unit/schedule.test.ts`: the ESPN back-off ladder 5→10→20→40→60 s capped, reset on first success, `espn_rejected` climbing it and `league_not_found` going terminal rather than hammering a 404 forever
+- [ ] T013 [P] Implement pure `src/draft/schedule.ts` — pre-draft refresh cadence and the back-off ladder (T012 failing first). This is what remains of the retired four-tier cadence: it governs ESPN reads only, never picks
+- [ ] T014 Unit tests for the reducer in `tests/unit/reconcile.test.ts` — **the heart of the feature**: pure append, no-op idempotency (a re-read batch must produce **zero** events), out-of-order arrival, duplicate picks from two tabs collapsing on pick identity, a removed pick bumping the revision and replaying affected turns, and `on_deck` firing exactly once per turn **per revision**
+- [ ] T015 Implement the pure reducer `src/draft/reconcile.ts`: `(state, observation) → (state, events[])`. Identity is the **player id** (FR-005a) — never field 3, which the independent oracle disproved as the round at 5/70 and which `contracts/ingest.md` requires be carried opaquely
+- [ ] T016 [P] Extend `src/espn/types.ts` with the **completed** `draftDetail.picks[]` shape and `mRoster` entries — the post-completion flush is the one thing Gate 0 proved ESPN writes reliably
+- [ ] T017 [P] Implement `parseCompletedDraft()` in `src/espn/parsers.ts` for the completion oracle, with unit tests in `tests/unit/parsers.test.ts` asserting D/ST negatives survive parsing
+- [ ] T018 Implement `src/db/draft.ts`: `draft_sessions` header upsert, the cron work-list query (`archived_at IS NULL AND status NOT IN ('aborted','unsupported')`), and archive reads/writes
+- [ ] T019 Extend `src/db/tap.ts` with the keyset cursor read over `tap_batches`, with tests in `tests/contract/tap-feed.test.ts` that write rows directly and assert what comes back
 
-**Purpose**: The pure core. `reconcile.ts`, `cadence.ts` and `snake.ts` import
-**nothing from the platform** — that rule is what makes FR-021 true by
-construction and keeps the DO a thin shell.
-
-**⚠️ CRITICAL**: No user story work begins until this phase is complete.
-
-- [ ] T012 [P] Extend `src/espn/types.ts` with the real `draftDetail.picks[]` shape captured in Gate 0 (playerId, teamId, roundId, roundPickNumber, overallPickNumber, keeper, autoDraftTypeId, bidAmount, nominatingTeamId) and `mRoster`'s `teams[].roster.entries[]`
-- [ ] T013 [P] Extend `src/espn/client.ts` with the `mRoster` view (new to this repo) — read-only, no new write methods
-- [ ] T014 Implement `parseDraftObservation()` in `src/espn/parsers.ts`: filter to `playerId > 0` (D/ST ids are legitimately **negative**, so never `!== -1`), map picks to the internal shape, union keeper picks with `roster.entries` by `playerId`, and route `bidAmount`/`nominatingTeamId` into the format-specific `detail` slot rather than the shared shape (depends on T012, T013)
-- [ ] T015 [P] Unit tests for the cadence function in `tests/unit/cadence.test.ts`: 60 s armed, 30 s unattended, 10 s attended, 3 s within 3 picks; the plan's back-off ladder (5→10→20→40→60 s cap, reset on first success); `league_not_found` goes terminal rather than climbing; **`complete`/`aborted`/`unsupported` yield no next alarm at all** (FR-005/FR-008); re-anchor when more than one interval behind (no catch-up burst)
-- [ ] T016 [P] Implement pure `nextPollDelayMs()` in `src/draft/cadence.ts` over `{ status, clientsAttached, picksUntilTurn, consecutiveErrors, dueAt, now }`, returning an explicit terminal signal for `complete`/`aborted`/`unsupported` — constants only, no config surface (Constitution IV) (tests T015 failing first)
-- [ ] T017 [P] Unit tests for snake projection in `tests/unit/snake.test.ts`: `teamAt(n)` for both directions of the serpentine, observed fact preferred below the frontier, skeleton `teamId` preferred over projection, `orderTrust` degrading to `unknown` when the order is absent, remaining-schedule generation, and traded-pick divergence yielding `projected` rather than `observed`
-- [ ] T018 [P] Implement pure `src/draft/snake.ts`: `teamAt()`, `picksUntilTurn()`, `remainingSchedule()`, `orderTrust` tri-state (tests T017 failing first)
-- [ ] T019 Unit tests for the reducer in `tests/unit/reconcile.test.ts` — the heart of the feature: pure append (`c == m`), no-op idempotency (`c == m == n` ⇒ **zero** events, no persist), correction (`c < m` ⇒ list surgery + one `draft_revised`, marks cleared above `c`, no retraction), batched observation revealing five picks (every implied event in order, `on_deck` never skipped, shared `observed_at`), turn-boundary collapse (`picks_until` legitimately 0 at snake round turns), and the stale-observation guard (`obsSeq > lastObsSeq` prevents a phantom undo)
-- [ ] T020 Implement the pure reducer `src/draft/reconcile.ts`: `(state, observation) → (state, events[])` via longest-common-prefix + one-step-at-a-time pointer replay guarded by the persisted `turn_marks` set; assign `(epoch, seq)`; append to the 500-event `event_window` with oldest-evicted; compute `stateFingerprint` **excluding** epoch/seq/revision/observed_at/turn_marks/event log per data-model.md (depends on T014, T018; tests T019 failing first)
-- [ ] T021 [P] Implement `src/db/draft.ts`: `draft_sessions` header upsert, the cron work-list query (`archived_at IS NULL AND status NOT IN ('aborted','unsupported')`), a **second query for the rescheduled-draft re-arm** — `aborted` sessions joined to `league_snapshots.draft_at` where the snapshot's draft time differs from the session's `scheduled_at`, which the work-list predicate deliberately excludes — the `draft_archives` writes, and per-account-scoped reads for the API layer
-
-**Checkpoint**: The entire draft brain is implemented and tested with no Durable Object in sight.
+**Checkpoint**: the entire draft brain is implemented and tested with no Durable
+Object in sight. SC-010's replay check (T028) becomes runnable as soon as the
+session exists.
 
 ---
 
-## Phase 4: User Story 1 - Follow a live draft pick by pick (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 — Follow a live draft pick by pick (Priority: P1) 🎯 MVP
 
-**Goal**: Every pick, roster, on-the-clock team, available pool and
-picks-until-my-turn visible and updating without user action.
+**Goal**: every pick appears, in order, with who is on the clock and how many
+picks remain until the owner's turn.
 
-**Independent Test**: Quickstart scenarios 1, 2 and 13 — replay the captured
-mid-draft sequence and confirm state matches ESPN throughout, keepers count
-once, and an auction league reports unsupported.
+**Independent test**: replay the committed corpus through the session and assert
+the resulting state matches the independent oracle — no browser, no live draft.
 
-### Tests for User Story 1
+- [ ] T020 [US1] Contract test in `tests/draft/feed-order.test.ts`: `/api/tap/batch` writes to `tap_batches` and acks **before** nudging, an unavailable session does **not** delay `accepted_through`, and a batch acked but never nudged still lands within the 5 s safety alarm. Deliberately drop the nudge and assert no pick is lost — only delayed
+- [ ] T021 [US1] Implement `src/draft/session.ts` — the `DraftSession` DO shell: `nudge()`, the cursor pull, `reconcile()` invocation, and the commit. **Broadcast after the commit, never inside it** (research §7)
+- [ ] T022 [US1] Extend `src/api/tap.ts` to nudge the session via `ctx.waitUntil` **after** the 202. The ack must not wait on the DO, or a restarting object stalls the tap's buffer — the outcome FR-008's buffering guarantees exist to prevent
+- [ ] T023 [US1] Implement the 5 s safety alarm in `src/draft/session.ts`, scheduled **only while the room is open**. SC-001 promises 100% within 10 s and a lost nudge must not breach it, so the ceiling is enforced by a timer rather than by assuming `waitUntil` always runs
+- [ ] T024 [US1] Do **not** persist on a no-op observation in `src/draft/session.ts` — gate the transaction on `events.length > 0 || orderChanged || statusChanged`, or every safety-alarm sweep that finds the cursor already current commits pointlessly (research §7)
+- [ ] T025 [P] [US1] Implement `src/api/draft.ts`: `GET /api/leagues/:id/draft` (status) and `/draft/snapshot`, per [contracts/api.md](contracts/api.md)
+- [ ] T026 [US1] Mount `/api/leagues/:id/draft` in `src/api/app.ts` and re-export `DraftSession` from `src/index.ts`
+- [ ] T027 [P] [US1] Implement `web/src/pages/DraftDiagnostics.tsx` — the deliberately plain throwaway page (FR-025): session status, live pick feed, on-the-clock, picks-until-your-turn, staleness age. Not styled to the design system; 007 replaces it wholesale
+- [ ] T028 [US1] Integration test in `tests/draft/replay-live.test.ts`: feed `tests/fixtures/tap/replay-full.jsonl` through the session and assert the final state matches `oracle-live-2026.json` on all 72 picks — including the 3 that arrived **only** in a ledger
 
-- [ ] T022 [P] [US1] Contract tests in `tests/draft/api-draft.test.ts` for `GET /api/leagues/:id/draft`, `/snapshot` and `POST /open` per contracts/api.md, including `status: "unsupported"` for an auction league (opens no session, arms no alarm) and 404 for a connection owned by another account
-- [ ] T023 [P] [US1] Integration test in `tests/draft/live-tracking.test.ts`: drive a session through the captured mid-draft observations and assert picks, rosters, on-the-clock team, picks-until-my-turn and the available set at each step
-- [ ] T024 [P] [US1] Keeper test in `tests/draft/keepers.test.ts` against the T005 fixture: pre-draft rostered players are unavailable and attributed from pick one, and are counted **once** even when they appear in both `picks[]` and `roster.entries[]`
-
-### Implementation for User Story 1
-
-- [ ] T025 [US1] Create the `DraftSession` DO in `src/draft/session.ts`: SQLite-backed, live state as one JSON blob under key `"session"` in the synchronous `ctx.storage.kv` API, with the RPC surface `ensureRunning()` / `snapshot()` / `shutdown()`
-- [ ] T026 [US1] Implement the alarm loop in `src/draft/session.ts` with all four research §2 corrections: **arm the safety alarm as the first statement of `alarm()`** (the pending alarm is consumed on entry, so a mid-handler shutdown otherwise kills polling until the cron), `alarm()` never rethrows (an uncaught throw triggers at-least-once retry and re-polls ESPN), re-anchor `dueAt` when behind, and drive the interval from `nextPollDelayMs()` — **including its terminal signal, on which the tail MUST call `deleteAlarm()` explicitly**, not merely skip rescheduling: the safety alarm armed at the top of the handler is already pending by then, so skipping the reschedule still fires one more poll on a completed draft (depends on T016, T025)
-- [ ] T027 [US1] Implement the poll path in `src/draft/session.ts`: fetch `?view=mDraftDetail` **alone** while live, decrypt credentials **per request** from D1 and never hold them in DO storage or instance state (FR-024a), feed `parseDraftObservation` → `reconcile`, and gate the persist on `events.length > 0 || orderChanged || statusChanged` (no-op observations must not commit) (depends on T020, T026)
-- [ ] T028 [US1] Implement the available-player set in `src/draft/session.ts` and expose it on the snapshot: 002's league board minus every `player_id` in `picks ∪ keepers` (FR-011), derived at read time and never stored, and add the corresponding field to `GET /snapshot` in `specs/005-draft-monitor/contracts/api.md`. The board join happens **DO-side at snapshot time**, so a client never has to reconcile two sources (depends on T027)
-- [ ] T029 [US1] Implement the WebSocket upgrade in `src/draft/session.ts` using `ctx.acceptWebSocket()` — the hibernation API is **mandatory**, because `ctx.getWebSockets()` returns 0 for `server.accept()` sockets and FR-007a's attendance-driven cadence depends on it — send the `snapshot` frame inside the handler *before* returning the 101, and define `webSocketClose()`/`webSocketError()` (or every disconnect throws) **without** calling `ws.close(code)` in the body (a browser close surfaces 1005, which throws on the pinned runtime)
-- [ ] T030 [US1] Implement broadcast-after-commit in `src/draft/session.ts`: fan out to `ctx.getWebSockets()` only after the state transaction commits, and age out zombie sockets with `setWebSocketAutoResponse()` + `getWebSocketAutoResponseTimestamp()` so a vanished client cannot hold the 10 s tier (depends on T029)
-- [ ] T031 [US1] Create `src/api/draft.ts` with the status, snapshot, open and WebSocket-upgrade routes; the upgrade authenticates at the edge and calls the DO with a **synthesized** request carrying no cookie, and mount it in `src/api/app.ts` under `/api/leagues/:id/draft` (the `/api/` prefix is what makes `run_worker_first` route it to the Worker instead of the SPA)
-- [ ] T032 [P] [US1] Create `web/src/lib/draftSocket.ts`: connect, hold the `(epoch, seq)` cursor, apply frames, expose state to React, and implement the app-unreachable path from contracts/api.md — reconnect back-off 1→2→4→…→30 s cap, falling back to polling `/snapshot` every 15 s after three consecutive failures
-- [ ] T033 [US1] Create the deliberately plain diagnostic page `web/src/pages/DraftDiagnostics.tsx` (FR-025) showing session status, live pick feed, on-the-clock, each team's roster, the available-pool count, picks-until-your-turn and staleness age — plus `last_error`, rendering `espn_rejected` as a **link to credential re-entry** (FR-023's client half) and distinguishing "Draft Genie unreachable" from "ESPN not updating". **Not** styled to the Organic design system and not reusing 007's draft-room design; add its route in `web/src/main.tsx` (depends on T032)
-
-**Checkpoint**: A live draft can be watched end to end. This is the MVP.
+**Checkpoint**: US1 is independently demonstrable from the corpus alone.
 
 ---
 
-## Phase 5: User Story 2 - Survive reloads, disconnects, and crashes (Priority: P2)
+## Phase 4: User Story 2 — Survive reloads, disconnects and crashes (Priority: P2)
 
-**Goal**: Reload, network drop, or a destroyed session all return complete,
-correct state.
+**Goal**: state survives a client reload, a network drop, and the loss of the
+session itself.
 
-**Independent Test**: Quickstart scenarios 3, 4, 7 and 8 — reload restores in
-under 3 s, a destroyed session rebuilds to a matching fingerprint, a 60 s ESPN
-outage loses nothing, and a correction reconciles without duplicates.
+**Independent test**: destroy the DO mid-replay; the rebuilt state matches the
+incrementally-built one on `stateFingerprint`.
 
-### Tests for User Story 2
+- [ ] T029 [P] [US2] Implement WebSocket delivery in `src/draft/session.ts` using the **Hibernation API** (`ctx.acceptWebSocket`). `server.accept()` sockets are invisible to `ctx.getWebSockets()` and so cannot be enumerated after a restart
+- [ ] T030 [US2] Implement the snapshot-then-cursor hand-off and `?since=` resume over the event window in `src/draft/session.ts`, per [contracts/api.md](contracts/api.md)
+- [ ] T031 [P] [US2] Implement `web/src/lib/draftSocket.ts` — reconnect with cursor resume and a bounded back-off
+- [ ] T032 [US2] Implement rebuild-from-log in `src/draft/session.ts`: replay `tap_batches` through the **same cursor read the live path uses**. There must be no second restore routine — the path that only runs in emergencies is the one that rots
+- [ ] T033 [US2] Reconcile a freshly arrived full ledger against rebuilt state in `src/draft/reconcile.ts` and correct divergence through the revision mechanism (FR-012/FR-019)
+- [ ] T034 [US2] Test in `tests/draft/rebuild.test.ts`: rebuilt state equals incrementally-built state on `stateFingerprint`, which **excludes** the delivery cursor and event log — a rebuild collapses N observations into one and provably cannot reproduce the original event stream (research §7, FR-014)
+- [ ] T035 [US2] Mirror `observed_at` to D1 **first-seen-wins** in `src/db/draft.ts` (`ON CONFLICT DO UPDATE` that never overwrites it). After a cold rebuild every pick otherwise carries one observation time, destroying the per-pick timing 008's replay lab needs
+- [ ] T036 [US2] Test in `tests/draft/reconnect.test.ts`: a client reconnecting mid-draft receives a complete snapshot with zero missing picks, and an event-window overflow forces a fresh snapshot rather than a silent gap
 
-- [ ] T034 [P] [US2] Rebuild test in `tests/draft/rebuild.test.ts`: destroy the DO mid-draft, rebuild from ESPN alone, assert `stateFingerprint` matches the pre-crash value and that the new `epoch` differs (clients take a fresh snapshot by design)
-- [ ] T035 [P] [US2] Reconnect test in `tests/draft/reconnect.test.ts`: `?since=N` with an unchanged epoch yields snapshot + only events `> N`; a mismatched epoch forces a full snapshot and cursor reset; **a cursor older than the 500-event window also yields a full snapshot rather than an error**; duplicate frames are discarded rather than triggering a resync storm; mid-draft join yields 100% of prior picks
-- [ ] T036 [P] [US2] Outage test in `tests/draft/degraded.test.ts`: with ESPN unreachable for 60 s, state keeps serving with `staleness.degraded` and a rising age, back-off climbs the plan's 5→10→20→40→60 s ladder and resets on first success, and every pick made during the outage appears within one cycle of recovery; `espn_rejected` surfaces as a credential problem distinct from an outage
-- [ ] T037 [P] [US2] Correction test in `tests/draft/corrections.test.ts`: an observation with a pick removed or reordered reconciles to ESPN's truth, emits exactly one `draft_revised`, retracts nothing, and produces no duplicate or phantom picks. **Assert the revision semantics of FR-019**: `revision` increments, the turns above the correction point are replayed under the new revision, and a consumer deduping on `(revision, kind, overall)` sees each occurrence exactly once per revision while a consumer assuming per-draft uniqueness would wrongly drop the replay
-
-### Implementation for User Story 2
-
-- [ ] T038 [US2] Implement rebuild-from-ESPN in `src/draft/session.ts`: fetch `mSettings` + `mTeam` + `mRoster` + `mDraftDetail`, rebuild state with no reliance on stored state, regenerate `epoch`, and reset the cursor (depends on T027)
-- [ ] T039 [US2] Implement cursor resume in `src/draft/session.ts` and `web/src/lib/draftSocket.ts`: the 500-event retained window, `?since=` handling, epoch-mismatch and out-of-window full resync, and client-side discard of `seq <= cursor` with resync only on a true forward gap (depends on T029, T032)
-- [ ] T040 [US2] Implement degraded handling in `src/draft/session.ts`: catch ESPN errors inside `alarm()`, emit a `status` frame rather than throwing, climb the plan's back-off ladder, keep serving last-known state, and distinguish `espn_rejected` (credentials, FR-023) from `espn_unreachable` in both the frame and the status payload (depends on T026)
-- [ ] T041 [US2] Add the single in-flight-poll gate and `obsSeq` monotonic guard in `src/draft/session.ts` so a slow ESPN response returning after a newer one cannot be read as a commissioner undo (research §7 — load-bearing correctness, not hygiene)
-
-**Checkpoint**: The monitor is trustworthy when things go wrong, which is the point of Constitution V.
+**Checkpoint**: US1 + US2 — the monitor is correct when things go wrong, which is the only condition that matters on draft day.
 
 ---
 
-## Phase 6: User Story 3 - The session arms itself before the draft (Priority: P3)
+## Phase 5: User Story 3 — The session arms itself before the draft (Priority: P3)
 
-**Goal**: No draft-day ritual — sessions arm, capture the order, and go live on
-their own.
+**Goal**: the owner starts nothing, and a missing tap is visible before the first pick.
 
-**Independent Test**: Quickstart scenarios 5 and 13 — the cron arms a scheduled
-draft, the order appears when published, the session flips to live, an
-unsupported format never opens, and a session destroyed with no client attached
-is restored by the cron alone.
+**Independent test**: a heartbeat with no session creates one and fetches the
+published order.
 
-**Note**: US3's implementation tasks all edit `src/draft/session.ts`, which US1
-creates and US2 also modifies — see Dependencies. These are **not** file-disjoint
-from US2.
+- [ ] T037 [US3] Implement lazy arming (FR-007g) in `src/api/tap.ts` and `src/draft/session.ts`: the **first frame from a tap — heartbeat included — arms the session**. Because the tap heartbeats from the moment the draft room opens, the session exists *before* the first pick, so a missing or broken tap is visible while there is still time to fix it
+- [ ] T038 [US3] On arming, fetch the pre-draft data ESPN still exposes in `src/draft/session.ts` — draft type, scheduled time, published order, teams (FR-007b). Gate 0 disproved live pick visibility, **not** pre-draft reads
+- [ ] T039 [US3] Implement heartbeat ingestion and lapse detection in `src/draft/session.ts`: a 15 s liveness alarm applying **45 s visible / 150 s hidden**, driving the `not_receiving` state (FR-007c/e). The two thresholds are not redundancy — a hidden tab's timers throttle to ~1/minute, and the ratified design *expects* that tab to be backgrounded
+- [ ] T040 [US3] Implement the withholding rule (FR-007f) in `src/draft/liveness.ts` and surface it through `src/api/draft.ts`: `incompatible` and `version-rejected` withhold recommendations; `buffering` and `draft-end-unknown` do **not**. Assert **both** directions (SC-001c) — a rule that only ever withholds is as wrong as one that never does, because withholding through an ordinary outage makes the feature look broken during the one hour it matters
+- [ ] T041 [US3] Test session survival across eviction in `tests/draft/eviction.test.ts` using `evictDurableObject` (needs T004)
+- [ ] T042 [P] [US3] Extend `src/sync/predraft.ts` — the 5-minute cron restores dead sessions with no client attached, re-arming **only when `getAlarm()` is null AND `completed_at IS NULL`**; without the second condition the cron resumes a finished draft
+- [ ] T043 [US3] Implement the armed absolute deadline `scheduled_at + 6 h` → `aborted` in `src/draft/session.ts`, with re-arm driven by a league re-sync publishing a different `draft_at`. A session stuck `armed` burns ~11,000 GB-s/day
 
-### Tests for User Story 3
-
-- [ ] T042 [P] [US3] Cron test in `tests/draft/cron-arm.test.ts` (fake clocks): entering the pre-draft window arms a session without any client; the order and the owner's slot appear within one cycle of publication; `inProgress:true` transitions the session to live with no user action; a **rescheduled** draft (new `draft_at` after an abort) re-arms
-- [ ] T043 [P] [US3] Unattended-recovery test in `tests/draft/cron-restore.test.ts`: destroy a live session with **no** client connected and assert the cron restores it; a *degraded* session is **not** restored (a `last_observed_at` threshold would rebuild spuriously during an outage); and a **completed** session is not re-armed
-- [ ] T044 [US3] Implement `ensureRunning()` in `src/draft/session.ts`: idempotent; evaluate `getAlarm()` **inside** the object under `ctx.blockConcurrencyWhile` (a caller cannot use it as a health check — it returns null while the handler runs); re-arm the poll alarm **only when `getAlarm()` is null AND `completed_at IS NULL`**; when `completed_at IS NOT NULL` take the archive-retry path only and arm nothing; never threshold `last_observed_at`
-- [ ] T045 [US3] Extend `src/sync/predraft.ts` with the draft sweep, running **after** the league re-sync so a just-published draft time arms on the same tick: arm supported drafts inside the pre-draft window, re-arm an `aborted` session whose league snapshot now carries a **different** `draft_at` (the rescheduled-draft path), then call `ensureRunning()` across the D1 work-list (depends on T021, T044)
-- [ ] T046 [US3] Implement the armed absolute deadline in `src/draft/session.ts`: at **`scheduled_at + 6 hours`** a still-armed session transitions to `aborted` rather than heartbeating forever — without it a single stuck session bills ~11,000 GB-s/day (research §2) — while remaining eligible for the T045 re-arm if a new draft time publishes
-- [ ] T047 [US3] Implement the unsupported-format path in `src/draft/session.ts` and `src/api/draft.ts`: auction and offline drafts report `status: "unsupported"`, open no session and arm no alarm, leaving the league fully usable elsewhere (FR-006)
-
-**Checkpoint**: Draft day requires no ritual, and nothing polls forever.
+**Checkpoint**: US1 + US2 + US3 — draft day needs no human action.
 
 ---
 
-## Phase 7: User Story 4 - Events the engine and UI can build on (Priority: P4)
+## Phase 6: User Story 4 — Events the engine and UI can build on (Priority: P4)
 
-**Goal**: The ordered, exactly-once event stream that 006, 007 and 008 are
-built against.
+**Goal**: the ordered event contract that 006 and 007 are built against.
 
-**Independent Test**: Quickstart scenarios 9 and 10 — the full captured draft
-replayed through the pure reducer produces exactly the expected sequence.
+**Independent test**: replaying the corpus emits exactly one `on_deck` before
+each `on_the_clock`, per revision.
 
-### Tests for User Story 4
+- [ ] T044 [US4] Test in `tests/draft/events.test.ts` (SC-003, SC-010): across the replayed corpus every owner turn has exactly one `on_deck` before its `on_the_clock` **within each revision** — none skipped, none duplicated, none out of order — compared against `oracle-live-2026.json`, never against the replay itself
+- [ ] T045 [US4] Implement the ordinal `on_deck` guarantee in `src/draft/reconcile.ts`: fires as early as the draft's structure allows, at most two picks ahead, always exactly once and always before `on_the_clock`, carrying the real `picks_until` (2, 1 or 0). At snake round boundaries the owner picks back-to-back and two-ahead is structurally impossible
+- [ ] T046 [US4] Emit `draft_complete` from `src/draft/reconcile.ts` and publish the event contract documented in [contracts/api.md](contracts/api.md) for 006/008
+- [ ] T047 [P] [US4] Test in `tests/unit/reconcile.test.ts` that consumers can dedupe on `(revision, kind, overall)` and that a revision bump reads as "rewind and re-apply"
 
-- [ ] T048 [P] [US4] Full-draft replay test in `tests/unit/replay.test.ts` (SC-010, DO-free): the entire `replay-full.json` corpus through `reconcile()` yields one `pick_made` per pick in order, paired `on_deck`/`on_the_clock` per owner turn with none skipped or duplicated **within each revision**, and exactly one terminal `draft_complete`. Also assert the SC-001 latency distribution over the replayed observation timestamps: 95th percentile within the tier bound (12 s baseline / 4 s near-turn), 100% within tier + 60 s — the only place either number is measured
-- [ ] T049 [P] [US4] Format-neutrality test in `tests/unit/format-neutral.test.ts` (SC-009a): no shared state field or event payload requires knowing the format is snake; a consumer fed an unfamiliar event kind keeps working; ordinal sequence fields are populated where defined and empty otherwise
-- [ ] T050 [P] [US4] Event-payload contract test in `tests/draft/events.test.ts`: every event carries `(epoch, seq, revision, observed_at)`; events from one observation share `observed_at`; `on_deck` fires for **every** owner turn — never suppressed — with `picks_until` reporting the real value including **0** at snake round boundaries; `on_the_clock` carries the remaining schedule; exactly-once holds per `(revision, kind, overall)` rather than per draft
-
-### Implementation for User Story 4
-
-- [ ] T051 [US4] Finalize event payloads in `src/draft/reconcile.ts` to match contracts/api.md exactly — `pick_made`, `on_deck` (with real `picks_until`), `on_the_clock` (with `remaining_schedule`), `draft_complete`, `draft_revised` (depends on T020)
-- [ ] T052 [US4] Add the `format` discriminator and the per-entry format-specific `detail` slot throughout `src/draft/reconcile.ts` and `src/db/draft.ts` per FR-006a, with a comment recording that no auction behavior is implemented — only the shape that lets it be added without reworking consumers
-- [ ] T053 [P] [US4] Update `specs/005-draft-monitor/contracts/api.md` if Gate 0 changed the event or pick shape, keeping the two downstream contract notes intact: `picks_until` may be 0 (006 must pre-compute its second pick off `on_the_clock(T)`), and unknown event kinds must be tolerated
-
-**Checkpoint**: 006 and 008 have a contract they can build against without a live draft.
+**Checkpoint**: all four stories complete; the contract 006 depends on is fixed.
 
 ---
 
-## Phase 8: Retention & Hardening
+## Phase 7: Archive, oracle and hardening
 
-**Purpose**: FR-013's forever-archive and the security/lifecycle edges. These
-serve no single story but the feature is not done without them.
-
-- [ ] T054 [P] Archive test in `tests/draft/archive.test.ts`: on completion the archive holds every pick, the keepers, the order, the teams and the owner's team; it survives a later league re-sync **and** disconnecting the league (the account-keyed tables must outlive the cascade); `observed_at` is first-seen-wins after a rebuild; and after `draft_complete` the alarm is gone and a subsequent `ensureRunning()` leaves it gone while still completing the archive (FR-005/FR-008 — the only evidence anywhere for US1 AS5)
-- [ ] T055 Implement `src/draft/archive.ts`: on completion write `draft_archives` + `draft_picks` + `draft_keepers` in one `db.batch()` chunked at **10 rows per statement** (D1's 100-bound-parameter cap), **copying** `my_team_id`, `order_json` and `teams_json` into `draft_archives` (because `league_snapshots` is overwritten on every re-sync and `draft_sessions` cascades away with the connection — neither can hold them), and use `ON CONFLICT DO UPDATE` that never overwrites `observed_at` (depends on T021)
-- [ ] T056 Wire archive retry into `ensureRunning()` in `src/draft/session.ts` so a session with `completed_at IS NOT NULL AND archived_at IS NULL` finishes archiving on the next cron tick — **without arming a poll alarm** (depends on T055)
-- [ ] T057 Call the `shutdown()` RPC from `deleteConnection` in `src/db/leagues.ts`: re-adding a league mints a new connection UUID and therefore a new DO, and an orphaned session would keep polling ESPN forever with no D1 row behind it — a read-only leak against Constitution VI and a cost leak. The account-keyed archive is deliberately **not** deleted. **`shutdown()` MUST flush a pending archive first**: between completion and the next cron tick the picks live only in the DO blob, so a disconnect in that window would `deleteAll()` the only copy while cascading away the `draft_sessions` retry row — losing a completed draft FR-013 says is kept forever. Archive-then-shutdown, and assert the ordering in T054 (depends on T025, T055)
-- [ ] T058 [P] Credential-sweep test in `tests/draft/no-secrets.test.ts` (FR-024a, mirroring 001's SC-005 grep test): dump the DO storage blob and every D1 draft row and assert neither contains the `espn_s2` or `SWID` values; assert credentials are read per request rather than memoized. **Re-assert T006's fixture gate in CI** by running the same Node-side script from an npm script — not from inside this Workers-pool test, which has no filesystem access (001's `tests/contract/no-secrets.test.ts` statically imports its one fixture for the same reason)
-- [ ] T059 [P] Isolation test in `tests/draft/isolation.test.ts` (FR-018): a second account gets 404 on every draft route for a league it does not own, **including the WebSocket upgrade**
-- [ ] T060 [P] Multi-client test in `tests/draft/multi-client.test.ts` (FR-017): two sockets receive identical frames with identical `seq`; killing one leaves the other unaffected; after the T011 dependency bump, `evictDurableObject(stub, { webSockets: "close" })` confirms hibernate-across-eviction
-- [ ] T061 [P] Concurrent-drafts test in `tests/draft/concurrent.test.ts` (SC-009): two connections belonging to the same account drafting simultaneously each maintain complete, correct state with no cross-contamination of picks or events — distinct from T059 (second account) and T060 (two sockets, one session)
+- [ ] T048 Implement `src/draft/archive.ts`: on `drafted`, fetch the authoritative post-completion `mDraftDetail` and **reconcile the tap-built draft against it before archiving**. 010 used this oracle in tests, where it earned its keep twice — disproving the field-3 reading (5/70) and confirming the ledger offsets (31/31). Self-consistency cannot catch a systematically missed pick; an independent source can
+- [ ] T049 Bump the revision through the existing correction path on divergence in `src/draft/archive.ts`, and record the divergence rather than silently preferring one source
+- [ ] T050 [P] Write the archive in chunked batches, first-seen-wins, in `src/db/draft.ts`; retained **indefinitely** as season history (ratified 2026-08-02)
+- [ ] T051 Call `shutdown()` (deleteAlarm + deleteAll, refuse to re-arm) from `deleteConnection` in `src/db/leagues.ts`. Re-adding a league mints a new connection UUID and hence a new DO; an orphaned session would keep reading D1 and ESPN forever with no row behind it
+- [ ] T052 [P] Credential-sweep test in `tests/draft/no-secrets.test.ts`: `JSON.stringify(state)` contains neither `espn_s2` nor `SWID`, mirroring 001's SC-005
+- [ ] T053 [P] Assert the ESPN rate bound (SC-008) structurally in `tests/draft/rate-bound.test.ts` with `fetchMock` + `disableNetConnect()`: **≤ 5 requests/minute per league**, at most one in flight, and **zero ESPN requests on the pick path**
 
 ---
 
-## Phase 9: Polish & Cross-Cutting
+## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T062 Add a comment in `src/api/app.ts` recording the standing constraint that **no middleware may mutate the proxied 101 response** — `c.res.headers.set(...)` after `await next()` throws `Can't modify immutable headers` and 500s the upgrade, so a future request-id or CORS decorator would silently kill the draft stream
-- [ ] T063 [P] Record the draft-day operational notes for 009 in `specs/005-draft-monitor/quickstart.md`: deploy the DO migration well before draft day (migrations cannot be gradually deployed), no deploys during a draft (a new version restarts every DO and drops every WebSocket), and alarm timing is best-effort with documented delays up to a minute
-- [ ] T064 Full sweep: `npm test` (both projects), both tsc configs, eslint, build — all clean; then run every quickstart.md scenario against `wrangler dev`
-- [ ] T065 Live validation (SC-011): watch a real ESPN draft through the diagnostic page end to end, confirming every pick, the clock and at least one reconnect by eye against ESPN's own draft room, and record the result in `specs/005-draft-monitor/quickstart.md`
+- [ ] T054 [P] Measure SC-001 over the replayed corpus in `tests/draft/latency.test.ts` — p95 ≤ 2 s and 100% ≤ 10 s from `observed_at` to delivery — and record the numbers, as 010 did (median 0.202 s, p95 0.223 s)
+- [ ] T055 [P] Verify SC-001b end-to-end in `tests/draft/liveness-e2e.test.ts` against the real tap heartbeat now that 0.1.6 emits it, including the hidden-tab threshold
+- [ ] T056 [P] Update `specs/005-draft-monitor/quickstart.md` with any drift found while implementing, and record draft-day notes for 009's runbook
+- [ ] T057 Run the full suite plus `scripts/privacy-sweep.ts`; confirm no fixture added by this feature carries a real identifier or member name
 
 ---
 
 ## Dependencies & Execution Order
 
+```text
+Phase 1 (Setup) ─▶ Phase 2 (Foundational, BLOCKING)
+                      │
+                      ├─▶ Phase 3 US1 (P1) ─┬─▶ Phase 4 US2 (P2)
+                      │                     └─▶ Phase 5 US3 (P3)
+                      │                              │
+                      └──────────────────────────────┴─▶ Phase 6 US4 (P4)
+                                                            │
+                                                     Phase 7 ─▶ Phase 8
+```
+
 ### Phase Dependencies
 
-- **Gate 0 (Phase 1)**: no dependencies — **blocks everything**, including Setup. A failed gate ends the feature until `/speckit-clarify` resolves the transport question.
-- **Setup (Phase 2)**: after Gate 0 passes.
-- **Foundational (Phase 3)**: after Setup — blocks all user stories.
-- **US1 (Phase 4)**: after Foundational. No dependency on other stories.
-- **US2 (Phase 5)**: after US1 — extends the DO and the socket US1 creates.
-- **US3 (Phase 6)**: after US1, **not merely after Foundational** — T044/T046/T047 all edit `src/draft/session.ts`, which US1 creates. US3 and US2 are independently *testable* but **not file-disjoint**; run them sequentially, or expect merge conflicts in that one file.
-- **US4 (Phase 7)**: after Foundational — the reducer already emits events; this phase finalizes and proves the contract. Genuinely independent of US2/US3 (touches `reconcile.ts` and tests).
-- **Retention (Phase 8)**: after US1 (needs the DO), Foundational (needs `src/db/draft.ts`) and US3 (T056 extends T044's `ensureRunning`).
-- **Polish (Phase 9)**: last.
+- **Phase 2 blocks everything.** No story work begins until the pure core is done.
+- **US2 and US3 both depend on US1's session existing**, but not on each other.
+- **US4 depends on the reducer (Phase 2), not on US2/US3** — its events are
+  emitted by the same reduce step US1 already drives. It ranks last as a *slice*
+  because it has little standalone UI, not because it is technically blocked.
 
 ### Within Each User Story
 
-Tests are written and failing before implementation. Pure modules before the DO;
-the DO before the API; the API before the web client.
+Tests → pure logic → session wiring → API → UI.
 
 ### Parallel Opportunities
 
-- **Phase 2**: T008–T011 are four different files — fully parallel after T007.
-- **Phase 3**: the three pure modules are independent — T015/T016 (cadence),
-  T017/T018 (snake) and T012/T013 (ESPN types) all run in parallel; only
-  T014 and T020 serialize behind them.
-- **Phase 4**: T022–T024 in parallel; T032 in parallel with the DO work.
-- **Phase 5**: all four tests (T034–T037) in parallel.
-- **Phase 7**: all three tests (T048–T050) in parallel, and the whole phase in
-  parallel with US2/US3.
-- **Phase 8**: T054, T058, T059, T060, T061 in parallel.
-- **Across stories**: US4 can proceed alongside US2 and US3. US2 and US3 cannot
-  run concurrently — both rewrite `src/draft/session.ts`.
+- **Phase 2 is almost entirely parallel**: T006–T013 are five independent pure
+  modules with their tests. T014/T015 (the reducer) are sequential against each
+  other and are the critical path.
+- **Phase 3**: T025 and T027 are independent of the session internals.
+- **Phase 7**: T050, T052 and T053 touch different files.
 
----
+## Parallel Example: Phase 2
 
-## Parallel Example: Phase 3 (Foundational)
+```text
+# Five pure modules, no shared files:
+T006 + T007  snake.ts
+T008 + T009  feed.ts
+T010 + T011  liveness.ts
+T012 + T013  schedule.ts
+T016 + T017  espn types/parsers
 
-```bash
-# Three independent pure modules, each test-first:
-Task: "Unit tests for cadence in tests/unit/cadence.test.ts"
-Task: "Unit tests for snake projection in tests/unit/snake.test.ts"
-Task: "Extend src/espn/types.ts with the captured picks shape"
+# Critical path, sequential:
+T014 ─▶ T015  reconcile.ts
 ```
-
----
 
 ## Implementation Strategy
 
-### Gate first
+### MVP
 
-Run Phase 1 alone. Do not write a line of DO code before T003's verdict — if
-`mDraftDetail` is frozen during live drafts, every task after Phase 2 is wasted
-work. And do not skip T001's sanitization: a raw capture committed once lives in
-git history permanently.
-
-### MVP (Gate 0 → Phase 4)
-
-Gate 0 → Setup → Foundational → US1. That is a working live draft monitor with a
-plain page you can watch. Stop, validate against quickstart scenarios 1–2, and
-demo.
+**Phase 1 + Phase 2 + Phase 3 (US1).** That yields a live draft board fed by the
+real tap, verifiable against the committed corpus with no live draft required.
+It is independently valuable — "what's gone, what's left, when am I up" beats
+tabbing between ESPN and a spreadsheet — and it is the prerequisite for 006.
 
 ### Incremental delivery
 
-1. Gate 0 + Setup + Foundational → the brain, fully tested, no platform.
-2. + US1 → watchable live draft (**MVP**).
-3. + US2 → trustworthy when things break.
-4. + US3 → no draft-day ritual.
-5. + US4 → contract 006/007/008 build on.
-6. + Retention → 008 inherits a corpus; nothing leaks or polls forever.
+**Then US2** — Constitution V. A monitor that is correct only while nothing goes
+wrong is not a draft-day monitor. **Then US3, then US4.**
 
-### Notes
+## Notes
 
-- `[P]` = different files, no dependencies.
-- The pure modules (`reconcile.ts`, `cadence.ts`, `snake.ts`) must not import
-  anything from the Workers platform. If a task tempts you to, the logic is in
-  the wrong file.
-- Commit after each task or logical group.
+- **Never filter picks on sign.** `-1` is the empty sentinel; D/ST ids are near
+  −16000. This rule has already been broken twice in this project — once in
+  010's capture script, once in this feature's own data model.
+- **Field 3 is unresolved.** It is not the round (5/70 against the oracle) and
+  nothing may depend on it. Carry it opaquely.
+- **Compare against the oracle, never against the replay.** Validating the
+  corpus against itself proves nothing.
+- **`observed_at` is comparable only within one `epoch`.** The tap re-anchors its
+  clock across sleep; stamps from different epochs are not one timeline.
+- **No live draft is needed** to build or test any task here.
