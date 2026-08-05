@@ -75,7 +75,7 @@ request.
 | **II. Any-League by Design** | ✅ | Nothing hardcoded. Replacement boundaries come from the league's `roster_json` and `team_count`; the FLEX split is derived by value; `ROUND_VALUE` scales with team count and scoring; the ADP floor is detected per projection set rather than pinned to this season's number. |
 | **III. League's Currency** | ✅ | Value is `scoreStatLine()` against the league's own scoring items — the same path `/board` already uses. Every adjustment magnitude is in that same currency. A league-agnostic ranking is unreachable by construction: the engine is never handed one. |
 | **IV. Rules Are Code** | ✅ | Seven weights and two sizes are module constants (research §4, §5). No endpoint, page, or column exposes them. The preferred *list* is user input, which Principle IV explicitly permits — "the only user-supplied inputs to the engine are the league context and the user's preferred-player list". |
-| **V. Draft Day Is Unforgiving** | ✅ | FR-015 is met by the client requesting on `on_deck`, a full turn ahead. Withholding on a lapsed tap (FR-012) reuses 005's verdict rather than inventing a second liveness notion. Recomputation on revision bump (FR-016). |
+| **V. Draft Day Is Unforgiving** | ✅ | FR-015 is met by the client requesting on `on_deck`, a full turn ahead. Because 006 ships the endpoint and 007 ships the caller, that timing is recorded as an explicit **obligation in [contracts/api.md §1a](contracts/api.md)** rather than assumed — a capability nobody invokes is indistinguishable from one that does not exist, which is exactly what happened to `writeArchive` during 005. Withholding on a lapsed tap (FR-012) reuses 005's verdict rather than inventing a second liveness notion. Recomputation on revision bump (FR-016). |
 | **VI. Recommend, Never Act** | ✅ | Pure computation. Zero outbound requests — asserted structurally by exhausting `fetchMock` across the whole replay, the way 005 asserts its rate bound. No ESPN write path exists in this feature. |
 | **VII. Explainable** | ✅ | FR-009/026/027. Every adjustment carries a named reason and a signed magnitude, and the magnitudes must **reconcile** to the value delta — an explanation whose parts do not add up means something moved the ranking the owner was never told about. Asserted per entry across a full replay. |
 | **VIII. Simplicity First** | ✅ | No new platform primitive, no new dependency, one new table, four endpoints, one page. No caching layer — see the recorded risk in research §6. Player search adds no backend at all (verified 2026-08-05). |
@@ -126,7 +126,8 @@ src/
 │   ├── recommend.ts                #   recommend(bundle, state) — the contract
 │   └── constants.ts                #   every weight and size, in one readable file
 ├── db/
-│   └── preferred.ts                # NEW — account-scoped queries
+│   ├── preferred.ts                # NEW — account-scoped queries
+│   └── engineBundle.ts             # NEW — assembles EngineBundle from D1
 ├── api/
 │   ├── recommendations.ts          # NEW — two GET routes
 │   └── preferred.ts                # NEW — GET / PUT / DELETE
@@ -138,15 +139,23 @@ web/src/pages/
 
 tests/
 ├── engine/                         # NEW — pure unit tests, one file per module
-│   ├── value.test.ts               #   incl. the FLEX allocation
-│   ├── adp.test.ts                 #   incl. floor detection and the shared clamp
-│   ├── roster.test.ts              #   incl. FR-025's two sides of the boundary
+│   ├── purity.test.ts              #   the structural guard: FR-010 + FR-011
+│   ├── state.test.ts               #   pending, keepers, no-next-turn, off-board ids
+│   ├── value.test.ts               #   replacement level + the FLEX allocation
+│   ├── round-value.test.ts         #   incl. the degenerate end-of-draft tail
+│   ├── adp.test.ts                 #   floor as absent, and the shared clamp
+│   ├── adp-floor.test.ts           #   the detector, at ratios 5–50
+│   ├── adjustments.test.ts         #   relevance matrix, bye clash, positional run
+│   ├── roster.test.ts              #   FR-025's two sides of the boundary
+│   ├── explain.test.ts             #   reconciliation, and signal-removal sensitivity
+│   ├── preferred.test.ts           #   SC-006's cap
+│   ├── degradation.test.ts         #   SC-008, and stale-board-surfaced
 │   ├── determinism.test.ts         #   SC-003
 │   ├── league-currency.test.ts     #   SC-004
 │   └── replay.test.ts              #   SC-001/002/009/010/014 over the 72-pick corpus
 └── contract/
-    ├── preferred.test.ts           # NEW — FR-020 isolation, SC-011
-    └── recommendations.test.ts     # NEW — withholding, shapes, 404s
+    ├── preferred.test.ts           # NEW — FR-020 isolation, SC-011, FR-021
+    └── recommendations.test.ts     # NEW — withholding, shapes, 404s, revision
 ```
 
 **Structure Decision**: `src/engine/` mirrors what 005 did with
@@ -154,8 +163,14 @@ tests/
 its purity is enforced by having nothing to import. The split into small modules
 is not decoration: each is one rule, separately testable, and
 `constants.ts` exists so that the later tuning session has exactly one file to
-open. The engine never reaches for D1; `EngineBundle` is assembled by the route
-and handed in.
+open.
+
+**Nothing under `src/engine/` touches D1 — with no exemptions.** The bundle
+loader reads five tables, so it lives at `src/db/engineBundle.ts` and hands its
+result in. An earlier draft placed it at `src/engine/inputs.ts` with a named
+exemption in the purity guard; that was wrong, because an exemption is precisely
+how a categorically pure tree stops being one. The guard now has a rule with no
+exceptions to remember, which is the only kind that survives.
 
 ## Phase 0 — Research
 
@@ -170,6 +185,7 @@ Complete. See [research.md](research.md). Nine unknowns resolved:
 | 5 | Five signal weights, all under half a round, summing to about one |
 | 6 | Pure module computed on request; the client triggers on `on_deck` |
 | 7 | One table, cascading from the connection, isolation enforced in-query |
+| 7a | Keepers unioned into `drafted` for **every** team, supplied on the state |
 | 8 | Archive-driven replay with the fetch mock exhausted |
 
 Two of these deserve highlighting because they are where a plausible
@@ -227,5 +243,6 @@ No constitutional violations. Table intentionally empty.
 |---|---|---|
 | **The five signal weights are first estimates** | Nothing has scored them against outcomes; 008's replay lab is what will | They are chosen for order of magnitude and relative ordering, confined to `constants.ts`, and capped so the rule layer cannot overturn value. ROADMAP already records tuning as its own session. |
 | **The ADP floor and the mandatory-slot rule fire in the same rounds** | Both activate late, and neither has met real data together | The replay harness explicitly includes the late-round states, not just a mid-draft sample |
+| **Keepers have never been exercised** | Every league this project has tested against is a redraft, so a keeper bug would be invisible until someone else's league hits it | `keepers` is a first-class set on the state, unioned into `drafted` for every team, with its own test (research §7a) |
 | **SC-005 is unmeasurable until 007** | It is measured from `on_deck` to a rendered answer | Stated plainly in quickstart.md rather than marked done. 005 and 010 both shipped tasks marked complete that production later showed were never exercised — that is the failure this note exists to prevent. |
 | **`ROUND_VALUE` degenerates at the very end of the draft** | With few players left, the top-to-`teamCount` gap collapses toward zero, shrinking every adjustment | Correct behaviour, not a bug — reaching matters less in round 16 — but the fallback path (fewer than `teamCount + 1` players remaining) needs its own test |

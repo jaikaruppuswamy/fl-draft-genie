@@ -34,6 +34,34 @@ current revision MUST discard it rather than display it. (FR-016)
 
 ---
 
+## 1a. The on-deck obligation — FR-015, owed by the consumer
+
+**This is a cross-feature contract, and it is written here because 006 cannot
+satisfy FR-015 alone.**
+
+FR-015 requires a recommendation be ready *before* the owner is on the clock, and
+Constitution V is explicit that pre-computation ahead of the turn is the default
+design. 006 makes that possible — the engine is computed on request and the
+request costs about what `/board` costs — but the *timing* belongs to whoever
+calls it.
+
+> **Any consumer of `GET /api/leagues/:id/recommendations` MUST issue the request
+> on 005's `on_deck` event, not on `on_the_clock`.** 005 emits `on_deck` a full
+> turn ahead; issuing on `on_the_clock` means the computation starts when the
+> timer does, which is the thing Principle V forbids.
+
+007 owns the draft room and therefore owns this obligation. It is recorded as a
+contract rather than an assumption because the alternative failure is one this
+project has already had: during 005, `writeArchive` was built, tested, and never
+called, and production showed zero archives after a completed draft. A capability
+nobody invokes is indistinguishable from one that does not exist.
+
+**SC-005 is measured against this call site**, from the `on_deck` event to a
+rendered answer — so it is verifiable only once 007 exists. Stated plainly in
+[quickstart.md](../quickstart.md) rather than marked satisfied here.
+
+---
+
 ## 2. HTTP
 
 ### `GET /api/leagues/:id/recommendations`

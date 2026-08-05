@@ -27,7 +27,11 @@ ROUND_VALUE = value(available[0]) − value(available[teamCount])
 with a fallback to `value(available[0]) − value(available[last])` when fewer
 than `teamCount + 1` players remain, and `0` when fewer than two remain.
 
-Every adjustment in the engine is expressed as a fraction of `ROUND_VALUE`.
+Every adjustment in the engine is expressed as a fraction of `ROUND_VALUE`,
+including the preferred boost: `PREFERRED_CAP = 1.0`, i.e. a preferred player
+may be taken up to about **one round early** and no further. Like every other
+magnitude it lives in `constants.ts`, so the later tuning session has one file
+to open rather than a number buried in a rule.
 
 **Rationale**: it is the one quantity in a draft that already means the same
 thing in every league. It scales with the league's scoring (PPR inflates
@@ -182,11 +186,21 @@ claims exactly as much as the data supports.
 
 ---
 
-## §5 — Signal adjustments (FR-006)
+## §5 — Rule adjustments (FR-006)
 
-004 delivers every signal in one shape: `score` 0–100 (100 favourable) and
-`rank` 1–32, per pro team. That uniformity is what makes one formula work for
-all of them:
+FR-006 names five adjustments, and they do **not** all come from the same place.
+Three are 004 signals about a pro team; two are computed inside the engine from
+the draft itself. Treating them as one formula was an error in an earlier draft
+of this document — bye clash and positional run have no `signal_entries` row and
+no 0–100 score, so a formula written over `score` cannot apply to them.
+
+They share only the output currency: every one produces a signed magnitude in
+`ROUND_VALUE` units.
+
+### 5a. The three team signals — offense, SoS, O-line
+
+004 delivers each in one shape: `score` 0–100 (100 favourable) and `rank` 1–32,
+per pro team. That uniformity is what makes one formula work across the three:
 
 ```text
 adjustment(kind, player) = ((score − 50) / 50) × WEIGHT[kind] × relevance[kind][position] × ROUND_VALUE
@@ -197,35 +211,61 @@ adjustment(kind, player) = ((score − 50) / 50) × WEIGHT[kind] × relevance[ki
 | `WEIGHT.offense` | 0.30 | broadest signal; applies to every scoring position |
 | `WEIGHT.sos` | 0.20 | real but noisy this far from the season |
 | `WEIGHT.oline` | 0.25 | curated (PFF), and the most position-specific |
-| `WEIGHT.bye` | 0.35 | a conflict is concrete, not a projection |
-| `WEIGHT.scarcity` | 0.30 | observed from the draft itself, not forecast |
 
 `relevance` is a fixed position matrix in code: O-line applies to RB and QB, not
-to WR/TE/K/DST; offense applies to every offensive position including K;
-SoS applies to all. A signal that does not apply produces **no adjustment**,
-which is different from a zero one — the explanation says so (FR-013).
+to WR/TE/K/DST; offense applies to every offensive position including K; SoS
+applies to all. A signal that does not apply produces **no adjustment**, which is
+different from a zero one — the explanation says so (FR-013).
 
-**Bye-week conflict**: a penalty when the candidate's bye matches the bye of a
-player already on the owner's roster at the same position, scaled by how much of
-that position the owner has already committed. Two starting RBs on the same bye
-is a real problem; two of eleven bench players is not.
+### 5b. Bye-week conflict — computed from the owner's roster
 
-**Positional scarcity / run detection**: compare the share of the last
-`teamCount` picks spent on the candidate's position against that position's
-share of league-wide starter slots (§2's boundary counts). Elevated share ⇒
-a run is on ⇒ positive adjustment. Measured backward from picks already made,
-per FR-006; the forward-looking half is §4.
+No signal feeds this. It is a comparison between the candidate's `bye_week`
+(already on `BoardEntry`) and the byes of players the owner has already taken.
 
-**Rationale for these magnitudes**: every one is under half a round, and their
-plausible maximum sum (~1.4 × `ROUND_VALUE`, before the §4 clamp) is roughly one
-round of value. That is the correct ceiling for the whole rule layer: signals
-should be able to break a tie or move a player a round, never overturn the
-value ranking outright. Value is the product; the rules are seasoning.
+```text
+severity = (rostered players at this position sharing this bye) / max(1, starterSlots(position))
+adjustment = −WEIGHT.bye × min(severity, 1) × ROUND_VALUE
+```
+
+`WEIGHT.bye = 0.35`.
+
+Dividing by the position's **starter** slots is what makes the rule proportionate:
+a second starting RB on the same bye is most of your RB corps that week, so
+`severity` approaches 1. A third bench WR sharing a bye barely registers. A
+conflict is concrete rather than forecast, which is why its weight is the
+largest of the five.
+
+### 5c. Positional run — computed from the picks already made
+
+Also no signal. Compare the share of the last `teamCount` picks spent on the
+candidate's position against that position's expected share, taken from §2's
+boundary counts:
+
+```text
+expected  = boundary(position) / Σ boundary(all positions)
+observed  = picks at this position in the last teamCount picks / teamCount
+intensity = clamp((observed − expected) / max(expected, 0.01), −1, 1)
+adjustment = WEIGHT.scarcity × intensity × ROUND_VALUE
+```
+
+`WEIGHT.scarcity = 0.30`.
+
+Measured **backward**, from picks already made, per FR-006; the forward-looking
+half is §4. With fewer than `teamCount` picks made the window is what exists, and
+with none it produces no adjustment rather than a zero one.
+
+### Rationale for the five magnitudes
+
+Every one is under half a round, and their plausible maximum sum
+(~1.4 × `ROUND_VALUE`, before §4's clamp on the ADP pair) is roughly one round of
+value. That is the correct ceiling for the whole rule layer: rules should be able
+to break a tie or move a player a round, never overturn the value ranking
+outright. Value is the product; the rules are seasoning.
 
 These five numbers are the honest content of "detailed rule tuning is its own
-session" — they are first estimates, chosen for the right *order of magnitude*
-and for the right relative ordering, and they are the intended subject of that
-later session once 008's replay lab can score them.
+session" — first estimates chosen for the right order of magnitude and the right
+relative ordering, and the intended subject of that later session once 008's
+replay lab can score them.
 
 ---
 
@@ -237,15 +277,28 @@ layer, no precomputation inside the Durable Object.
 ```text
 GET /api/leagues/:id/recommendations
   → load bundle (board, signals, league settings, preferred list, adpFloor)
+      ← src/db/engineBundle.ts, NOT src/engine/
   → read draft state from the DraftSession snapshot
   → recommend(bundle, state)  ← pure, no I/O
   → JSON
 ```
 
+**The bundle loader lives outside `src/engine/`.** It reads D1, so putting it in
+the engine tree would force the purity guard to carry a named exemption — and an
+exemption is exactly how a tree stops being categorically pure. `src/engine/`
+imports nothing from the platform, with no exceptions to remember; the loader is
+`src/db/engineBundle.ts` and hands its result in.
+
 FR-015 ("ready before the owner is on the clock") is satisfied by **the client
 requesting on the `on_deck` event**, which 005 already emits a full turn ahead.
 That is the precomputation the constitution's Principle V asks for; it just
 lives at the caller rather than in a cache.
+
+**That makes FR-015 a cross-feature obligation, and it is written down rather
+than assumed.** 006 ships the endpoint; 007 ships the client that must call it on
+`on_deck`. `contracts/api.md` states the obligation explicitly so it cannot be
+lost in the gap between two features — the failure mode 005 hit when `writeArchive`
+was built, tested, and never called.
 
 **Rationale**: the D1 reads are the same ones `/board` already performs and
 serves today, so the cost is known and shipping. The ranking itself is a few
@@ -299,6 +352,38 @@ want" — a marked set. A ranked personal list is a different and larger feature
 
 ---
 
+## §7a — Keepers (FR-002, the keeper-league edge case)
+
+**Decision**: `drafted` is the union of **confirmed picks, pending picks, and
+keepers for every team** — not just the owner's.
+
+FR-002 says available means "not drafted, **and not already rostered (including
+keepers)**", and the spec lists keeper leagues as an edge case. A kept player is
+on someone's roster before pick 1; recommending him is recommending a player
+nobody can take.
+
+Where keepers come from, in each of the two modes the engine runs in:
+
+- **Live**: the tap's ledger is a full snapshot of the draft board, and ESPN
+  marks kept selections — `CompletedPick.keeper` already exists in 001's parser.
+  Keepers therefore arrive as picks and need no separate path, but the engine
+  must not assume they do: it takes a `keepers` set on `EngineState` and unions
+  it, so a league where they arrive some other way is still correct.
+- **Replay**: `draft_picks.keeper` and the `draft_keepers` table, both written by
+  005's archive.
+
+**Why it is a set on the state rather than a lookup inside the engine**: purity.
+The engine is handed who is unavailable; it does not go asking.
+
+**Rationale for treating this as a real gap rather than a theoretical one**: it
+is the same shape as the bug that made 005's reducer silently delete picks —
+a player who is gone that the engine believes is available. That one took an
+adversarial review and a hand-built reproduction to find. This one is cheap to
+prevent now and would be invisible in a non-keeper league, which is every league
+the project has tested against so far.
+
+---
+
 ## §8 — Offline replay (FR-014, SC-009, SC-010)
 
 **Decision**: the replay harness reads `draft_archives` + `draft_picks` and
@@ -332,9 +417,10 @@ are most likely to get wrong — the snake turnaround (gap of 1), the final pick
 | Size of the preferred bound | §1 — one `ROUND_VALUE`, itself derived per league |
 | Survival estimate math | §4 — linear ramp between honest endpoints; absent on floored ADP |
 | ADP floor detection | §3 — density ratio, derived per projection set, passed in as input |
-| Signal weights | §5 — five constants, all under half a round, summing to about one |
-| Where the engine runs | §6 — pure module, on request; client triggers on `on_deck` |
+| Signal weights | §5 — three signal-derived (shared formula) + two computed in-engine, all under half a round |
+| Where the engine runs | §6 — pure module, on request; loader outside `src/engine/`; client triggers on `on_deck` |
 | Preferred-list persistence | §7 — one table, cascading from the connection, isolated in-query |
+| Keepers | §7a — unioned into `drafted` for every team, supplied on the state |
 | Offline replay mechanism | §8 — archive-driven harness with the fetch mock exhausted |
 
 No NEEDS CLARIFICATION remains.

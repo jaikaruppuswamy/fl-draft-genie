@@ -41,8 +41,9 @@ owner's intent behind their back.
 
 ### `EngineBundle` — the slow-changing half
 
-Loaded once per request from D1. Everything here changes on the projection
-refresh cadence, not per pick.
+Assembled once per request by `src/db/engineBundle.ts` — **outside**
+`src/engine/`, so the engine tree needs no exemption from its own purity guard.
+Everything here changes on the projection refresh cadence, not per pick.
 
 | Field | Shape | Source |
 |---|---|---|
@@ -63,18 +64,27 @@ Derived from the `DraftSession` snapshot. One per pick.
 |---|---|---|
 | `revision` | `number` | `SessionSnapshot.revision` — stamped on the output (FR-016) |
 | `currentOverall` | `number` | `frontier(state)` |
-| `drafted` | `Set<espnPlayerId>` | union of `confirmed` + `pending`, by identity |
-| `myRoster` | `{ playerId, position, byeWeek }[]` | the owner's picks so far, plus keepers |
+| `drafted` | `Set<espnPlayerId>` | union of `confirmed` + `pending` + `keepers`, by identity |
+| `keepers` | `Set<espnPlayerId>` | **every team's** kept players, not just the owner's |
+| `myRoster` | `{ playerId, position, byeWeek }[]` | the owner's picks so far, plus the owner's keepers |
 | `gapToNextTurn` | `number \| null` | `picksUntilTurn()` — **null means no next turn** (FR-023) |
 | `myRemainingPicks` | `number` | `remainingSchedule().length` |
 | `withholding` | `WithholdReason \| null` | 005's liveness verdict (FR-012) |
 | `orderTrust` | `"observed" \| "projected" \| "unknown"` | `orderTrust()` |
 
-**`drafted` is the union of confirmed and pending**, deliberately. A pending
-pick is a real observed pick whose *overall number* is not yet ledger-confirmed
-— the player is unambiguously gone. Treating pending as available would
-recommend a player who was just taken, which is the single most visible way this
-feature can be wrong.
+**`drafted` unions three sources**, deliberately.
+
+A **pending** pick is a real observed pick whose *overall number* is not yet
+ledger-confirmed — the player is unambiguously gone. Treating pending as
+available would recommend a player who was just taken, which is the single most
+visible way this feature can be wrong.
+
+**Keepers** are rostered before pick 1, across every team — not only the owner's
+(FR-002, and the keeper-league edge case). Live they arrive as picks carrying
+ESPN's keeper mark; on replay they come from `draft_picks.keeper` and
+`draft_keepers`. They are supplied as a set on the state rather than looked up by
+the engine, because the engine does not go asking — it is told who is
+unavailable. See research §7a.
 
 ---
 
@@ -161,5 +171,7 @@ behaviour.
 | Negative player ids are valid | no sign filter anywhere | 005's D/ST lesson |
 | Adjustments reconcile to the value delta | asserted per entry in replay | FR-027, SC-014 |
 | A floored ADP is an absent ADP | `adpFloor` applied before either ADP rule | FR-022, SC-012 |
+| A kept player is unavailable, on any team | `keepers` unioned into `drafted` | FR-002 |
+| A drafted player absent from the board is inert | the pool is built by removing ids from the board, so an id that was never there removes nothing | Edge case |
 | Ordering is total | final sort falls through to `espn_player_id` | FR-017 |
 | Withheld output carries no entries | `recommend()` returns early | FR-012, SC-007 |
