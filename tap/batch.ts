@@ -15,6 +15,10 @@ import { CONTRACT_VERSION, TAP_VERSION } from "./meta";
 
 export const MAX_BATCH = 200;
 export const BATCH_WINDOW_MS = 750;
+/** A relay attempt that neither succeeds nor fails within this window is
+ *  treated as failed, so the flush flag can never wedge permanently. */
+export const FLUSH_TIMEOUT_MS = 15_000;
+
 /** Re-anchor beyond this drift and treat timestamps as a new timeline. */
 export const EPOCH_DRIFT_MS = 2000;
 

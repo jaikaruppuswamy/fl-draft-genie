@@ -126,6 +126,31 @@ describe("POST /api/tap/batch", () => {
     expect(res.status).toBe(403);
   });
 
+  it("treats an EMPTY connectionId as absent, so an already-installed tap keeps working", async () => {
+    // Regression: the shipped tap sends "" and a .min(1) rule rejected it,
+    // 400ing every batch in production while the badge said "buffering".
+    const res = await post(batch({ connectionId: "" }));
+    expect(res.status).toBe(202);
+  });
+
+  it("resolves the connection from the ESPN league id when no connectionId is sent", async () => {
+    // The tap runs on ESPN's page and knows the ESPN league id, not Draft
+    // Genie's internal UUID. Requiring the UUID made every production batch
+    // 400 — nothing ever supplied it.
+    const body = batch();
+    delete (body as Record<string, unknown>).connectionId;
+    const res = await post(body);
+    expect(res.status).toBe(202);
+  });
+
+  it("403s an ESPN league that is not connected to this account", async () => {
+    const body = batch({ league: { espnLeagueId: "1234512345", season: 2026 } });
+    delete (body as Record<string, unknown>).connectionId;
+    const res = await post(body);
+    expect(res.status).toBe(403);
+    expect((await res.json() as { message: string }).message).toMatch(/not connected/i);
+  });
+
   it("400s a malformed batch", async () => {
     expect((await post({ nope: true })).status).toBe(400);
   });

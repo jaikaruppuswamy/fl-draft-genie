@@ -13,7 +13,7 @@ import { CONTRACT_VERSION, INGEST_ORIGIN, TAP_VERSION } from "./meta";
 import { classify, isDraftChannel } from "./classify";
 import { decodeInitFrame, filledPicks } from "./decode";
 import { assertTransmittable, filterLedgerPick, filterPickFields } from "./filter";
-import { Sequencer, backoffMs, chunk, type Clock, type RelayMessage } from "./batch";
+import { FLUSH_TIMEOUT_MS, Sequencer, backoffMs, chunk, type Clock, type RelayMessage } from "./batch";
 import { Buffer as TapBuffer, type StoragePort } from "./buffer";
 import { EXPLANATIONS, isDegraded, type TapState, type TapStatus } from "./status";
 import { install, type Transport } from "./intercept";
@@ -99,11 +99,24 @@ function mountBadge(): void {
 
 // --- relay ---------------------------------------------------------------
 
-const league = { espnLeagueId: "", season: 0, connectionId: "" };
+const league = { espnLeagueId: "", season: 0 };
 const sequencer = new Sequencer(clock, installId(), SESSION, league);
 const buffer = new TapBuffer(gmStorage, installId(), SESSION);
 let failures = 0;
 let flushing = false;
+let flushWatchdog: ReturnType<typeof setTimeout> | null = null;
+
+/** `flushing` is cleared by onload/onerror. If GM_xmlhttpRequest throws
+ *  synchronously, or neither callback ever fires, the flag would stay set and
+ *  the tap would go permanently silent while still showing "relaying" — the
+ *  exact failure FR-017 forbids. This guarantees it always clears. */
+function endFlush(): void {
+  flushing = false;
+  if (flushWatchdog !== null) {
+    clearTimeout(flushWatchdog);
+    flushWatchdog = null;
+  }
+}
 
 function token(): string {
   return GM_getValue("dg:token", "");
@@ -114,7 +127,15 @@ function flush(): void {
   const pending = buffer.pending();
   if (!pending.length) return;
   flushing = true;
+  flushWatchdog = setTimeout(() => {
+    // No response either way within the window: unwedge and report honestly.
+    endFlush();
+    failures++;
+    render("buffering", "no response from Draft Genie");
+    scheduleRetry();
+  }, FLUSH_TIMEOUT_MS);
   const batch = chunk(pending)[0]!;
+  try {
   GM_xmlhttpRequest({
     method: "POST",
     url: `${INGEST_ORIGIN}/api/tap/batch`,
@@ -125,11 +146,13 @@ function flush(): void {
       install: installId(),
       session: SESSION,
       league: { espnLeagueId: league.espnLeagueId, season: league.season },
-      connectionId: league.connectionId,
+      // Deliberately omitted: the Worker resolves the connection from the ESPN
+      // league id and season, both of which the draft-room URL gives us. The
+      // tap has no way to learn Draft Genie's internal UUID.
       messages: batch,
     }),
     onload: (r) => {
-      flushing = false;
+      endFlush();
       if (r.status === 202) {
         failures = 0;
         try {
@@ -146,17 +169,25 @@ function flush(): void {
       failures++;
       if (r.status === 409) return render("version-rejected");
       if (r.status === 401) return render("not-paired");
+      if (r.status === 403) return render("incompatible", "this ESPN league is not connected to Draft Genie");
+      if (r.status === 400) return render("incompatible", "Draft Genie rejected the message shape");
       render("buffering", `server said ${r.status}`);
       scheduleRetry(r.responseHeaders);
     },
     onerror: () => {
-      flushing = false;
+      endFlush();
       failures++;
       status.buffered = buffer.size();
       render("buffering", "cannot reach Draft Genie");
       scheduleRetry();
     },
   });
+  } catch (e) {
+    endFlush();
+    failures++;
+    render("buffering", `relay failed: ${(e as Error).message}`);
+    scheduleRetry();
+  }
 }
 
 /** 005 FR-007c detects "not receiving picks" from an ABSENCE of frames; this
@@ -280,7 +311,6 @@ function start(): void {
   const params = new URLSearchParams(W.location.search);
   league.espnLeagueId = params.get("leagueId") ?? "";
   league.season = Number(params.get("seasonId") ?? new Date().getFullYear());
-  league.connectionId = GM_getValue(`dg:conn:${league.espnLeagueId}`, "");
 
   W.addEventListener("DOMContentLoaded", mountBadge);
   if (W.document.readyState !== "loading") mountBadge();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Draft Genie draft tap
 // @namespace    https://draft.neelamjai.com/
-// @version      0.1.0
+// @version      0.1.1
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
@@ -23,7 +23,7 @@
 "use strict";
 (() => {
   // tap/meta.ts
-  var TAP_VERSION = "0.1.0";
+  var TAP_VERSION = "0.1.1";
   var CONTRACT_VERSION = 1;
   var INGEST_ORIGIN = "https://draft.neelamjai.com";
   var DRAFT_HOST = "fantasydraft.espn.com";
@@ -189,6 +189,7 @@
 
   // tap/batch.ts
   var MAX_BATCH = 200;
+  var FLUSH_TIMEOUT_MS = 15e3;
   var EPOCH_DRIFT_MS = 2e3;
   var Sequencer = class {
     constructor(clock2, install2, session, league2) {
@@ -436,11 +437,19 @@
     W.document.body?.appendChild(badge);
     render(status.state);
   }
-  var league = { espnLeagueId: "", season: 0, connectionId: "" };
+  var league = { espnLeagueId: "", season: 0 };
   var sequencer = new Sequencer(clock, installId(), SESSION, league);
   var buffer = new Buffer(gmStorage, installId(), SESSION);
   var failures = 0;
   var flushing = false;
+  var flushWatchdog = null;
+  function endFlush() {
+    flushing = false;
+    if (flushWatchdog !== null) {
+      clearTimeout(flushWatchdog);
+      flushWatchdog = null;
+    }
+  }
   function token() {
     return GM_getValue("dg:token", "");
   }
@@ -449,50 +458,67 @@
     const pending = buffer.pending();
     if (!pending.length) return;
     flushing = true;
+    flushWatchdog = setTimeout(() => {
+      endFlush();
+      failures++;
+      render("buffering", "no response from Draft Genie");
+      scheduleRetry();
+    }, FLUSH_TIMEOUT_MS);
     const batch = chunk(pending)[0];
-    GM_xmlhttpRequest({
-      method: "POST",
-      url: `${INGEST_ORIGIN}/api/tap/batch`,
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}`, "X-Tap-Install": installId() },
-      anonymous: true,
-      // documented: "don't send cookies with the request"
-      data: JSON.stringify({
-        v: CONTRACT_VERSION,
-        install: installId(),
-        session: SESSION,
-        league: { espnLeagueId: league.espnLeagueId, season: league.season },
-        connectionId: league.connectionId,
-        messages: batch
-      }),
-      onload: (r) => {
-        flushing = false;
-        if (r.status === 202) {
-          failures = 0;
-          try {
-            const body = JSON.parse(r.responseText);
-            if (typeof body.accepted_through === "number") buffer.truncate(body.accepted_through);
-          } catch {
+    try {
+      GM_xmlhttpRequest({
+        method: "POST",
+        url: `${INGEST_ORIGIN}/api/tap/batch`,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}`, "X-Tap-Install": installId() },
+        anonymous: true,
+        // documented: "don't send cookies with the request"
+        data: JSON.stringify({
+          v: CONTRACT_VERSION,
+          install: installId(),
+          session: SESSION,
+          league: { espnLeagueId: league.espnLeagueId, season: league.season },
+          // Deliberately omitted: the Worker resolves the connection from the ESPN
+          // league id and season, both of which the draft-room URL gives us. The
+          // tap has no way to learn Draft Genie's internal UUID.
+          messages: batch
+        }),
+        onload: (r) => {
+          endFlush();
+          if (r.status === 202) {
+            failures = 0;
+            try {
+              const body = JSON.parse(r.responseText);
+              if (typeof body.accepted_through === "number") buffer.truncate(body.accepted_through);
+            } catch {
+            }
+            status.lastRelayedAt = new Date(clock.now()).toISOString();
+            status.buffered = buffer.size();
+            render(status.buffered ? "relaying" : "relaying");
+            if (buffer.size()) flush();
+            return;
           }
-          status.lastRelayedAt = new Date(clock.now()).toISOString();
+          failures++;
+          if (r.status === 409) return render("version-rejected");
+          if (r.status === 401) return render("not-paired");
+          if (r.status === 403) return render("incompatible", "this ESPN league is not connected to Draft Genie");
+          if (r.status === 400) return render("incompatible", "Draft Genie rejected the message shape");
+          render("buffering", `server said ${r.status}`);
+          scheduleRetry(r.responseHeaders);
+        },
+        onerror: () => {
+          endFlush();
+          failures++;
           status.buffered = buffer.size();
-          render(status.buffered ? "relaying" : "relaying");
-          if (buffer.size()) flush();
-          return;
+          render("buffering", "cannot reach Draft Genie");
+          scheduleRetry();
         }
-        failures++;
-        if (r.status === 409) return render("version-rejected");
-        if (r.status === 401) return render("not-paired");
-        render("buffering", `server said ${r.status}`);
-        scheduleRetry(r.responseHeaders);
-      },
-      onerror: () => {
-        flushing = false;
-        failures++;
-        status.buffered = buffer.size();
-        render("buffering", "cannot reach Draft Genie");
-        scheduleRetry();
-      }
-    });
+      });
+    } catch (e) {
+      endFlush();
+      failures++;
+      render("buffering", `relay failed: ${e.message}`);
+      scheduleRetry();
+    }
   }
   function reportStatus(state, detail) {
     if (!token() || state === lastReportedState) return;
@@ -579,7 +605,6 @@
     const params = new URLSearchParams(W.location.search);
     league.espnLeagueId = params.get("leagueId") ?? "";
     league.season = Number(params.get("seasonId") ?? (/* @__PURE__ */ new Date()).getFullYear());
-    league.connectionId = GM_getValue(`dg:conn:${league.espnLeagueId}`, "");
     W.addEventListener("DOMContentLoaded", mountBadge);
     if (W.document.readyState !== "loading") mountBadge();
     for (const ev of ["online", "pageshow", "focus"]) {

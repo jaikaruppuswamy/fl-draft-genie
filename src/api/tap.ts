@@ -19,7 +19,7 @@ import { jsonError } from "./app";
 import { now } from "../env";
 import { logInfo } from "./logging";
 import { issuePairing, listPairings, revokePairing, touchPairing, verifyPairing } from "../db/tap";
-import { getConnectionById } from "../db/leagues";
+import { findConnection, getConnectionById } from "../db/leagues";
 
 /** The tap runs on ESPN's origin; nothing else needs these routes. */
 const ALLOWED_ORIGINS = new Set(["https://fantasy.espn.com"]);
@@ -43,7 +43,13 @@ const batchBody = z.object({
   install: z.string().min(1).max(64),
   session: z.string().min(1).max(64),
   league: z.object({ espnLeagueId: z.string().min(1), season: z.number().int() }),
-  connectionId: z.string().min(1),
+  // Optional AND empty-tolerant by design. The tap runs on ESPN's page and
+  // knows the ESPN league id, not Draft Genie's internal UUID. Requiring it
+  // meant every batch 400'd in production; requiring it to be NON-EMPTY meant
+  // an already-installed tap sending "" still 400'd. The Worker resolves the
+  // connection from (account, espnLeagueId, season) instead, and treats an
+  // empty string as absent so a deployed script keeps working.
+  connectionId: z.string().optional(),
   messages: z.array(relayMessage).max(200),
 });
 
@@ -97,11 +103,20 @@ export function tapRoutes() {
     }
 
     // The league must belong to the authenticated account (FR-018 / 005
-    // FR-007d). The lookup is itself account-scoped, so ownership is enforced
-    // by the query rather than by a comparison we could forget.
-    const connection = await getConnectionById(c.env.DB, verified.accountId, body.connectionId);
+    // FR-007d). Both lookups are account-scoped, so ownership is enforced by
+    // the query rather than by a comparison we could forget.
+    const connection = body.connectionId
+      ? await getConnectionById(c.env.DB, verified.accountId, body.connectionId)
+      : await findConnection(c.env.DB, verified.accountId, body.league.espnLeagueId, body.league.season);
     if (!connection) {
-      return withCors(jsonError(403, "not_your_league", "That league is not connected to this account."), cors);
+      return withCors(
+        jsonError(
+          403,
+          "not_your_league",
+          "That ESPN league is not connected to this Draft Genie account. Connect it first, then re-open the draft room.",
+        ),
+        cors,
+      );
     }
 
     await touchPairing(c.env.DB, verified.pairingId, body.install, at);
@@ -114,7 +129,7 @@ export function tapRoutes() {
       acc[m.kind] = (acc[m.kind] ?? 0) + 1;
       return acc;
     }, {});
-    logInfo(`tap batch: connection=${body.connectionId} n=${body.messages.length} kinds=${JSON.stringify(kinds)}`);
+    logInfo(`tap batch: connection=${connection.id} n=${body.messages.length} kinds=${JSON.stringify(kinds)}`);
 
     // 005 owns applying these to a draft session. Until it lands, the ingest
     // validates, authorises and acknowledges — which is exactly the seam the
