@@ -15,7 +15,7 @@ Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
 001 league-onboarding ✅
  ├─→ 002 projections-pipeline ✅ ─→ 003 board-refinements ✅
  ├─→ 004 context-signals ✅ ────────┬─→ 006 recommendation-engine ✅ ┐
- └─→ 010 draft-tap ✅ ─→ 005 draft-monitor ✅ ─┘                  ├─→ 007 draft-room-ui
+ └─→ 010 draft-tap ✅ ─→ 005 draft-monitor ✅ ─┘                  ├─→ 007 draft-room-ui ✅
                                    └──────────────────────────────┴─→ 008 draft-replay-lab
 009 deployment-ops (exercised continuously since 001; hardening at the end)
 ```
@@ -217,7 +217,7 @@ outcomes needs 008's replay lab.
 should be the last starter (as shipped) or a different definition per league
 shape, and every magnitude above once there is evidence to move it with.
 
-## 007 — draft-room-ui 🔨 IMPLEMENTED (2026-08-05, not yet deployed)
+## 007 — draft-room-ui ✅ SHIPPED (2026-08-05)
 
 **CORRECTED 2026-08-05 (007 clarify).** This section previously said the draft
 room MUST request recommendations on 005's `on_deck` event and **never** on

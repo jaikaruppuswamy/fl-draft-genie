@@ -162,7 +162,7 @@ Do **not** rebuild these.
 - [X] T052 [P] Run the full suite (`npm test`) five consecutive times and confirm stability, matching the bar 005 and 006 were held to
 - [X] T053 Verify `web/src/pages/DraftRoom.tsx` against `web/src/pages/DraftBoard.tsx` (`/design/draft`) in the browser — visually indistinguishable apart from carrying real state, confirming FR-019 held and the design was not quietly reopened
 - [X] T054 Record 007's ratified decisions in `ROADMAP.md` per CLAUDE.md, and note that 006's contract has been corrected (T049)
-- [ ] T055 Deploy `web/` and the Worker via `npm run deploy`. **Confirm `wrangler whoami` reports the icloud.com account before deploying** — an alumni-org login can silently take its place. No migration this time: 007 persists nothing
+- [X] T055 Deploy `web/` and the Worker via `npm run deploy`. **Confirm `wrangler whoami` reports the icloud.com account before deploying** — an alumni-org login can silently take its place. No migration this time: 007 persists nothing
 
 ---
 
