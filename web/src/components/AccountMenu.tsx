@@ -7,6 +7,7 @@ export default function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
   return (
     <div className="account-menu">
       {email && <span>{email}</span>}
+      <Link to="/draft-tap">Draft tap</Link>
       <Link to="/account">Account</Link>
       <button className="secondary" onClick={onSignOut}>
         Sign out

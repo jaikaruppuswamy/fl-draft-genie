@@ -335,3 +335,17 @@ ol.steps li {
   background: var(--color-accent-100);
   border-bottom: none;
 }
+
+/* 010: the pairing token is shown once and must be easy to copy exactly. */
+pre.token {
+  background: var(--surface-2, #f3efe7);
+  border: 1px solid var(--line, #ddd6c8);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  white-space: pre-wrap;
+  user-select: all;
+}
+ul.plain { list-style: none; padding: 0; }
+ul.plain li { padding: 6px 0; border-bottom: 1px solid var(--line, #eee); }

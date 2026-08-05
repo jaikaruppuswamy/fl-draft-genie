@@ -10,6 +10,8 @@ import {
   mergeMapping,
   GUID_RE,
   MY_SWID,
+  scrubMemberIdentities,
+  memberNamesIn,
 } from "../../scripts/sanitize-espn";
 
 const REAL_A = "{9F2A1C7E-4B3D-4E8A-9C1F-2D6B8E0A5C31}";
@@ -21,13 +23,13 @@ const league = () => ({
   seasonId: 2026,
   settings: { name: "DraftGenieTester", size: 6 },
   members: [
-    { id: REAL_A, displayName: "jkaruppuswamy", firstName: "Jai", lastName: "Karuppuswamy" },
+    { id: REAL_A, displayName: "qmarbleworth", firstName: "Quill", lastName: "Marbleworth" },
     { id: REAL_B, displayName: "sam99", firstName: "Sam", lastName: "Ng" },
     { id: REAL_C, displayName: "spectator", firstName: "Pat", lastName: "Lee" },
   ],
   teams: [
     { id: 3, name: "Sam's Squad", abbrev: "SAM", owners: [REAL_B] },
-    { id: 7, name: "Jai's Juggernauts", abbrev: "JAI", owners: [REAL_A] },
+    { id: 7, name: "Quill's Juggernauts", abbrev: "QUI", owners: [REAL_A] },
   ],
   draftDetail: { drafted: false, inProgress: true, picks: [] },
 });
@@ -55,7 +57,7 @@ describe("deriveMapping / sanitize", () => {
 
   it("removes every real GUID, display name and surname", () => {
     const { json } = clean();
-    for (const secret of [REAL_A, REAL_B, REAL_C, "jkaruppuswamy", "Karuppuswamy", "sam99", "DraftGenieTester"]) {
+    for (const secret of [REAL_A, REAL_B, REAL_C, "qmarbleworth", "Marbleworth", "sam99", "DraftGenieTester"]) {
       expect(json).not.toContain(secret.replace(/[{}]/g, ""));
     }
   });
@@ -79,7 +81,7 @@ describe("deriveMapping / sanitize", () => {
     const m = deriveMapping(src, 7);
     const json = JSON.stringify(sanitize(src, m));
     expect(json).not.toContain("Jai the Great");
-    expect(json).not.toContain("Karuppuswamy");
+    expect(json).not.toContain("Marbleworth");
   });
 
   it("does not corrupt player data that merely shares a manager's first name", () => {
@@ -100,10 +102,10 @@ describe("deriveMapping / sanitize", () => {
   });
 
   it("still removes a full real name found in an unmodelled field", () => {
-    const src = { ...league(), note: "drafted by Jai Karuppuswamy" };
+    const src = { ...league(), note: "drafted by Quill Marbleworth" };
     const m = deriveMapping(src, 7);
     const out = sanitize(src, m) as typeof src;
-    expect(out.note).not.toContain("Karuppuswamy");
+    expect(out.note).not.toContain("Marbleworth");
   });
 
   it("keeps a multi-team owner on one stable placeholder", () => {
@@ -157,5 +159,130 @@ describe("mergeMapping", () => {
     const merged = mergeMapping(a, deriveMapping(later, 7));
     expect(merged.guid.get(REAL_A.replace(/[{}]/g, ""))).toBe(a.guid.get(REAL_A.replace(/[{}]/g, "")));
     expect(merged.guid.has(REAL_C.replace(/[{}]/g, ""))).toBe(true);
+  });
+});
+
+// --- tap-frame sanitization (010 T008) -------------------------------------
+// The Gate 0 capture established that SELECTED carries a member SWID in an
+// optional 4th field — so every human pick frame is a potential leak. This is
+// the control that keeps them out of the repo.
+
+describe("tap capture sanitization", () => {
+  // Fabricated, NOT from any capture — a real SWID must never enter the repo,
+  // which is the rule this very suite exists to enforce.
+  const OWNER = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
+  const OTHER = "{FFFFFFFF-EEEE-DDDD-CCCC-BBBBBBBBBBBB}";
+  const LEAGUE = "9999999999";
+  const frames = () => [
+    { transport: "ws", event: "message", enc: "text", data: `TOKEN 1:${LEAGUE}:2:${OWNER}:1053670275\n` },
+    { transport: "ws", event: "message", enc: "text", data: `JOINED 2 ${OWNER}\n` },
+    { transport: "ws", event: "message", enc: "text", data: `JOINED 5 ${OTHER}\n` },
+    { transport: "ws", event: "message", enc: "text", data: `SELECTED 5 4429795 2 ${OTHER}\n` },
+    { transport: "ws", event: "message", enc: "text", data: "SELECTED 5 -16007 7\n" },
+    { transport: "ws", event: "construct", url: `wss://fantasydraft.espn.com/game-1/league-${LEAGUE}/JOIN?4=${OWNER}` },
+  ];
+
+  it("maps the capturing owner's SWID to the suite identity", async () => {
+    const { deriveTapMapping } = await import("../../scripts/sanitize-espn");
+    const m = deriveTapMapping(frames());
+    expect(m.guid.get(OWNER.replace(/[{}]/g, ""))).toBe(MY_SWID.replace(/[{}]/g, ""));
+  });
+
+  it("strips the SWID from SELECTED's optional 4th field", async () => {
+    const { deriveTapMapping, sanitizeTapFrame } = await import("../../scripts/sanitize-espn");
+    const f = frames();
+    const m = deriveTapMapping(f);
+    const out = f.map((x) => sanitizeTapFrame(x, m));
+    const json = JSON.stringify(out);
+    expect(json).not.toContain(OTHER.replace(/[{}]/g, ""));
+    expect(json).not.toContain(OWNER.replace(/[{}]/g, ""));
+    // structure preserved so the frame still parses
+    expect(out[3]!.data).toMatch(/^SELECTED 5 4429795 2 \{[0-9a-f-]+\}\n$/i);
+  });
+
+  it("preserves negative player ids (D/ST)", async () => {
+    const { deriveTapMapping, sanitizeTapFrame } = await import("../../scripts/sanitize-espn");
+    const f = frames();
+    const out = sanitizeTapFrame(f[4]!, deriveTapMapping(f));
+    expect(out.data).toBe("SELECTED 5 -16007 7\n");
+  });
+
+  it("replaces the league id even when percent-encoded inside a nested URL", async () => {
+    // Regression: a \b-anchored rule missed `%3D<leagueId>%26` because the `D`
+    // from `%3D` destroys the left word boundary. Caught by assertTapClean.
+    const { deriveTapMapping, sanitizeTapFrame } = await import("../../scripts/sanitize-espn");
+    const f = frames();
+    f.push({ transport: "fetch", event: "chunk", enc: "text", data: `redirect%3Fleague%3D${LEAGUE}%26x%3D1` });
+    const m = deriveTapMapping(f);
+    expect(JSON.stringify(f.map((x) => sanitizeTapFrame(x, m)))).not.toContain(LEAGUE);
+  });
+
+  it("assertTapClean throws when a real SWID survives", async () => {
+    const { deriveTapMapping, assertTapClean } = await import("../../scripts/sanitize-espn");
+    const m = deriveTapMapping(frames());
+    expect(() => assertTapClean([{ data: `SELECTED 1 2 3 ${OTHER}` }], m)).toThrow(/Tap sanitization failed/);
+  });
+
+  it("scrubs GUIDs it does not recognise rather than passing them through", async () => {
+    const { deriveTapMapping, sanitizeTapFrame, assertTapClean } = await import("../../scripts/sanitize-espn");
+    const f = frames();
+    const m = deriveTapMapping(f);
+    const stray = { transport: "ws", event: "message", enc: "text", data: '{"id":"DEADBEEF-1111-4222-8333-444455556666"}' };
+    const out = sanitizeTapFrame(stray, m, new Map());
+    expect(JSON.stringify(out)).not.toContain("DEADBEEF");
+    expect(() => assertTapClean([out], m)).not.toThrow();
+  });
+});
+
+describe("member identities in captured XHR bodies", () => {
+  // The shape that leaked: a draftInit response embedded as an ESCAPED JSON
+  // STRING inside a frame's `data`, carrying `members[]` with real names next
+  // to `players[]` with real NFL names. The GUID pass saw neither.
+  const memberObj = (id: string, dn: string, fn: string, ln: string) =>
+    `{\\"displayName\\":\\"${dn}\\",\\"firstName\\":\\"${fn}\\",\\"id\\":\\"{${id}}\\",` +
+    `\\"isLeagueCreator\\":false,\\"isLeagueManager\\":false,\\"lastName\\":\\"${ln}\\"}`;
+  const body =
+    `{\\"id\\":1111111,\\"members\\":[` +
+    memberObj("00000000-0000-4000-8000-000000000005", "ESPNFAN01", "Tres", "BumbleB") + "," +
+    memberObj("00000000-0000-4000-8000-000000000002", "handle2", "event", "regs") +
+    `],\\"players\\":[{\\"firstName\\":\\"Jaheim\\",\\"lastName\\":\\"Bell\\",\\"id\\":4429262}]`;
+
+  it("scrubs member names inside a TRUNCATED body that cannot be parsed", () => {
+    // Captured bodies are cut mid-response, so `JSON.parse` fails on exactly
+    // the frames that carry `members[]`. The original fallback matched member
+    // objects with /\{[^{}]*\}/, which cannot span the brace-wrapped `id`
+    // GUID — so it matched nothing and reported success. That false CLEAN is
+    // why real names shipped.
+    const truncated = body; // no closing brace: genuinely unparseable
+    expect(() => JSON.parse(truncated)).toThrow();
+    const out = scrubMemberIdentities(truncated);
+    for (const real of ["Tres", "BumbleB", "ESPNFAN01", "event", "regs", "handle2"]) {
+      expect(out, `${real} survived`).not.toContain(real);
+    }
+    expect(memberNamesIn(out).every((n) => /^(Manager( \d+)?|\d+)$/.test(n))).toBe(true);
+  });
+
+  it("scrubs member names in a well-formed body too", () => {
+    const out = scrubMemberIdentities(body + "}");
+    expect(out).not.toContain("BumbleB");
+    expect(memberNamesIn(out).filter((n) => !/^(Manager( \d+)?|\d+)$/.test(n))).toHaveLength(0);
+  });
+
+  it("PRESERVES NFL player names, which the decode fixtures depend on", () => {
+    // A document-wide name scrub would pass the leak test and destroy the
+    // fixture. Scoping to members[] is the whole design.
+    const out = scrubMemberIdentities(body);
+    expect(out).toContain("Jaheim");
+    expect(out).toContain("Bell");
+  });
+
+  it("labels members by the team number in their id, not array position", () => {
+    const out = scrubMemberIdentities(body);
+    expect(out).toContain("Manager 5");
+    expect(out).toContain("Manager 2");
+  });
+
+  it("does not mistake a players[] entry for a member", () => {
+    expect(memberNamesIn(`{"players":[{"firstName":"Jaheim","lastName":"Bell"}]}`)).toHaveLength(0);
   });
 });

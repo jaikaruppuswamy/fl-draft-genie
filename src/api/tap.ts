@@ -1,0 +1,244 @@
+// 010 T030 — the tap ingest surface.
+//
+// THREE ROUTING TRAPS, all load-bearing (contracts/ingest.md):
+//
+//  1. These routes MUST be mounted BEFORE `app.use("/api/*", …)` in app.ts.
+//     That middleware is a bare prefix match, so a tap POST reaching it first
+//     returns 401 no matter how correct the token is.
+//  2. The CORS preflight must exist. A cross-origin POST from
+//     https://fantasy.espn.com triggers OPTIONS, and `src/` had no
+//     Access-Control handling at all before this.
+//  3. On an unlisted origin we OMIT the CORS headers rather than rejecting the
+//     request. That is what the GM_xmlhttpRequest path needs — it is not
+//     browser-CORS-constrained — and a 403 guard would break it.
+
+import { Hono } from "hono";
+import { z } from "zod";
+import type { AppContext } from "./app";
+import { jsonError } from "./app";
+import { now } from "../env";
+import { logError, logInfo } from "./logging";
+import { issuePairing, listPairings, retainBatch, revokePairing, summariseBatches, touchPairing, verifyPairing } from "../db/tap";
+import { findConnection, getConnectionById } from "../db/leagues";
+
+/** The tap runs on ESPN's origin; nothing else needs these routes. */
+const ALLOWED_ORIGINS = new Set(["https://fantasy.espn.com"]);
+
+/** Wire-contract versions this Worker understands. A tap outside this set gets
+ *  409 so it can tell the user to update, rather than being misread. */
+const SUPPORTED_CONTRACT_VERSIONS = new Set([1]);
+
+/** Brace-form or bare SWID. Nothing numeric-only can match this. */
+const GUID_ON_WIRE = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/;
+
+const relayMessage = z.object({
+  v: z.number().int(),
+  seq: z.number().int().nonnegative(),
+  epoch: z.number().int().nonnegative(),
+  observedAt: z.string(),
+  transport: z.enum(["ws", "sse"]),
+  kind: z.enum(["pick", "ledger", "status"]),
+  payload: z.unknown(),
+});
+
+const batchBody = z.object({
+  v: z.number().int(),
+  install: z.string().min(1).max(64),
+  session: z.string().min(1).max(64),
+  league: z.object({ espnLeagueId: z.string().min(1), season: z.number().int() }),
+  // Optional AND empty-tolerant by design. The tap runs on ESPN's page and
+  // knows the ESPN league id, not Draft Genie's internal UUID. Requiring it
+  // meant every batch 400'd in production; requiring it to be NON-EMPTY meant
+  // an already-installed tap sending "" still 400'd. The Worker resolves the
+  // connection from (account, espnLeagueId, season) instead, and treats an
+  // empty string as absent so a deployed script keeps working.
+  connectionId: z.string().optional(),
+  messages: z.array(relayMessage).max(200),
+});
+
+function corsHeaders(origin: string | undefined): Record<string, string> {
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Tap-Install",
+    "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
+  };
+}
+
+export function tapRoutes() {
+  const app = new Hono<AppContext>();
+
+  app.options("/*", (c) => new Response(null, { status: 204, headers: corsHeaders(c.req.header("Origin")) }));
+
+  // Unauthenticated liveness so the owner can verify the install without
+  // waiting for a draft (FR-021, SC-006).
+  app.get("/health", (c) =>
+    Response.json({ ok: true, contract: [...SUPPORTED_CONTRACT_VERSIONS] }, { headers: corsHeaders(c.req.header("Origin")) }),
+  );
+
+  app.post("/batch", async (c) => {
+    const cors = corsHeaders(c.req.header("Origin"));
+    const auth = c.req.header("Authorization") ?? "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+    const installHeader = c.req.header("X-Tap-Install") ?? null;
+    if (!token) return withCors(jsonError(401, "unpaired", "This browser is not linked to Draft Genie."), cors);
+
+    const at = now(c.env);
+    const verified = await verifyPairing(c.env.DB, token, installHeader, at);
+    if (!verified.ok) {
+      return withCors(
+        jsonError(401, `pairing_${verified.reason}`, "Re-pair this browser in Draft Genie settings."),
+        cors,
+      );
+    }
+
+    const parsed = batchBody.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return withCors(jsonError(400, "invalid_batch", "Malformed relay batch."), cors);
+    const body = parsed.data;
+
+    if (!SUPPORTED_CONTRACT_VERSIONS.has(body.v)) {
+      return withCors(
+        jsonError(409, "unsupported_version", "This version of the draft tap is too old. Please update it."),
+        cors,
+      );
+    }
+
+    // The league must belong to the authenticated account (FR-018 / 005
+    // FR-007d). Both lookups are account-scoped, so ownership is enforced by
+    // the query rather than by a comparison we could forget.
+    const connection = body.connectionId
+      ? await getConnectionById(c.env.DB, verified.accountId, body.connectionId)
+      : await findConnection(c.env.DB, verified.accountId, body.league.espnLeagueId, body.league.season);
+    if (!connection) {
+      return withCors(
+        jsonError(
+          403,
+          "not_your_league",
+          "That ESPN league is not connected to this Draft Genie account. Connect it first, then re-open the draft room.",
+        ),
+        cors,
+      );
+    }
+
+    // FR-006a enforced at the BOUNDARY, not only at the source. The tap filters
+    // before sending, but a compromised or buggy tap must not be able to write
+    // identifiers into our store — so we re-assert it here and reject loudly.
+    const wire = JSON.stringify(body.messages);
+    if (GUID_ON_WIRE.test(wire) || /https?:\/\//.test(wire)) {
+      logError("tap batch rejected: payload carried an identifier or URL", new Error("privacy_violation"));
+      return withCors(
+        jsonError(400, "payload_not_clean", "Relayed messages must contain numeric identifiers only."),
+        cors,
+      );
+    }
+
+    // Bind against the SAME source that verification reads — the header. This
+    // used to bind `body.install`, so a token could be bound by one field and
+    // checked against another; they coincide only because the shipped tap
+    // happens to send the same value in both, and /status has no body at all.
+    await touchPairing(c.env.DB, verified.pairingId, installHeader, at);
+
+    // FR-010 / FR-012: ordering is (install, session, seq); duplicates are
+    // expected and are not
+    // an error — the receiver deduplicates on pick identity.
+    const acceptedThrough = body.messages.reduce((max, m) => Math.max(max, m.seq), -1);
+    const kinds = body.messages.reduce<Record<string, number>>((acc, m) => {
+      acc[m.kind] = (acc[m.kind] ?? 0) + 1;
+      return acc;
+    }, {});
+    logInfo(`tap batch: connection=${connection.id} n=${body.messages.length} kinds=${JSON.stringify(kinds)}`);
+
+    // Retain it. Without this a live draft relays perfectly and leaves nothing
+    // behind — which is exactly what happened on the first real run.
+    if (body.messages.length > 0) {
+      await retainBatch(
+        c.env.DB,
+        {
+          accountId: verified.accountId,
+          connectionId: connection.id,
+          espnLeagueId: body.league.espnLeagueId,
+          season: body.league.season,
+          installId: body.install,
+          sessionId: body.session,
+          firstSeq: body.messages[0]!.seq,
+          lastSeq: acceptedThrough,
+          kinds: JSON.stringify(kinds),
+          messages: body.messages,
+        },
+        at,
+      );
+    }
+
+    // 005 owns applying these to a draft session. Until it lands, the ingest
+    // validates, authorises and acknowledges — which is exactly the seam the
+    // two features were split at.
+    return withCors(
+      Response.json({ accepted_through: acceptedThrough, session_known: true, server_time: at.toISOString() }, { status: 202 }),
+      cors,
+    );
+  });
+
+  app.post("/status", async (c) => {
+    const cors = corsHeaders(c.req.header("Origin"));
+    const auth = c.req.header("Authorization") ?? "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+    if (!token) return withCors(jsonError(401, "unpaired", "This browser is not linked to Draft Genie."), cors);
+    const verified = await verifyPairing(c.env.DB, token, c.req.header("X-Tap-Install") ?? null, now(c.env));
+    if (!verified.ok) return withCors(jsonError(401, `pairing_${verified.reason}`, "Re-pair this browser."), cors);
+    const body = (await c.req.json().catch(() => ({}))) as { state?: string; detail?: string };
+    logInfo(`tap status: ${String(body.state)} ${String(body.detail ?? "")}`.trim());
+    return withCors(new Response(null, { status: 204 }), cors);
+  });
+
+  return app;
+}
+
+/**
+ * Pairing management — SESSION authenticated, so this is mounted AFTER the
+ * /api/* middleware, unlike the tap-facing routes above which carry their own
+ * bearer credential.
+ */
+export function pairingRoutes() {
+  const app = new Hono<AppContext>();
+
+  app.get("/", async (c) => {
+    const rows = await listPairings(c.env.DB, c.get("accountId"));
+    return Response.json({
+      pairings: rows.map((r) => ({
+        id: r.id,
+        created_at: r.created_at,
+        last_used_at: r.last_used_at,
+        expires_at: r.expires_at,
+        revoked: r.revoked_at !== null,
+        bound: r.install_id !== null,
+      })),
+    });
+  });
+
+  app.post("/", async (c) => {
+    // Shown once and never again — only the hash is stored.
+    const { token, row } = await issuePairing(c.env.DB, c.get("accountId"), now(c.env));
+    return Response.json({ id: row.id, token, expires_at: row.expires_at }, { status: 201 });
+  });
+
+  app.get("/captures", async (c) => {
+    return Response.json({ captures: await summariseBatches(c.env.DB, c.get("accountId")) });
+  });
+
+  app.delete("/:id", async (c) => {
+    const ok = await revokePairing(c.env.DB, c.get("accountId"), c.req.param("id"), now(c.env));
+    if (!ok) return jsonError(404, "not_found", "No such pairing.");
+    return new Response(null, { status: 204 });
+  });
+
+  return app;
+}
+
+function withCors(res: Response, headers: Record<string, string>): Response {
+  if (!Object.keys(headers).length) return res;
+  const out = new Response(res.body, res);
+  for (const [k, v] of Object.entries(headers)) out.headers.set(k, v);
+  return out;
+}

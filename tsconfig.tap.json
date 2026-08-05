@@ -1,0 +1,19 @@
+{
+  // 010 — the tap targets the browser and its tests run in node, so neither can
+  // use the Worker tsconfig's `types` (workers-types defines conflicting
+  // globals). Separate config, same strictness.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
+  },
+  "include": ["tap/**/*.ts", "tests/tap/**/*.ts"]
+}

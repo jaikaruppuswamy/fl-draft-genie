@@ -32,7 +32,7 @@
   },
   "status": { "isActive": true },
   "members": [
-    { "id": "{11111111-2222-3333-4444-555555555555}", "displayName": "jai_k", "firstName": "Jai", "lastName": "K" },
+    { "id": "{11111111-2222-3333-4444-555555555555}", "displayName": "myteam_mgr", "firstName": "Morgan", "lastName": "Mine" },
     { "id": "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}", "displayName": "rival1", "firstName": "Ryan", "lastName": "Rival" }
   ],
   "teams": [

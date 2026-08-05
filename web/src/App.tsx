@@ -8,6 +8,8 @@ import CredentialSetup from "./pages/CredentialSetup";
 import ConnectLeague from "./pages/ConnectLeague";
 import LeagueDetail from "./pages/LeagueDetail";
 import Account from "./pages/Account";
+import DraftTap from "./pages/DraftTap";
+import TapSelfTest from "./pages/TapSelfTest";
 import DraftBoard from "./pages/DraftBoard";
 import LeagueBoard from "./pages/LeagueBoard";
 
@@ -69,6 +71,8 @@ function AppRoutes() {
           <Route path="/leagues/:id" element={<LeagueDetail />} />
           <Route path="/leagues/:id/board" element={<LeagueBoard />} />
           <Route path="/account" element={<Account />} />
+          <Route path="/draft-tap" element={<DraftTap />} />
+          <Route path="/draft-tap/self-test" element={<TapSelfTest />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

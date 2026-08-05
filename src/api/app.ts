@@ -10,6 +10,7 @@ import { leagueRoutes } from "./leagues";
 import { boardRoutes } from "./board";
 import { projectionRoutes } from "./projections";
 import { accountRoutes } from "./account";
+import { pairingRoutes, tapRoutes } from "./tap";
 
 export type AppContext = {
   Bindings: Env;
@@ -30,6 +31,12 @@ export function createApp() {
 
   app.route("/api/auth", authRoutes());
 
+  // 010 T031: the tap authenticates with its OWN bearer credential, not the
+  // session cookie, so these routes MUST be mounted before the /api/* session
+  // middleware below — that middleware is a bare prefix match and would return
+  // 401 first, no matter how correct the tap's token is.
+  app.route("/api/tap", tapRoutes());
+
   // Everything else under /api requires a session (contracts/api.md).
   app.use("/api/*", async (c, next) => {
     const token = getCookie(c, SESSION_COOKIE);
@@ -46,6 +53,9 @@ export function createApp() {
   app.route("/api/leagues", boardRoutes());
   app.route("/api/projections", projectionRoutes());
   app.route("/api/account", accountRoutes());
+  // Session-authenticated pairing management (distinct from the tap's own
+  // bearer-authenticated ingest above).
+  app.route("/api/tap-pairings", pairingRoutes());
 
   app.notFound((c) => {
     if (new URL(c.req.url).pathname.startsWith("/api/")) {

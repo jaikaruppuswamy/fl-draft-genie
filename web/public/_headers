@@ -1,0 +1,9 @@
+# 010 T012 — the userscript must never be served stale.
+#
+# FR-022's "fix in minutes" depends on the script manager fetching the current
+# file when it checks @updateURL. A cached copy at the edge would silently pin
+# the user to a broken version during a draft, which is exactly the failure the
+# userscript delivery form was chosen to avoid.
+/draft-tap.user.js
+  Cache-Control: no-cache, must-revalidate
+  Content-Type: text/javascript; charset=utf-8

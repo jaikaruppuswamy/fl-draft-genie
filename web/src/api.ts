@@ -117,6 +117,15 @@ export interface TeamChoice {
   teams: { espn_team_id: number; name: string; manager_names: string[] }[];
 }
 
+export interface TapPairing {
+  id: string;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string;
+  revoked: boolean;
+  bound: boolean;
+}
+
 export const apiClient = {
   requestCode: (email: string) => request<void>("POST", "/api/auth/request", { email }),
   verifyCode: (email: string, code: string) =>
@@ -142,4 +151,7 @@ export const apiClient = {
   refreshProjections: () =>
     request<{ fetched_at: string; player_count: number }>("POST", "/api/projections/refresh"),
   getProjectionsStatus: () => request<ProjectionsStatus>("GET", "/api/projections/status"),
+  listTapPairings: () => request<{ pairings: TapPairing[] }>("GET", "/api/tap-pairings"),
+  createTapPairing: () => request<{ id: string; token: string; expires_at: string }>("POST", "/api/tap-pairings"),
+  revokeTapPairing: (id: string) => request<void>("DELETE", `/api/tap-pairings/${id}`),
 };
