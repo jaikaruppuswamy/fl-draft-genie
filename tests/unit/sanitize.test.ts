@@ -10,6 +10,8 @@ import {
   mergeMapping,
   GUID_RE,
   MY_SWID,
+  scrubMemberIdentities,
+  memberNamesIn,
 } from "../../scripts/sanitize-espn";
 
 const REAL_A = "{9F2A1C7E-4B3D-4E8A-9C1F-2D6B8E0A5C31}";
@@ -21,13 +23,13 @@ const league = () => ({
   seasonId: 2026,
   settings: { name: "DraftGenieTester", size: 6 },
   members: [
-    { id: REAL_A, displayName: "jkaruppuswamy", firstName: "Jai", lastName: "Karuppuswamy" },
+    { id: REAL_A, displayName: "qmarbleworth", firstName: "Quill", lastName: "Marbleworth" },
     { id: REAL_B, displayName: "sam99", firstName: "Sam", lastName: "Ng" },
     { id: REAL_C, displayName: "spectator", firstName: "Pat", lastName: "Lee" },
   ],
   teams: [
     { id: 3, name: "Sam's Squad", abbrev: "SAM", owners: [REAL_B] },
-    { id: 7, name: "Jai's Juggernauts", abbrev: "JAI", owners: [REAL_A] },
+    { id: 7, name: "Quill's Juggernauts", abbrev: "QUI", owners: [REAL_A] },
   ],
   draftDetail: { drafted: false, inProgress: true, picks: [] },
 });
@@ -55,7 +57,7 @@ describe("deriveMapping / sanitize", () => {
 
   it("removes every real GUID, display name and surname", () => {
     const { json } = clean();
-    for (const secret of [REAL_A, REAL_B, REAL_C, "jkaruppuswamy", "Karuppuswamy", "sam99", "DraftGenieTester"]) {
+    for (const secret of [REAL_A, REAL_B, REAL_C, "qmarbleworth", "Marbleworth", "sam99", "DraftGenieTester"]) {
       expect(json).not.toContain(secret.replace(/[{}]/g, ""));
     }
   });
@@ -79,7 +81,7 @@ describe("deriveMapping / sanitize", () => {
     const m = deriveMapping(src, 7);
     const json = JSON.stringify(sanitize(src, m));
     expect(json).not.toContain("Jai the Great");
-    expect(json).not.toContain("Karuppuswamy");
+    expect(json).not.toContain("Marbleworth");
   });
 
   it("does not corrupt player data that merely shares a manager's first name", () => {
@@ -100,10 +102,10 @@ describe("deriveMapping / sanitize", () => {
   });
 
   it("still removes a full real name found in an unmodelled field", () => {
-    const src = { ...league(), note: "drafted by Jai Karuppuswamy" };
+    const src = { ...league(), note: "drafted by Quill Marbleworth" };
     const m = deriveMapping(src, 7);
     const out = sanitize(src, m) as typeof src;
-    expect(out.note).not.toContain("Karuppuswamy");
+    expect(out.note).not.toContain("Marbleworth");
   });
 
   it("keeps a multi-team owner on one stable placeholder", () => {
@@ -229,5 +231,58 @@ describe("tap capture sanitization", () => {
     const out = sanitizeTapFrame(stray, m, new Map());
     expect(JSON.stringify(out)).not.toContain("DEADBEEF");
     expect(() => assertTapClean([out], m)).not.toThrow();
+  });
+});
+
+describe("member identities in captured XHR bodies", () => {
+  // The shape that leaked: a draftInit response embedded as an ESCAPED JSON
+  // STRING inside a frame's `data`, carrying `members[]` with real names next
+  // to `players[]` with real NFL names. The GUID pass saw neither.
+  const memberObj = (id: string, dn: string, fn: string, ln: string) =>
+    `{\\"displayName\\":\\"${dn}\\",\\"firstName\\":\\"${fn}\\",\\"id\\":\\"{${id}}\\",` +
+    `\\"isLeagueCreator\\":false,\\"isLeagueManager\\":false,\\"lastName\\":\\"${ln}\\"}`;
+  const body =
+    `{\\"id\\":1111111,\\"members\\":[` +
+    memberObj("00000000-0000-4000-8000-000000000005", "ESPNFAN01", "Tres", "BumbleB") + "," +
+    memberObj("00000000-0000-4000-8000-000000000002", "handle2", "event", "regs") +
+    `],\\"players\\":[{\\"firstName\\":\\"Jaheim\\",\\"lastName\\":\\"Bell\\",\\"id\\":4429262}]`;
+
+  it("scrubs member names inside a TRUNCATED body that cannot be parsed", () => {
+    // Captured bodies are cut mid-response, so `JSON.parse` fails on exactly
+    // the frames that carry `members[]`. The original fallback matched member
+    // objects with /\{[^{}]*\}/, which cannot span the brace-wrapped `id`
+    // GUID — so it matched nothing and reported success. That false CLEAN is
+    // why real names shipped.
+    const truncated = body; // no closing brace: genuinely unparseable
+    expect(() => JSON.parse(truncated)).toThrow();
+    const out = scrubMemberIdentities(truncated);
+    for (const real of ["Tres", "BumbleB", "ESPNFAN01", "event", "regs", "handle2"]) {
+      expect(out, `${real} survived`).not.toContain(real);
+    }
+    expect(memberNamesIn(out).every((n) => /^(Manager( \d+)?|\d+)$/.test(n))).toBe(true);
+  });
+
+  it("scrubs member names in a well-formed body too", () => {
+    const out = scrubMemberIdentities(body + "}");
+    expect(out).not.toContain("BumbleB");
+    expect(memberNamesIn(out).filter((n) => !/^(Manager( \d+)?|\d+)$/.test(n))).toHaveLength(0);
+  });
+
+  it("PRESERVES NFL player names, which the decode fixtures depend on", () => {
+    // A document-wide name scrub would pass the leak test and destroy the
+    // fixture. Scoping to members[] is the whole design.
+    const out = scrubMemberIdentities(body);
+    expect(out).toContain("Jaheim");
+    expect(out).toContain("Bell");
+  });
+
+  it("labels members by the team number in their id, not array position", () => {
+    const out = scrubMemberIdentities(body);
+    expect(out).toContain("Manager 5");
+    expect(out).toContain("Manager 2");
+  });
+
+  it("does not mistake a players[] entry for a member", () => {
+    expect(memberNamesIn(`{"players":[{"firstName":"Jaheim","lastName":"Bell"}]}`)).toHaveLength(0);
   });
 });

@@ -43,11 +43,23 @@ by hand use GUIDs whose every group is one repeated hex character —
 `{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}`, `{BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF}`,
 `{CCCCCCCC-DDDD-EEEE-FFFF-000000000000}` and so on. No real SWID looks like
 that, which is what makes the convention checkable rather than a matter of
-trust. `scripts/privacy-sweep.mjs` enforces it across the whole repo.
+trust. `scripts/privacy-sweep.ts` enforces it across the whole repo.
 
 **The valid placeholder set is therefore a pattern, not a list**:
 `/^\{?(00000000-0000-4000-8000-\d{12}|11111111-2222-3333-4444-555555555555)\}?$/`.
 That regex is what the fixture gate and `tests/draft/no-secrets.test.ts` check.
+
+**Member names are enumerated, not patterned.** Real first/last names and ESPN
+handles once shipped in two committed fixtures: the sweep only checked GUID
+shapes, so it reported clean over a `members[]` array full of them. It now
+extracts every name inside a `members[]` array — at any nesting depth, including
+through the JSON-in-a-string encoding used by captured XHR bodies — and requires
+each to be either a derived placeholder (`Manager n` / `Manager` / `n`) or a
+member of the hand-authored synthetic set in `scripts/privacy-sweep.ts`.
+
+The check is deliberately scoped to `members[]`. The same ESPN payloads carry
+`players[].firstName` for real NFL players, which the decode fixtures depend on;
+a document-wide name check would either destroy those or be switched off.
 
 Test identity: the suite's "my" SWID is `{11111111-2222-3333-4444-555555555555}`
 (owns team 4 in `settings-team.json`, team 5 in `settings-team-half.json`, and

@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "dev:web": "vite --config web/vite.config.ts",
     "build": "vite build --config web/vite.config.ts",
-    "test": "vitest run && node scripts/privacy-sweep.mjs",
+    "test": "vitest run && npx tsx scripts/privacy-sweep.ts",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -16,7 +16,7 @@
     "deploy": "npm run build && wrangler deploy",
     "build:tap": "node build/build-tap.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tap.json --noEmit",
-    "privacy": "node scripts/privacy-sweep.mjs",
+    "privacy": "npx tsx scripts/privacy-sweep.ts",
     "tail:tap": "node scripts/tail-tap.mjs",
     "export:corpus": "tsx scripts/export-tap-corpus.ts"
   },

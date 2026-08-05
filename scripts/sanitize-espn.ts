@@ -313,6 +313,177 @@ export function deriveTapMapping(frames: TapFrame[], leagueIdPlaceholder = "1111
   return { guid, text, fields: { members: new Map(), teams: new Map() } };
 }
 
+// --- Embedded member identities -------------------------------------------
+//
+// A tap capture is not only draft-room frames. `capture.user.js` also records
+// XHR `loadend` bodies, and the draftInit response embeds the league's
+// `members[]` array — real first names, last names and ESPN handles — as an
+// ESCAPED JSON STRING inside `data`. The GUID pass never saw them, because
+// they are not GUIDs, and `assertTapClean` only checked GUIDs and the league
+// id. Result: two fixtures shipped to a public repo with real names in them.
+//
+// Two properties this pass MUST have, both learned the hard way:
+//
+//  1. STRUCTURAL, not textual. The `m.text` map does a blind split/join, and
+//     these are short common words — one member's firstName is literally
+//     "event" and another's lastName is "regs". A global replace would rewrite
+//     JSON keys and corrupt the fixture.
+//  2. SCOPED to `members[]`. The same response carries `players[].firstName`
+//     ("Jaheim", "Marcedes") — real NFL players, public data the decode tests
+//     depend on. Scrubbing every `firstName` would destroy the fixture's value.
+
+const MEMBER_NAME_FIELDS = ["displayName", "firstName", "lastName"] as const;
+const DERIVED_GUID = /^0{8}-0000-4000-8000-(\d{12})$/;
+
+/** Stable, meaningful label for a member: prefer the team number already
+ *  encoded in its (possibly sanitized) GUID, else position of appearance. */
+function memberOrdinal(id: unknown, index: number): number {
+  if (typeof id === "string") {
+    const m = DERIVED_GUID.exec(bareGuid(id).toLowerCase());
+    if (m) return Number(m[1]);
+  }
+  return index + 1;
+}
+
+/**
+ * Walk a parsed JSON value, rewriting every `members[]` entry's name fields.
+ * Recurses into strings that themselves hold JSON, which is exactly how the
+ * captured XHR bodies nest. Returns the value (mutated in place).
+ */
+function scrubMembersDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) value[i] = scrubMembersDeep(value[i]);
+    return value;
+  }
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const members = obj.members;
+    if (Array.isArray(members)) {
+      members.forEach((member, i) => {
+        if (!member || typeof member !== "object") return;
+        const rec = member as Record<string, unknown>;
+        const n = memberOrdinal(rec.id, i);
+        for (const k of MEMBER_NAME_FIELDS) {
+          if (typeof rec[k] !== "string" || !rec[k]) continue;
+          rec[k] = k === "displayName" ? `Manager ${n}` : k === "firstName" ? "Manager" : String(n);
+        }
+      });
+    }
+    for (const k of Object.keys(obj)) {
+      if (k === "members") continue; // already handled above
+      obj[k] = scrubMembersDeep(obj[k]);
+    }
+    return obj;
+  }
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (!t.startsWith("{") && !t.startsWith("[")) return value;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(t);
+    } catch {
+      return value; // a truncated body — handled by the textual fallback below
+    }
+    if (!parsed || typeof parsed !== "object") return value;
+    return JSON.stringify(scrubMembersDeep(parsed));
+  }
+  return value;
+}
+
+/**
+ * Textual fallback for member blocks inside a body that does NOT parse.
+ *
+ * Captured XHR bodies are TRUNCATED mid-response (the recorder caps them), so
+ * `JSON.parse` fails on exactly the frames that carry `members[]`. Matching the
+ * member object shape — a `members` key followed by objects containing an
+ * `isLeagueCreator`/`isLeagueManager` flag — keeps this scoped to managers and
+ * away from `players[]`, which has no such field.
+ */
+/**
+ * Spans of the member objects inside every `"members":[...]` array in `s`.
+ *
+ * Brace-depth walking, NOT a regex. `/\{[^{}]*\}/` cannot match a member object
+ * because the `id` value is itself brace-wrapped (`"{00000000-…}"`), so the
+ * naive pattern skipped every real member and the scrubber reported success
+ * while changing nothing. That false CLEAN is exactly how this shipped.
+ */
+function memberObjectSpans(s: string): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  const membersKey = /\\?"members\\?"\s*:\s*\[/g;
+  for (let km = membersKey.exec(s); km; km = membersKey.exec(s)) {
+    let i = km.index + km[0].length;
+    let depth = 1;
+    while (i < s.length && depth > 0) {
+      const c = s[i];
+      if (c === "{") {
+        const objStart = i;
+        let d = 0;
+        for (; i < s.length; i++) {
+          if (s[i] === "{") d++;
+          else if (s[i] === "}" && --d === 0) {
+            i++;
+            break;
+          }
+        }
+        spans.push({ start: objStart, end: i });
+        continue;
+      }
+      if (c === "[") depth++;
+      else if (c === "]") depth--;
+      i++;
+    }
+  }
+  return spans;
+}
+
+function scrubMemberBlockText(s: string): string {
+  const spans = memberObjectSpans(s);
+  let out = "";
+  let cursor = 0;
+  spans.forEach((span, n) => {
+    const objText = s.slice(span.start, span.end);
+    const idMatch = /\\?"id\\?"\s*:\s*\\?"\{?([0-9A-Fa-f-]{36})\}?/.exec(objText);
+    const ord = memberOrdinal(idMatch?.[1], n);
+    out +=
+      s.slice(cursor, span.start) +
+      objText
+        .replace(/(\\?"displayName\\?"\s*:\s*\\?")([^"\\]*)/g, `$1Manager ${ord}`)
+        .replace(/(\\?"firstName\\?"\s*:\s*\\?")([^"\\]*)/g, `$1Manager`)
+        .replace(/(\\?"lastName\\?"\s*:\s*\\?")([^"\\]*)/g, `$1${ord}`);
+    cursor = span.end;
+  });
+  return out + s.slice(cursor);
+}
+
+/** Scrub member identities from a captured body, parsed or truncated. */
+export function scrubMemberIdentities(s: string): string {
+  const structural = scrubMembersDeep(s);
+  return scrubMemberBlockText(typeof structural === "string" ? structural : String(structural));
+}
+
+/**
+ * Every member-identity name in an arbitrary blob, at any nesting depth and
+ * through JSON-in-string encoding. Shared by `assertTapClean` and the privacy
+ * sweep so the two cannot disagree about what counts as a leak.
+ *
+ * Scoped to objects carrying `isLeagueCreator`/`isLeagueManager` — the marker
+ * that distinguishes a league member from an NFL player, both of which have
+ * `firstName`/`lastName`.
+ */
+export function memberNamesIn(blob: string): string[] {
+  const found: string[] = [];
+  for (const span of memberObjectSpans(blob)) {
+    const objText = blob.slice(span.start, span.end);
+    for (const k of MEMBER_NAME_FIELDS) {
+      const re = new RegExp(`\\\\?"${k}\\\\?"\\s*:\\s*\\\\?"([^"\\\\]*)`, "g");
+      for (let m = re.exec(objText); m; m = re.exec(objText)) {
+        if (m[1]) found.push(m[1]);
+      }
+    }
+  }
+  return found;
+}
+
 /** Sanitize one captured frame. Unknown GUIDs are still scrubbed, never passed. */
 export function sanitizeTapFrame(frame: TapFrame, m: Mapping, unknown = new Map<string, string>()): TapFrame {
   const scrub = (s: string) => {
@@ -335,7 +506,7 @@ export function sanitizeTapFrame(frame: TapFrame, m: Mapping, unknown = new Map<
   };
 
   const out: TapFrame = { ...frame };
-  if (typeof out.data === "string" && out.enc !== "b64") out.data = scrub(out.data);
+  if (typeof out.data === "string" && out.enc !== "b64") out.data = scrub(scrubMemberIdentities(out.data));
   if (typeof out.url === "string") out.url = scrub(out.url);
   return out;
 }
@@ -355,6 +526,14 @@ export function assertTapClean(frames: TapFrame[], m: Mapping): void {
     if (!ALLOWED.test(bareGuid(g).toLowerCase()) && !ALLOWED.test(bareGuid(g))) {
       problems.push("unmapped GUID in output");
     }
+  }
+  // Member identities. This is the check whose absence let real names ship:
+  // the GUID and league-id passes above both reported clean while `members[]`
+  // sat in an XHR body carrying full names. Assert on the member fields
+  // themselves — scoped, so `players[].firstName` (real NFL players, which the
+  // fixtures legitimately need) does not trip it.
+  for (const name of memberNamesIn(blob)) {
+    if (!/^(Manager( \d+)?|\d+)$/.test(name)) problems.push(`member name survived sanitization: ${name.length} chars`);
   }
   if (problems.length) throw new Error(`Tap sanitization failed: ${[...new Set(problems)].join("; ")}`);
 }

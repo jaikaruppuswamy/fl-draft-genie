@@ -37,7 +37,7 @@ describe("ESPN league parsing (constitution III: lossless scoring)", () => {
   it("builds team names from name or location+nickname and resolves managers", () => {
     const parsed = parseLeague(ppr as EspnLeagueResponse);
     expect(parsed.teams.map((t) => t.name)).toEqual(["Bench Warmers", "Jai's Giants", "End Zone Elite"]);
-    expect(parsed.teams[1]!.manager_names).toEqual(["Jai K"]);
+    expect(parsed.teams[1]!.manager_names).toEqual(["Morgan Mine"]);
   });
 
   it("parses the odd-shape league (tiny, no bench, auction) without error", () => {
