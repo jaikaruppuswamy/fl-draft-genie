@@ -84,7 +84,7 @@ async function replayCorpus(): Promise<void> {
        VALUES (?, ?, ?, ?, ?, 'install-1', 'session-1', ?, ?, ?, 1, ?, ?)`,
     )
       .bind(
-        `r${String(i).padStart(3, "0")}`,
+        `rl-${String(i).padStart(3, "0")}`,
         ACCOUNT,
         CONNECTION,
         LEAGUE,

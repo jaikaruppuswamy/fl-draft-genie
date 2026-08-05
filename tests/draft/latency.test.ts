@@ -96,7 +96,7 @@ describe("the server's share of SC-001's budget", () => {
          VALUES (?, ?, ?, ?, ?, 'i', 's', ?, ?, ?, 1, ?, ?)`,
       )
         .bind(
-          `l${String(i).padStart(3, "0")}`,
+          `lt-${String(i).padStart(3, "0")}`,
           ACCOUNT,
           CONNECTION,
           LEAGUE,
@@ -151,7 +151,7 @@ describe("the server's share of SC-001's budget", () => {
          VALUES (?, ?, ?, ?, ?, 'i', 's', ?, ?, ?, 1, ?, ?)`,
       )
         .bind(
-          `c${String(i).padStart(3, "0")}`,
+          `lc-${String(i).padStart(3, "0")}`,
           ACCOUNT,
           CONNECTION,
           LEAGUE,

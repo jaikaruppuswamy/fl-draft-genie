@@ -78,7 +78,7 @@ beforeEach(async () => {
 describe("the session pulls from the log", () => {
   it("applies a batch that was written before the nudge", async () => {
     await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
 
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
 
@@ -92,7 +92,7 @@ describe("the session pulls from the log", () => {
     // do NOT nudge; the safety alarm must still deliver the pick, because the
     // log is the source of truth and the nudge is only a latency optimisation.
     await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
 
     const before = await runInDurableObject(stub(), (i: DraftSession) => i.snapshot());
     expect(before!.picks).toHaveLength(0); // no nudge yet
@@ -106,7 +106,7 @@ describe("the session pulls from the log", () => {
 
   it("is idempotent across repeated nudges — a re-read produces no duplicates", async () => {
     await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
     for (let n = 0; n < 3; n++) await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
 
     const snap = await runInDurableObject(stub(), (i: DraftSession) => i.snapshot());
@@ -115,10 +115,10 @@ describe("the session pulls from the log", () => {
 
   it("advances the cursor so a second nudge does not re-apply the same rows", async () => {
     await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
 
-    await writeBatch("b2", "2026-08-30T23:00:02.000Z", [pickMessage(2, 2, 101)]);
+    await writeBatch("fo-b2", "2026-08-30T23:00:02.000Z", [pickMessage(2, 2, 101)]);
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
 
     const snap = await runInDurableObject(stub(), (i: DraftSession) => i.snapshot());
@@ -128,7 +128,7 @@ describe("the session pulls from the log", () => {
   it("does nothing at all before the session is armed", async () => {
     // An unarmed session has no scope, so it cannot know whose log to read.
     // It must stay silent rather than guess.
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
     const snap = await runInDurableObject(stub(), (i: DraftSession) => i.snapshot());
     expect(snap).toBeNull();
@@ -145,7 +145,7 @@ describe("the session pulls from the log", () => {
   it("stops scheduling once the draft completes", async () => {
     // A completed session must schedule nothing, or it bills indefinitely.
     await runInDurableObject(stub(), (i: DraftSession) => i.arm({ ...scope, totalPicks: 2 }));
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100), pickMessage(2, 2, 101)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100), pickMessage(2, 2, 101)]);
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
 
     const snap = await runInDurableObject(stub(), (i: DraftSession) => i.snapshot());
@@ -164,7 +164,7 @@ describe("the session pulls from the log", () => {
       `INSERT INTO tap_batches
          (id, account_id, connection_id, espn_league_id, season, install_id, session_id,
           received_at, first_seq, last_seq, message_count, kinds, messages_json)
-       VALUES ('other', ?, 'c', '1111111111', ?, 'i', 's', '2026-08-30T23:00:01.000Z', 0, 0, 1, 'pick', ?)`,
+       VALUES ('fo-other', ?, 'c', '1111111111', ?, 'i', 's', '2026-08-30T23:00:01.000Z', 0, 0, 1, 'pick', ?)`,
     )
       .bind(ACCOUNT, SEASON, JSON.stringify([pickMessage(1, 9, 999)]))
       .run();
@@ -183,7 +183,7 @@ describe("re-arming and the safety bound", () => {
     // regression that dropped the `if (!s.scope)` guard would have wiped the
     // whole draft on the next heartbeat, mid-draft, with no test failing.
     await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
 
     await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
@@ -196,7 +196,7 @@ describe("re-arming and the safety bound", () => {
     // heartbeat legitimately arms with `order: []` and `totalPicks: 0`. That
     // must not erase what has been observed, nor blank the known order.
     await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
 
     await runInDurableObject(stub(), (i: DraftSession) =>
@@ -213,7 +213,7 @@ describe("re-arming and the safety bound", () => {
     // totalPicks silenced the session for the rest of a live draft — and arm(),
     // whose job is correcting exactly that data, could not undo it.
     await runInDurableObject(stub(), (i: DraftSession) => i.arm({ ...scope, totalPicks: 1 }));
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
     expect((await runInDurableObject(stub(), (i: DraftSession) => i.snapshot()))!.complete).toBe(true);
 
@@ -223,7 +223,7 @@ describe("re-arming and the safety bound", () => {
     expect(revived!.complete).toBe(false);
 
     // ...and it accepts picks again.
-    await writeBatch("b2", "2026-08-30T23:00:02.000Z", [pickMessage(2, 2, 101)]);
+    await writeBatch("fo-b2", "2026-08-30T23:00:02.000Z", [pickMessage(2, 2, 101)]);
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
     expect((await runInDurableObject(stub(), (i: DraftSession) => i.snapshot()))!.picks).toHaveLength(2);
   });
@@ -240,7 +240,7 @@ describe("re-arming and the safety bound", () => {
     expect(SAFETY_ALARM_MS).toBeLessThanOrEqual(10_000); // SC-001's ceiling
 
     // And the reschedule after real work is bounded too.
-    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await writeBatch("fo-b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
     const again = await runInDurableObject(stub(), (_i: DraftSession, s: DurableObjectState) => s.storage.getAlarm());
     expect(again! - Date.now()).toBeLessThanOrEqual(SAFETY_ALARM_MS);

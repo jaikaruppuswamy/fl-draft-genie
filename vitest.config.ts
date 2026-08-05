@@ -5,7 +5,13 @@
 // that pool at all, so they get a plain node project. Splitting is required,
 // not preferred.
 //
-// 005 adds a THIRD: tests/draft/** needs isolatedStorage: false, because
+// 005's tests/draft/** project runs in a SEPARATE PROCESS — see package.json's
+// `test` script — because it needs isolatedStorage: false while this one needs
+// it on, and the pool's storage stack cannot host both in one runtime: doing so
+// aborted runs intermittently with "Isolated storage failed". Sharing a process
+// was the problem, so they no longer share one.
+//
+// It needs isolatedStorage: false because
 // WebSockets in Durable Objects are unsupported with per-file storage
 // isolation. Turning that off globally would make every existing D1 test share
 // state, so it is scoped to its own project — and vitest.workers.config.ts
@@ -21,7 +27,6 @@ export default defineConfig({
   test: {
     projects: [
       "./vitest.workers.config.ts",
-      "./vitest.draft.config.ts",
       {
         test: {
           name: "tap",

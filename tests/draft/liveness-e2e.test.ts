@@ -198,7 +198,7 @@ describe("session survival (T041)", () => {
       `INSERT INTO tap_batches
          (id, account_id, connection_id, espn_league_id, season, install_id, session_id,
           received_at, first_seq, last_seq, message_count, kinds, messages_json)
-       VALUES ('lv1', ?, ?, ?, ?, 'i', 's', '2026-08-30T23:00:01.000Z', 1, 1, 1, 'pick', ?)`,
+       VALUES ('lv-1', ?, ?, ?, ?, 'i', 's', '2026-08-30T23:00:01.000Z', 1, 1, 1, 'pick', ?)`,
     )
       .bind(
         ACCOUNT,

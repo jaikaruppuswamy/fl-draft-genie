@@ -105,6 +105,7 @@ async function armSession(
   espnLeagueId: string,
   season: number,
   at: Date,
+  ctx: WaitUntil | null,
 ): Promise<void> {
   const snapshot = await getSnapshot(env.DB, connection.id);
   const armed = armingScope({
@@ -126,7 +127,38 @@ async function armSession(
     },
     at,
   );
-  if (armed.supported) await sessionStub(env, connection.id, season).arm(armed.scope);
+  // The D1 row above is written SYNCHRONOUSLY — the diagnostic surface and the
+  // liveness check read it, and a heartbeat that did not record itself would be
+  // worse than none.
+  //
+  // Arming the Durable Object is deliberately NOT awaited here. FR-007h's whole
+  // argument is that a DO round-trip must not sit on the tap's request path: a
+  // restarting or migrating object would otherwise slow every heartbeat and
+  // every batch. It is scheduled after the response, exactly like the nudge,
+  // and the session arms on the next frame if this one is lost.
+  if (!armed.supported) return;
+  const run = async () => {
+    try {
+      await sessionStub(env, connection.id, season).arm(armed.scope);
+    } catch {
+      /* the next frame, or the cron sweep, will arm it */
+    }
+  };
+  if (ctx) ctx.waitUntil(run());
+}
+
+/** Just the capability we need; Hono's ExecutionContext generic varies. */
+interface WaitUntil {
+  waitUntil(p: Promise<unknown>): void;
+}
+
+/** `executionCtx` THROWS when the app is invoked without one. */
+function execCtx(c: { executionCtx: WaitUntil }): WaitUntil | null {
+  try {
+    return c.executionCtx;
+  } catch {
+    return null;
+  }
 }
 
 export function tapRoutes() {
@@ -246,7 +278,7 @@ export function tapRoutes() {
     // dropped nudge therefore costs latency, never a pick, and the session's
     // 5 s safety alarm bounds that latency inside SC-001's 10 s ceiling.
     // FR-007g: any frame arms. Cheap and idempotent (reads 001's snapshot).
-    await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at);
+    await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at, execCtx(c));
 
     if (body.messages.length > 0) {
       // Accessing `executionCtx` THROWS when the app is invoked without one.
@@ -316,7 +348,7 @@ export function tapRoutes() {
         body.league.season,
       );
       if (connection) {
-        await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at);
+        await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at, execCtx(c));
         // `hidden` decides WHICH lapse threshold applies: a background tab's
         // timers throttle to ~1/minute, and one threshold would declare a
         // healthy backgrounded tap dead.

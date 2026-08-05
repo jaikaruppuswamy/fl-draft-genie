@@ -64,7 +64,7 @@ async function writeBatch(id: string, receivedAt: string, messages: unknown[]): 
 /** Relay `n` picks one batch at a time, nudging after each — as production does. */
 async function relay(n: number, from = 1): Promise<void> {
   for (let i = from; i < from + n; i++) {
-    await writeBatch(`b${String(i).padStart(3, "0")}`, new Date(1_800_000_000_000 + i * 1000).toISOString(), [
+    await writeBatch(`rb-${String(i).padStart(4, "0")}`, new Date(1_800_000_000_000 + i * 1000).toISOString(), [
       pickMessage(i, ORDER[(i - 1) % ORDER.length]!, 5000 + i),
     ]);
     await runInDurableObject(stub(), (s: DraftSession) => s.nudge());
@@ -118,7 +118,7 @@ describe("rebuild from the durable log (FR-014)", () => {
     // single iteration: a test that could not fail.
     const n = READ_LIMIT + 40;
     for (let i = 1; i <= n; i++) {
-      await writeBatch(`p${String(i).padStart(4, "0")}`, new Date(1_800_000_000_000 + i * 1000).toISOString(), [
+      await writeBatch(`rp-${String(i).padStart(4, "0")}`, new Date(1_800_000_000_000 + i * 1000).toISOString(), [
         pickMessage(i, ORDER[(i - 1) % ORDER.length]!, 6000 + i),
       ]);
     }

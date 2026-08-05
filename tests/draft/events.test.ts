@@ -220,7 +220,7 @@ describe("delivery seqs are strictly increasing", () => {
          VALUES (?, ?, ?, ?, ?, 'i', 's', ?, ?, ?, 1, ?, ?)`,
       )
         .bind(
-          `e${String(i).padStart(3, "0")}`,
+          `ev-${String(i).padStart(3, "0")}`,
           ACCOUNT,
           CONNECTION,
           LEAGUE,

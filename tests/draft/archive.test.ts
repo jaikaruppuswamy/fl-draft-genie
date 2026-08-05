@@ -59,7 +59,7 @@ async function relayFullDraft(): Promise<void> {
        VALUES (?, ?, ?, ?, ?, 'i', 's', ?, ?, ?, 1, 'pick', ?)`,
     )
       .bind(
-        `a${i}`,
+        `ac-${i}`,
         ACCOUNT,
         CONNECTION,
         LEAGUE,
@@ -77,8 +77,24 @@ async function relayFullDraft(): Promise<void> {
 const NOW = new Date("2026-08-31T02:00:00.000Z");
 
 beforeEach(async () => {
-  for (const t of ["draft_picks", "draft_archives", "draft_sessions", "tap_batches"]) {
-    await testEnv.DB.prepare(`DELETE FROM ${t}`).run();
+  // Scoped deletes, never table truncation. This project runs with
+  // isolatedStorage: false (WebSockets in Durable Objects require it), so a
+  // bare `DELETE FROM` reaches rows other suites are relying on — and an
+  // intermittent "Isolated storage failed" abort was traced to exactly this
+  // kind of cross-suite interference.
+  await testEnv.DB.prepare(
+    `DELETE FROM draft_picks WHERE archive_id IN (SELECT id FROM draft_archives WHERE account_id = ?)`,
+  )
+    .bind(ACCOUNT)
+    .run();
+  for (const [t, col] of [
+    ["draft_archives", "account_id"],
+    ["draft_sessions", "connection_id"],
+    ["tap_batches", "account_id"],
+  ] as const) {
+    await testEnv.DB.prepare(`DELETE FROM ${t} WHERE ${col} = ?`)
+      .bind(col === "connection_id" ? CONNECTION : ACCOUNT)
+      .run();
   }
   await testEnv.DB.prepare(`INSERT OR IGNORE INTO accounts (id, email, created_at) VALUES (?, ?, ?)`)
     .bind(ACCOUNT, "archive@test.co", "2026-08-01T00:00:00.000Z")
@@ -110,7 +126,7 @@ describe("the session mirrors its status to D1 (T058)", () => {
       `INSERT INTO tap_batches
          (id, account_id, connection_id, espn_league_id, season, install_id, session_id,
           received_at, first_seq, last_seq, message_count, kinds, messages_json)
-       VALUES ('x1', ?, ?, ?, ?, 'i', 's', '2026-08-31T01:00:00.000Z', 1, 1, 1, 'pick', ?)`,
+       VALUES ('ac-x1', ?, ?, ?, ?, 'i', 's', '2026-08-31T01:00:00.000Z', 1, 1, 1, 'pick', ?)`,
     )
       .bind(ACCOUNT, CONNECTION, LEAGUE, SEASON, JSON.stringify([pickMessage(1, 5, 7001)]))
       .run();
