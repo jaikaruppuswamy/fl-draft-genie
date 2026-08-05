@@ -30,12 +30,13 @@ import { readBatchesAfter, type FeedCursorRow } from "../db/tap";
 import { foldBatches, type FeedBatch, type RelayMessage } from "./feed";
 import { initialState, reconcile, trust, frontier, type DraftEvent, type DraftState } from "./reconcile";
 import { picksUntilTurn, teamAt } from "./snake";
+import { stateFingerprint } from "./fingerprint";
 
 /** Bounds SC-001's "100% within 10 s" when a nudge is lost. */
 export const SAFETY_ALARM_MS = 5_000;
 
 /** One read cannot pull an unbounded draft into memory. */
-const READ_LIMIT = 200;
+export const READ_LIMIT = 200;
 
 export interface SessionScope {
   accountId: string;
@@ -47,10 +48,28 @@ export interface SessionScope {
   totalPicks: number;
 }
 
+/** Last 500 events, backing `?since=` resume (contracts/api.md rule 2). */
+export const EVENT_WINDOW = 500;
+
+interface Delivered {
+  seq: number;
+  event: DraftEvent;
+}
+
 interface Stored {
   scope: SessionScope | null;
   state: DraftState;
   cursor: FeedCursorRow | null;
+  /**
+   * Regenerated on every REBUILD, which is what stops a stale client cursor
+   * from silently skipping a reconstructed draft (contracts/api.md rule 3).
+   */
+  epoch: string;
+  /** Monotonic WITHIN an epoch. Delivery bookkeeping, not a draft fact — which
+   *  is why it lives here and not in `DraftState`: `stateFingerprint` must not
+   *  see it, or FR-014 becomes unsatisfiable (research §7). */
+  deliverySeq: number;
+  eventWindow: Delivered[];
   /**
    * TERMINAL and intentional: set only by `shutdown()`, when the league is
    * disconnected. Deliberately NOT set on completion.
@@ -90,6 +109,7 @@ export class DraftSession extends DurableObject<Env> {
     if (s.closed) return; // disconnected: an explicit decision, not a belief
     await this.ctx.storage.put("scope", scope);
     if (!s.scope) {
+      await this.ctx.storage.put("epoch", crypto.randomUUID());
       await this.ctx.storage.put(
         "state",
         initialState({ order: scope.order, myTeamId: scope.myTeamId, totalPicks: scope.totalPicks }),
@@ -143,6 +163,59 @@ export class DraftSession extends DurableObject<Env> {
     return this.toSnapshot(s);
   }
 
+  /**
+   * Rebuild the draft from the durable log (FR-014, T032).
+   *
+   * Deliberately NOT a separate restore routine. It resets the cursor and then
+   * runs the SAME `pumpOnce` the live path runs — so the recovery code is
+   * exercised on every pick of every draft, not only in the emergency it was
+   * written for. A restore path that runs once a season is a restore path that
+   * has rotted by the time it is needed; 010's draft-end detection shipped
+   * broken for precisely that reason.
+   *
+   * The epoch is regenerated, which invalidates every client cursor: rule 3 of
+   * the stream contract, and what stops a stale cursor from silently skipping
+   * a reconstructed draft.
+   */
+  async rebuild(): Promise<number> {
+    const s = await this.load();
+    if (!s.scope || s.closed) return 0;
+    await this.ctx.storage.put({
+      state: initialState({
+        order: s.scope.order.length ? s.scope.order : s.state.order,
+        myTeamId: s.scope.myTeamId ?? s.state.myTeamId,
+        totalPicks: s.scope.totalPicks || s.state.totalPicks,
+      }),
+      epoch: crypto.randomUUID(),
+      deliverySeq: 0,
+      eventWindow: [],
+    });
+    await this.ctx.storage.delete("cursor");
+
+    // Drain the whole log, not just the first page: a full draft is more than
+    // one READ_LIMIT window, and stopping early would rebuild a partial draft
+    // that looks complete.
+    let total = 0;
+    for (;;) {
+      const n = await this.pumpOnce();
+      total += n;
+      const after = await this.load();
+      const more = await readBatchesAfter(
+        this.env.DB,
+        { accountId: after.scope!.accountId, espnLeagueId: after.scope!.espnLeagueId, season: after.scope!.season },
+        after.cursor,
+        1,
+      );
+      if (more.length === 0) break;
+    }
+    return total;
+  }
+
+  /** The digest FR-014 compares a rebuilt draft against. */
+  async fingerprint(): Promise<string> {
+    return stateFingerprint((await this.load()).state);
+  }
+
   /** Stop everything and forget. Called when a league is disconnected. */
   async shutdown(): Promise<void> {
     await this.ctx.storage.deleteAlarm();
@@ -153,17 +226,23 @@ export class DraftSession extends DurableObject<Env> {
   // --- internals -----------------------------------------------------------
 
   private async load(): Promise<Stored> {
-    const [scope, state, cursor, closed] = await Promise.all([
+    const [scope, state, cursor, closed, epoch, deliverySeq, eventWindow] = await Promise.all([
       this.ctx.storage.get<SessionScope>("scope"),
       this.ctx.storage.get<DraftState>("state"),
       this.ctx.storage.get<FeedCursorRow>("cursor"),
       this.ctx.storage.get<boolean>("closed"),
+      this.ctx.storage.get<string>("epoch"),
+      this.ctx.storage.get<number>("deliverySeq"),
+      this.ctx.storage.get<Delivered[]>("eventWindow"),
     ]);
     return {
       scope: scope ?? null,
       state: state ?? initialState(),
       cursor: cursor ?? null,
       closed: closed ?? false,
+      epoch: epoch ?? "",
+      deliverySeq: deliverySeq ?? 0,
+      eventWindow: eventWindow ?? [],
     };
   }
 
@@ -233,23 +312,111 @@ export class DraftSession extends DurableObject<Env> {
     //
     // The cursor is written in the SAME put as the state: advancing it first
     // would skip rows on a crash, and writing it later could re-apply them.
+    // Delivery seqs are assigned HERE, not in the reducer: they are transport
+    // bookkeeping, and keeping them out of DraftState is what lets
+    // `stateFingerprint` compare a rebuilt draft to an incrementally-built one.
+    const delivered: Delivered[] = events.map((event, i) => ({ seq: s.deliverySeq + i + 1, event }));
+    const eventWindow = [...s.eventWindow, ...delivered].slice(-EVENT_WINDOW);
+
     await this.ctx.storage.put({
       state,
       ...(cursorMoved ? { cursor: observation.cursor } : {}),
+      ...(delivered.length ? { deliverySeq: s.deliverySeq + delivered.length, eventWindow } : {}),
     });
 
-    if (events.length) this.broadcast(events, state);
+    if (delivered.length) this.broadcast(s.epoch, delivered);
     await this.ensureAlarm();
     return events.length;
   }
 
   /**
-   * Phase 4 (T029-T031) replaces this with hibernatable WebSocket fan-out.
-   * The ordering it must preserve — commit, then broadcast — is established
-   * here so the later change is a substitution rather than a restructure.
+   * Fan out to every attached socket, AFTER the commit.
+   *
+   * `ctx.getWebSockets()` is why the Hibernation API is mandatory rather than
+   * preferred: sockets accepted with `server.accept()` are invisible to it, so
+   * after an eviction the session could not enumerate — or reach — its own
+   * clients. Every socket gets identical frames with identical `seq`, so tabs
+   * converge with no coordination.
    */
-  private broadcast(_events: DraftEvent[], _state: DraftState): void {
-    // no sockets yet
+  private broadcast(epoch: string, delivered: Delivered[]): void {
+    const sockets = this.ctx.getWebSockets();
+    if (sockets.length === 0) return;
+    for (const d of delivered) {
+      const frame = JSON.stringify({
+        type: "event",
+        epoch,
+        seq: d.seq,
+        revision: d.event.revision,
+        kind: d.event.kind,
+        payload: d.event,
+      });
+      for (const ws of sockets) {
+        // One dead socket must never stop the others from being told.
+        try {
+          ws.send(frame);
+        } catch {
+          /* the close handler will clean it up */
+        }
+      }
+    }
+  }
+
+  /**
+   * WebSocket upgrade. Strictly server → client: client frames are ignored, and
+   * the protocol has no client commands at all (Constitution VI keeps this
+   * one-way by design).
+   */
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("Upgrade") !== "websocket") {
+      return new Response("expected websocket", { status: 426 });
+    }
+    const s = await this.load();
+    if (!s.scope) return new Response("not armed", { status: 409 });
+
+    const since = Number(new URL(request.url).searchParams.get("since") ?? NaN);
+    const clientEpoch = new URL(request.url).searchParams.get("epoch");
+
+    const pair = new WebSocketPair();
+    const [client, server] = [pair[0], pair[1]];
+    this.ctx.acceptWebSocket(server);
+
+    // Rule 1: the opening frame is ALWAYS a snapshot, sent before the 101.
+    server.send(
+      JSON.stringify({ type: "snapshot", epoch: s.epoch, seq: s.deliverySeq, state: this.toSnapshot(s) }),
+    );
+
+    // Rule 2/3: replay only for a client whose cursor is same-epoch AND still
+    // inside the retained window. Anything else already has its full snapshot
+    // and simply resets — an out-of-range cursor is not an error.
+    const sameEpoch = clientEpoch === null || clientEpoch === s.epoch;
+    const oldest = s.eventWindow[0]?.seq ?? Infinity;
+    if (sameEpoch && Number.isFinite(since) && since >= oldest - 1) {
+      for (const d of s.eventWindow.filter((e) => e.seq > since)) {
+        server.send(
+          JSON.stringify({
+            type: "event",
+            epoch: s.epoch,
+            seq: d.seq,
+            revision: d.event.revision,
+            kind: d.event.kind,
+            payload: d.event,
+          }),
+        );
+      }
+    }
+
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** One-way protocol: there are no client commands to handle. */
+  webSocketMessage(): void {}
+
+  webSocketClose(ws: WebSocket, code: number): void {
+    try {
+      ws.close(code, "closing");
+    } catch {
+      /* already gone */
+    }
   }
 
   /**

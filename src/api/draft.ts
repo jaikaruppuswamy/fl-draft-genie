@@ -80,5 +80,35 @@ export function draftRoutes() {
     return Response.json(snap);
   });
 
+  /**
+   * WebSocket upgrade (contracts/api.md).
+   *
+   * The cookie is authenticated HERE, at the edge, and the Durable Object is
+   * called with a SYNTHESIZED request carrying no cookie and no session token.
+   * The session never sees a credential — research §3, and the same posture as
+   * the tap's ingest.
+   */
+  app.get("/:id/draft/stream", async (c) => {
+    if (c.req.header("Upgrade") !== "websocket") {
+      return jsonError(426, "upgrade_required", "This endpoint speaks WebSocket.");
+    }
+    const accountId = c.get("accountId");
+    const connection = await getConnectionById(c.env.DB, accountId, c.req.param("id"));
+    if (!connection) return jsonError(404, "not_found", "That league is not connected to this account.");
+
+    const row = await getSession(c.env.DB, connection.id);
+    const season = row?.season ?? new Date().getUTCFullYear();
+
+    const url = new URL(c.req.url);
+    const forward = new URL("https://draft-session/stream");
+    for (const key of ["since", "epoch"]) {
+      const v = url.searchParams.get(key);
+      if (v !== null) forward.searchParams.set(key, v);
+    }
+    return sessionStub(c.env, connection.id, season).fetch(
+      new Request(forward, { headers: { Upgrade: "websocket" } }),
+    );
+  });
+
   return app;
 }

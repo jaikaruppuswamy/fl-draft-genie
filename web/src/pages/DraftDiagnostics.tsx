@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { apiClient, type DraftSnapshot, type DraftStatus } from "../api";
+import { connectDraftStream } from "../lib/draftSocket";
 
 // 005 T027 — the deliberately plain diagnostic page (FR-025).
 //
@@ -14,7 +15,8 @@ import { apiClient, type DraftSnapshot, type DraftStatus } from "../api";
 // FR-016: a state with no explanation is the silent failure this feature
 // exists to prevent, so the withholding banner always says what to do.
 
-const REFRESH_MS = 2_000;
+/** Status is polled; PICKS arrive on the stream. */
+const STATUS_REFRESH_MS = 5_000;
 
 const WITHHOLD_COPY: Record<string, string> = {
   not_receiving:
@@ -29,7 +31,10 @@ export default function DraftDiagnostics() {
   const [status, setStatus] = useState<DraftStatus | null>(null);
   const [snap, setSnap] = useState<DraftSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reach, setReach] = useState<"connected" | "reconnecting" | "polling">("reconnecting");
 
+  // Picks arrive on the stream. Status (tap liveness, withholding) still polls,
+  // because it is derived from the D1 session row rather than the event stream.
   useEffect(() => {
     if (!id) return;
     let alive = true;
@@ -39,23 +44,31 @@ export default function DraftDiagnostics() {
         if (!alive) return;
         setStatus(s);
         setError(null);
-        if (!s.armed) {
-          setSnap(null);
-          return;
-        }
-        setSnap(await apiClient.getDraftSnapshot(id));
       } catch (e) {
         if (alive) setError((e as Error).message);
       }
     };
     void load();
-    // Polling here is a property of this THROWAWAY page, not of the feature.
-    // Phase 4 replaces it with the WebSocket the session already fans out on.
-    const t = setInterval(() => void load(), REFRESH_MS);
+    const t = setInterval(() => void load(), STATUS_REFRESH_MS);
     return () => {
       alive = false;
       clearInterval(t);
     };
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const conn = connectDraftStream(id, {
+      onFrame: (frame) => {
+        // A snapshot is authoritative; events are applied by re-reading the
+        // snapshot, because this throwaway page has no reducer of its own and
+        // 007 replaces it wholesale anyway.
+        if (frame.type === "snapshot" && frame.state) setSnap(frame.state as DraftSnapshot);
+        else if (frame.type === "event") void apiClient.getDraftSnapshot(id).then(setSnap).catch(() => {});
+      },
+      onReachability: setReach,
+    });
+    return () => conn.close();
   }, [id]);
 
   if (error) return <pre style={{ padding: 16, color: "#a00" }}>{error}</pre>;
@@ -66,6 +79,17 @@ export default function DraftDiagnostics() {
       <p style={{ opacity: 0.6 }}>
         Throwaway diagnostic view (005 FR-025). Feature 007 replaces this entirely.
       </p>
+
+      {/* Draft Genie's reachability, NOT whether picks are arriving. The two
+          need different remedies from the owner — wait, versus check ESPN —
+          and during a live draft a wrong diagnosis costs a pick. */}
+      {reach !== "connected" && (
+        <p style={{ background: "#6a5300", color: "#fff", padding: "6px 10px", borderRadius: 4 }}>
+          {reach === "polling"
+            ? "Cannot reach Draft Genie — falling back to polling. Your picks are still being captured by the tap."
+            : "Reconnecting to Draft Genie…"}
+        </p>
+      )}
 
       {status.withholding && (
         <p style={{ background: "#7a2020", color: "#fff", padding: "8px 12px", borderRadius: 4 }}>

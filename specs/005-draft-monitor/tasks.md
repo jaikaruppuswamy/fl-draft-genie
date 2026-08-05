@@ -118,14 +118,14 @@ session itself.
 **Independent test**: destroy the DO mid-replay; the rebuilt state matches the
 incrementally-built one on `stateFingerprint`.
 
-- [ ] T029 [P] [US2] Implement WebSocket delivery in `src/draft/session.ts` using the **Hibernation API** (`ctx.acceptWebSocket`). `server.accept()` sockets are invisible to `ctx.getWebSockets()` and so cannot be enumerated after a restart
-- [ ] T030 [US2] Implement the snapshot-then-cursor hand-off and `?since=` resume over the event window in `src/draft/session.ts`, per [contracts/api.md](contracts/api.md)
-- [ ] T031 [P] [US2] Implement `web/src/lib/draftSocket.ts` — reconnect with cursor resume and a bounded back-off
-- [ ] T032 [US2] Implement rebuild-from-log in `src/draft/session.ts`: replay `tap_batches` through the **same cursor read the live path uses**. There must be no second restore routine — the path that only runs in emergencies is the one that rots
-- [ ] T033 [US2] Reconcile a freshly arrived full ledger against rebuilt state in `src/draft/reconcile.ts` and correct divergence through the revision mechanism (FR-012/FR-019)
-- [ ] T034 [US2] Test in `tests/draft/rebuild.test.ts`: rebuilt state equals incrementally-built state on `stateFingerprint`, which **excludes** the delivery cursor and event log — a rebuild collapses N observations into one and provably cannot reproduce the original event stream (research §7, FR-014)
-- [ ] T035 [US2] Mirror `observed_at` to D1 **first-seen-wins** in `src/db/draft.ts` (`ON CONFLICT DO UPDATE` that never overwrites it). After a cold rebuild every pick otherwise carries one observation time, destroying the per-pick timing 008's replay lab needs
-- [ ] T036 [US2] Test in `tests/draft/reconnect.test.ts`: a client reconnecting mid-draft receives a complete snapshot with zero missing picks, and an event-window overflow forces a fresh snapshot rather than a silent gap
+- [X] T029 [P] [US2] Implement WebSocket delivery in `src/draft/session.ts` using the **Hibernation API** (`ctx.acceptWebSocket`). `server.accept()` sockets are invisible to `ctx.getWebSockets()` and so cannot be enumerated after a restart
+- [X] T030 [US2] Implement the snapshot-then-cursor hand-off and `?since=` resume over the event window in `src/draft/session.ts`, per [contracts/api.md](contracts/api.md)
+- [X] T031 [P] [US2] Implement `web/src/lib/draftSocket.ts` — reconnect with cursor resume and a bounded back-off
+- [X] T032 [US2] Implement rebuild-from-log in `src/draft/session.ts`: replay `tap_batches` through the **same cursor read the live path uses**. There must be no second restore routine — the path that only runs in emergencies is the one that rots
+- [X] T033 [US2] Reconcile a freshly arrived full ledger against rebuilt state in `src/draft/reconcile.ts` and correct divergence through the revision mechanism (FR-012/FR-019)
+- [X] T034 [US2] Test in `tests/draft/rebuild.test.ts`: rebuilt state equals incrementally-built state on `stateFingerprint`, which **excludes** the delivery cursor and event log — a rebuild collapses N observations into one and provably cannot reproduce the original event stream (research §7, FR-014)
+- [X] T035 [US2] Mirror `observed_at` to D1 **first-seen-wins** in `src/db/draft.ts` (`ON CONFLICT DO UPDATE` that never overwrites it). After a cold rebuild every pick otherwise carries one observation time, destroying the per-pick timing 008's replay lab needs
+- [X] T036 [US2] Test in `tests/draft/reconnect.test.ts`: a client reconnecting mid-draft receives a complete snapshot with zero missing picks, and an event-window overflow forces a fresh snapshot rather than a silent gap
 
 **Checkpoint**: US1 + US2 — the monitor is correct when things go wrong, which is the only condition that matters on draft day.
 
