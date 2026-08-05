@@ -386,6 +386,13 @@ instrumentation script. 72 batches accepted, 0 rejected, retained in
 - All 6 D/ST negative ids survived end to end.
 - Sequence contiguous, single epoch, no identifiers or URLs on the wire.
 
+**Cross-checked against an independent oracle** (`oracle-live-2026.json`, from
+ESPN's post-draft `mDraftDetail` for the same draft): 72 picks, and the tap's
+capture matches it **exactly** — no player in one and not the other, in either
+direction, and `teamId` agrees on all 69 relayed picks. The ledger decoder's
+`overallPickNumber` matches ESPN's on 31/31 entries, so the reader is validated
+against an outside source on a second draft.
+
 **Two tooling lessons from the run, both recorded because they cost real time:**
 
 1. `wrangler tail` is **not a reliable observer**. It misses the first seconds

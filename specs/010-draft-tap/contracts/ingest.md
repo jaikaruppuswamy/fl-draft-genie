@@ -125,10 +125,22 @@ plausible; none survives the join:
 - it is **not** simply the lineup slot — 18/70, and those matches are almost
   entirely round 1, where a team's first RB happens to land in the RB slot
 
-Its shape suggests a per-team roster-spot index assigned at pick time, before
-ESPN normalises the roster after the draft. **That remains a hypothesis and is
-recorded as one.** Per spec US1 AS3, an unresolved field is carried as an
-**opaque integer** and no requirement interprets it.
+**Re-tested on a SECOND independent live draft (2026-08-04), same result.** 69
+picks against ESPN's own post-draft record: `lineupSlotId` 23%, `roundId` 5%,
+`roundPickNumber` 5%, `overallPickNumber` 0% — proportions almost identical to
+the first draft. A third hypothesis, *"the team's Nth pick in draft order"*, was
+also tested and **rejected at 4/69**.
+
+What the two drafts do establish: field 3 is **real and stable**, not noise. The
+ledger's `+12` equals `SELECTED`'s field 3 on **27/27** in the first draft and
+**28/28** in the second, so both representations carry the same value.
+
+Best remaining explanation, still a hypothesis: the lineup slot assigned **at
+pick time**, before ESPN normalises the roster after the draft — which would
+explain why it matches the post-draft `lineupSlotId` for early-round picks (a
+team's first RB lands in the RB slot) and diverges later. There is no
+independent source for "slot at pick time", so it cannot be confirmed. Per spec
+US1 AS3 it stays an **opaque integer** that nothing interprets.
 
 **Nothing needs it.** FR-005a's stable identity is the **player id**, unique
 within a draft and confirmed to join cleanly to the oracle. Round and overall

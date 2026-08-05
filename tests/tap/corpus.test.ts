@@ -18,6 +18,14 @@ const msgs = readFileSync("tests/fixtures/tap/replay-full.jsonl", "utf8")
 const picks = msgs.filter((m) => m.kind === "pick");
 const ledgers = msgs.filter((m) => m.kind === "ledger");
 
+/** ESPN's own post-draft record for the SAME draft, fetched independently of
+ *  the tap (FR-019b). Without it the corpus would only be checked against
+ *  itself, which proves nothing. */
+const oracle = JSON.parse(readFileSync("tests/fixtures/tap/oracle-live-2026.json", "utf8")) as {
+  pick_count: number;
+  picks: { overallPickNumber: number; teamId: number; playerId: number }[];
+};
+
 describe("live-draft corpus", () => {
   it("covers a whole draft", () => {
     expect(picks.length).toBeGreaterThan(50);
@@ -49,6 +57,34 @@ describe("live-draft corpus", () => {
 
   it("carries the ledger BEFORE any incremental pick, per FR-005", () => {
     expect(msgs[0]!.kind).toBe("ledger");
+  });
+
+  it("agrees with ESPN's independent post-draft record, exactly", () => {
+    const fromTap = new Set([
+      ...picks.map((m) => (m.payload as { playerId: number }).playerId),
+      ...ledgers.flatMap((m) => (m.payload as { playerId: number }[]).map((p) => p.playerId)),
+    ]);
+    const fromEspn = new Set(oracle.picks.map((p) => p.playerId));
+    expect(oracle.pick_count).toBe(72);
+    expect([...fromTap].filter((p) => !fromEspn.has(p))).toEqual([]);
+    expect([...fromEspn].filter((p) => !fromTap.has(p))).toEqual([]);
+  });
+
+  it("assigns every pick to the team ESPN says drafted it", () => {
+    const byPlayer = new Map(oracle.picks.map((p) => [p.playerId, p]));
+    for (const m of picks) {
+      const p = m.payload as { playerId: number; teamId: number };
+      expect(p.teamId, `player ${p.playerId}`).toBe(byPlayer.get(p.playerId)!.teamId);
+    }
+  });
+
+  it("the ledger's pick ordinals match ESPN's, so the decoder is right", () => {
+    const byPlayer = new Map(oracle.picks.map((p) => [p.playerId, p]));
+    const entries = ledgers.flatMap((m) => m.payload as { playerId: number; overallPickNumber: number }[]);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const e of entries) {
+      expect(e.overallPickNumber, `player ${e.playerId}`).toBe(byPlayer.get(e.playerId)!.overallPickNumber);
+    }
   });
 
   it("contains no identifier and no URL", () => {
