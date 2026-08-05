@@ -178,7 +178,7 @@ Do **not** re-derive these.
 - [X] T057 [P] Verify T002's guard actually fails: temporarily give `src/engine/recommend.ts` a `Date`, and temporarily import `constants.ts` into `src/api/recommendations.ts`. Both must fail the guard — a guard that has never failed is not known to work
 - [X] T058 [P] Run the full suite (`npm test`) five consecutive times and confirm stability, matching the bar 005 was held to after its flakiness fix
 - [X] T059 Record the ratified numbers back into `ROADMAP.md` per CLAUDE.md — the five rule weights, `PREFERRED_CAP`, `ADP_COMBINED_CAP`, `SHORTLIST_SIZE` — and mark 006's remaining open question (replacement-baseline tuning) as belonging to the later tuning session
-- [ ] T060 Apply `0009_preferred.sql` to production and deploy. **Confirm `wrangler whoami` reports the icloud.com account before deploying** — an alumni-org login can silently take its place
+- [X] T060 Apply `0009_preferred.sql` to production and deploy. **Confirm `wrangler whoami` reports the icloud.com account before deploying** — an alumni-org login can silently take its place
 
 ---
 
