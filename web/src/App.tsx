@@ -13,6 +13,7 @@ import TapSelfTest from "./pages/TapSelfTest";
 import DraftBoard from "./pages/DraftBoard";
 import LeagueBoard from "./pages/LeagueBoard";
 import PreferredList from "./pages/PreferredList";
+import DraftRoom from "./pages/DraftRoom";
 import DraftDiagnostics from "./pages/DraftDiagnostics";
 
 export interface Session {
@@ -73,6 +74,7 @@ function AppRoutes() {
           <Route path="/leagues/:id" element={<LeagueDetail />} />
           <Route path="/leagues/:id/board" element={<LeagueBoard />} />
           <Route path="/leagues/:id/preferred" element={<PreferredList />} />
+          <Route path="/leagues/:id/room" element={<DraftRoom />} />
           {/* 005 FR-025 — throwaway diagnostics; 007 replaces it. */}
           <Route path="/leagues/:id/draft" element={<DraftDiagnostics />} />
           <Route path="/account" element={<Account />} />

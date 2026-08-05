@@ -217,16 +217,56 @@ outcomes needs 008's replay lab.
 should be the last starter (as shipped) or a different definition per league
 shape, and every magnitude above once there is evidence to move it with.
 
-## 007 — draft-room-ui
+## 007 — draft-room-ui 🔨 IMPLEMENTED (2026-08-05, not yet deployed)
 
-**Binding obligation inherited from 006 (FR-015, contracts/api.md §1a)**: the
-draft room MUST request `GET /api/leagues/:id/recommendations` on 005's
-**`on_deck`** event, never on `on_the_clock`. 005 emits `on_deck` a full turn
-ahead; requesting on the clock starts the computation when the timer does, which
-is what Constitution V forbids. **SC-005 is measured against this call site**, so
-it is 007 that makes it true or false — 006 only makes it possible. Recorded here
-because during 005 `writeArchive` was built, tested and never called, and
-production showed zero archives after a completed draft.
+**CORRECTED 2026-08-05 (007 clarify).** This section previously said the draft
+room MUST request recommendations on 005's `on_deck` event and **never** on
+`on_the_clock`. That was wrong twice: it is impossible at a snake turnaround
+(005's event model is explicit that `on_deck` fires "at most two picks ahead",
+and the owner's second consecutive turn can only ever be one pick away), and it
+prescribed a mechanism where it meant an outcome.
+
+**The obligation, correctly stated**: a recommendation MUST be current when the
+owner's turn begins. 007 satisfies it by **refreshing on every pick**, which
+makes readiness a property of the design rather than of catching one moment, and
+removes the turnaround as a special case. **SC-005 is measured at this call
+site** — 006 only made it possible. 006's `contracts/api.md` §1a still carries
+the old wording and should be restated as the outcome.
+
+**Built 2026-08-05.** The room's brain is a PURE REDUCER
+(`web/src/lib/draftRoom.ts`) — `reduce(state, input, at)`, where `at` is a
+parameter and effects are DESCRIBED rather than performed. React renders it and
+decides nothing. That is what let SC-005 be measured offline over the real
+72-frame corpus with **no jsdom, no component-testing library, and no new
+dependency at all** — and it measures the thing that can actually fail (deciding
+to fetch too late), not React's paint.
+
+The measurement sweeps the modelled round trip **200–2000 ms** and requires
+**all 12 turns** of the corpus, because 95% of 12 is 11.4 and a single chosen
+latency would rig the result. A companion test proves the harness CAN fail.
+
+**006's contract was corrected here**, in both `contracts/api.md` §1a and the
+header comment in `src/api/recommendations.ts`.
+
+**Ratified in clarify (2026-08-05)** — five decisions:
+
+- **Layout was already settled by the ratified design**, not re-decided: full
+  grid plus a fixed 318px rail. No focus mode.
+- **Reasoning is split**: the rail always shows the headline reason with no
+  interaction; the full breakdown (up to eight signed adjustments, missing
+  inputs, alternatives) is one interaction away, since 318px cannot hold it
+  legibly at arm's length.
+- **Alerting is visual only** — no sound, no notifications. Recorded honestly
+  that this reaches the owner only while they are looking at the screen.
+- **The recommendation refreshes on every pick**, not only near the owner's turn.
+- **Completion is concluded from either route** — the completion signal or every
+  pick observed — because the signal path has never fired in production, and a
+  disagreement between the two is surfaced rather than resolved silently.
+
+**SC-005 is verified OFFLINE**, by replaying the archived draft at its real
+per-pick timing. It was unverifiable in 006 and is not being deferred to draft
+day a second time.
+
 
 
 **Ratified design (2026-08-02)**: The visual design is set — Claude Design

@@ -31,7 +31,7 @@ export default defineConfig({
         test: {
           name: "tap",
           environment: "node",
-          include: ["tests/tap/**/*.test.ts"],
+          include: ["tests/tap/**/*.test.ts", "tests/room/**/*.test.ts"],
         },
       },
     ],

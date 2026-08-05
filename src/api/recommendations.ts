@@ -3,13 +3,18 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // FR-015 — AN OBLIGATION ON WHOEVER CALLS THIS. See contracts/api.md §1a.
 //
-//   Consumers MUST issue this request on 005's `on_deck` event, NOT on
-//   `on_the_clock`.
+//   Consumers MUST ensure a recommendation reflecting the CURRENT draft state
+//   is already available when the owner's turn begins.
 //
-// 005 emits `on_deck` a full turn ahead. Requesting on `on_the_clock` means the
-// computation starts when the timer does, which is precisely what Constitution
-// V forbids ("a recommendation ready before the user is on the clock — not
-// computed after the clock starts").
+// CORRECTED 2026-08-05 by 007. This comment used to say "issue this request on
+// `on_deck`, NOT on `on_the_clock`" — which was impossible at a snake
+// turnaround (005's `on_deck` fires "at most two picks ahead", and the owner's
+// second consecutive turn is one pick away, so no such event can exist), and
+// which prescribed a mechanism where it meant an outcome.
+//
+// 007 satisfies it by refreshing on EVERY pick, with one request in flight and
+// one trailing: the board is never more than a round trip stale, no single
+// request is load-bearing, and the turnaround stops being a special case.
 //
 // 006 ships this endpoint; 007 ships the draft room that must call it correctly,
 // and SC-005 is measured against that call site. It is written here, and in the

@@ -34,7 +34,7 @@ current revision MUST discard it rather than display it. (FR-016)
 
 ---
 
-## 1a. The on-deck obligation — FR-015, owed by the consumer
+## 1a. The readiness obligation — FR-015, owed by the consumer
 
 **This is a cross-feature contract, and it is written here because 006 cannot
 satisfy FR-015 alone.**
@@ -45,19 +45,33 @@ design. 006 makes that possible — the engine is computed on request and the
 request costs about what `/board` costs — but the *timing* belongs to whoever
 calls it.
 
-> **Any consumer of `GET /api/leagues/:id/recommendations` MUST issue the request
-> on 005's `on_deck` event, not on `on_the_clock`.** 005 emits `on_deck` a full
-> turn ahead; issuing on `on_the_clock` means the computation starts when the
-> timer does, which is the thing Principle V forbids.
+> **Any consumer of `GET /api/leagues/:id/recommendations` MUST ensure a
+> recommendation reflecting the current draft state is already available when the
+> owner's turn begins.**
 
-007 owns the draft room and therefore owns this obligation. It is recorded as a
-contract rather than an assumption because the alternative failure is one this
-project has already had: during 005, `writeArchive` was built, tested, and never
-called, and production showed zero archives after a completed draft. A capability
-nobody invokes is indistinguishable from one that does not exist.
+**CORRECTED 2026-08-05 by 007.** This clause previously read "MUST issue the
+request on 005's `on_deck` event, not on `on_the_clock`". That was wrong twice:
 
-**SC-005 is measured against this call site**, from the `on_deck` event to a
-rendered answer — so it is verifiable only once 007 exists. Stated plainly in
+1. **It was impossible at a snake turnaround.** 005's event model states
+   `on_deck` fires "as early as the draft's *structure* allows, at most two picks
+   ahead", and the owner's second consecutive turn can only ever be one pick
+   away — so no `on_deck` for it can exist. The rule could not be honoured 12
+   times in a 12-round draft.
+2. **It prescribed a mechanism where it meant an outcome.** Listening for a
+   particular event is one way to be ready; it is not the only one, and it is
+   the most fragile, because a single missed or late request leaves the owner
+   with nothing at the moment that matters.
+
+**How 007 satisfies it**: by refreshing on **every pick**, with one request in
+flight and one trailing. The recommendation is never more than a round trip
+behind the board, no single request is load-bearing, and the snake turnaround
+stops being a special case rather than being worked around. `on_deck` and
+`on_the_clock` drive the screen's *visual state*, not its fetching.
+
+**SC-005 is measured at the consumer**, from the earliest signal available for a
+turn to a rendered answer — so it is 007 that makes it true, not 006. 007
+measures it offline against the archived corpus, with the modelled round trip
+swept 200–2000 ms and the bar set at every turn of the corpus. Stated in
 [quickstart.md](../quickstart.md) rather than marked satisfied here.
 
 ---
