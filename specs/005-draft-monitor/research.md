@@ -515,8 +515,11 @@ to `unknown` — baseline cadence, no turn events — rather than fabricating.
 - Build rosters and the unavailable set as `picks ∪ pre-draft rostered` keyed by
   `playerId`, but derive the pick pointer, the LCP and every event **only** from
   `draftDetail.picks`.
-- **Do not persist on a no-op observation** — at the 3 s tier that is 20 pointless
-  commits per minute per league. Gate the transaction on
+- **Do not persist on a no-op observation.** The reason changed with the
+  transport but the rule did not: under polling this avoided ~20 pointless
+  commits per minute; under the tap it avoids committing on every 5 s safety-alarm
+  sweep that finds the cursor already current, which is most of them during a
+  slow round. Gate the transaction on
   `events.length > 0 || orderChanged || statusChanged`.
 - **`observed_at` collapses on rebuild**: after a cold rebuild every pick carries
   one observation time, destroying the per-pick timing 008 wants. Mirror to D1
