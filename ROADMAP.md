@@ -196,6 +196,16 @@ signal and the survival estimate weigh.
 
 ## 007 — draft-room-ui
 
+**Binding obligation inherited from 006 (FR-015, contracts/api.md §1a)**: the
+draft room MUST request `GET /api/leagues/:id/recommendations` on 005's
+**`on_deck`** event, never on `on_the_clock`. 005 emits `on_deck` a full turn
+ahead; requesting on the clock starts the computation when the timer does, which
+is what Constitution V forbids. **SC-005 is measured against this call site**, so
+it is 007 that makes it true or false — 006 only makes it possible. Recorded here
+because during 005 `writeArchive` was built, tested and never called, and
+production showed zero archives after a completed draft.
+
+
 **Ratified design (2026-08-02)**: The visual design is set — Claude Design
 project `3fc40045-01d4-49a7-af1e-58a2fd7f74cd`, screen "Draft Genie Draft
 Screen.dc.html", built on the "Organic" design system (cream/sand ground,
