@@ -9,6 +9,8 @@ import { credentialRoutes } from "./credentials";
 import { leagueRoutes } from "./leagues";
 import { draftRoutes } from "./draft";
 import { boardRoutes } from "./board";
+import { recommendationRoutes } from "./recommendations";
+import { preferredRoutes } from "./preferred";
 import { projectionRoutes } from "./projections";
 import { accountRoutes } from "./account";
 import { pairingRoutes, tapRoutes } from "./tap";
@@ -54,6 +56,8 @@ export function createApp() {
   // 005: session-authenticated, so mounted after the /api/* middleware.
   app.route("/api/leagues", draftRoutes());
   app.route("/api/leagues", boardRoutes());
+  app.route("/api/leagues", recommendationRoutes());
+  app.route("/api/leagues", preferredRoutes());
   app.route("/api/projections", projectionRoutes());
   app.route("/api/account", accountRoutes());
   // Session-authenticated pairing management (distinct from the tap's own

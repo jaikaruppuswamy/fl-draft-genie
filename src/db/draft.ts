@@ -289,3 +289,44 @@ export async function markArchived(db: D1Database, connectionId: string, now: Da
     .bind(now.toISOString(), now.toISOString(), connectionId)
     .run();
 }
+
+/**
+ * 006 T010 — kept players for a league and season, as `playerId → teamId`.
+ *
+ * FR-002 says available means "not drafted, and not already rostered
+ * (INCLUDING KEEPERS)", so the engine needs to know who was kept before pick 1.
+ *
+ * WHERE THEY ACTUALLY COME FROM, honestly stated because the two paths differ:
+ *
+ *   * REPLAY (FR-014, SC-010) — from here. 005's archive records keepers in
+ *     `draft_keepers` and flags them on `draft_picks`, so a replayed draft has
+ *     them exactly as they were.
+ *
+ *   * LIVE — mostly NOT from here, and that is correct rather than a gap. The
+ *     tap's ledger is a full snapshot of the draft board and ESPN marks kept
+ *     selections within it, so during a live draft keepers arrive as picks and
+ *     are already in `drafted`. This query returns an empty map before an
+ *     archive exists, which is the honest answer: no archive, nothing to add.
+ *
+ * The engine takes the result as a SET on its state rather than looking it up
+ * itself — it is told who is unavailable, it does not go asking (FR-010).
+ */
+export async function getArchiveKeepers(
+  db: D1Database,
+  accountId: string,
+  connectionId: string,
+  season: number,
+): Promise<Map<number, number>> {
+  const rows = await db
+    .prepare(
+      `SELECT k.player_id, k.team_id
+         FROM draft_keepers k
+         JOIN draft_archives a ON a.id = k.archive_id
+        WHERE a.account_id = ? AND a.connection_id = ? AND a.season = ?`,
+    )
+    .bind(accountId, connectionId, season)
+    .all<{ player_id: number; team_id: number }>();
+  // Scoped to the account in the query, like every other read in this file —
+  // one owner's draft must never be able to shape another's recommendations.
+  return new Map((rows.results ?? []).map((r) => [r.player_id, r.team_id]));
+}

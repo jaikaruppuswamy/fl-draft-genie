@@ -14,8 +14,8 @@ Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
 ```
 001 league-onboarding ✅
  ├─→ 002 projections-pipeline ✅ ─→ 003 board-refinements ✅
- ├─→ 004 context-signals ──────────┬─→ 006 recommendation-engine ─┐
- └─→ 010 draft-tap 🔜 ─→ 005 draft-monitor ⛔ ─┘                  ├─→ 007 draft-room-ui
+ ├─→ 004 context-signals ✅ ────────┬─→ 006 recommendation-engine 🔜 ┐
+ └─→ 010 draft-tap ✅ ─→ 005 draft-monitor ✅ ─┘                  ├─→ 007 draft-room-ui
                                    └──────────────────────────────┴─→ 008 draft-replay-lab
 009 deployment-ops (exercised continuously since 001; hardening at the end)
 ```
@@ -149,27 +149,85 @@ pick one).
 **Open questions**: transport details for the ratified WebSocket push (Durable
 Object per draft room per 001's plan notes) — settled in `/speckit-plan`.
 
-## 006 — recommendation-engine
+## 006 — recommendation-engine 🔜 IN PROGRESS (spec 2026-08-05)
 
 **Summary**: The secret sauce. A pure, deterministic, offline-testable module:
 input = league context (scoring, roster needs), draft state (available players,
 my roster, current round/pick), player board (002) and signals (004), plus the
-user's preferred list; output = a ranked shortlist with an explanation per
-player (Principle VII). Core is value-based drafting (replacement-level value
+user's preferred list; output = a full ranked board whose shortlist head carries
+an explanation per player (Principle VII). Core is value-based drafting
+(replacement-level value
 by position, round-value awareness so we know what a player "should" cost),
 layered with rule adjustments: team offensive potential, SoS, bye-week
 conflicts, O-line ranking, positional scarcity/run detection, and a bounded
 boost for preferred players ("can go a bit higher than projected value").
 Rules are code, not config (Principle IV).
 
-**Open questions**: replacement-level baseline definition per league shape; how
-rule adjustments combine (additive points vs. multipliers vs. tie-breakers);
-size of the preferred-player boost bound; how roster-slot needs constrain
-recommendations in late rounds (K/DST timing); whether the engine also produces
-a full "best available" board or only a shortlist. The detailed rule tuning is
-deliberately its own future spec session(s).
+**Ratified in clarify (2026-08-05)** — five decisions, now binding on the spec:
+
+- **Output is the full ranked board**, not a shortlist alone: every available
+  player is ordered, with a designated shortlist head carrying the full
+  explanations and value/rank for the rest. 007 and 008 build against the whole
+  ordering. (Resolves "full board or only a shortlist".)
+- **006 owns the preferred-player list** — storage, a read/write API, and a plain
+  standalone page to enter it before draft day. The draft room stays 007's. No
+  other feature provided one, and without it the preference rule could never fire
+  on a real draft.
+- **The engine looks forward, not only back.** It estimates whether each player
+  survives to the owner's next turn, from ADP and the count of intervening picks.
+  No model of what specific opponents will do — derived from data already on
+  hand, so determinism holds.
+- **Mandatory slots (K/DST) are enforced only when forced.** While remaining
+  picks exceed unfilled mandatory slots, rank by value and warn; once they are
+  equal, every pick is forced and the shortlist head is mandated positions only.
+  A mandated position is never weighted up before that point.
+- **Adjustments combine additively in the league's own value currency**, each
+  carrying its own signed magnitude, and they must reconcile to the difference
+  between raw and final value. The preferred boost is one of them, capped
+  relative to the league's value spread rather than as a flat point count, and
+  distinctly marked with the exact value it contributed so the display can badge
+  the player and show what the preference was worth. (Resolves "how rule
+  adjustments combine" and the *unit* of the preferred bound.)
+
+**Numbers ratified in `/speckit-plan` and shipped (2026-08-05)** — all in
+`src/engine/constants.ts`, which exists so this tuning session has ONE file to
+open. Every one is expressed as a fraction of `ROUND_VALUE` (the value given up
+by waiting a round, measured on the current board), so they mean the same thing
+in a 10-team standard league and a 14-team PPR one:
+
+| Constant | Value | Note |
+|---|---|---|
+| `WEIGHT.offense` | 0.30 | broadest signal; every offensive position incl. K |
+| `WEIGHT.sos` | 0.20 | real but noisy this far from the season |
+| `WEIGHT.oline` | 0.25 | curated (PFF); RB and QB only |
+| `WEIGHT.bye` | 0.35 | concrete rather than forecast, so the largest |
+| `WEIGHT.scarcity` | 0.30 | observed from the draft itself |
+| `PREFERRED_CAP` | 1.0 | "about one round early", and no further |
+| `ADP_COMBINED_CAP` | 0.75 | ceiling on `slot_value` + `survival` together |
+| `SHORTLIST_SIZE` | 5 | how many get a full explanation |
+| `FLOOR_DENSITY_RATIO` | 10 | ADP-floor detection; provably not load-bearing |
+
+Their plausible maximum sum is about one round, which is the intended ceiling
+for the whole rule layer: rules break ties and move a player a round, they never
+overturn the value ranking. **These are first estimates**, chosen for the right
+order of magnitude and the right RELATIVE ordering. Scoring them against
+outcomes needs 008's replay lab.
+
+**Still open — its own tuning session**: whether the replacement-level baseline
+should be the last starter (as shipped) or a different definition per league
+shape, and every magnitude above once there is evidence to move it with.
 
 ## 007 — draft-room-ui
+
+**Binding obligation inherited from 006 (FR-015, contracts/api.md §1a)**: the
+draft room MUST request `GET /api/leagues/:id/recommendations` on 005's
+**`on_deck`** event, never on `on_the_clock`. 005 emits `on_deck` a full turn
+ahead; requesting on the clock starts the computation when the timer does, which
+is what Constitution V forbids. **SC-005 is measured against this call site**, so
+it is 007 that makes it true or false — 006 only makes it possible. Recorded here
+because during 005 `writeArchive` was built, tested and never called, and
+production showed zero archives after a completed draft.
+
 
 **Ratified design (2026-08-02)**: The visual design is set — Claude Design
 project `3fc40045-01d4-49a7-af1e-58a2fd7f74cd`, screen "Draft Genie Draft
@@ -205,7 +263,7 @@ tuning sessions (Principle IV) validate their changes.
 for "the engine did well" (projected points of resulting roster vs. actuals);
 CLI or UI.
 
-## 010 — draft-tap 🔜 NEXT (blocks 005)
+## 010 — draft-tap ✅ SHIPPED (2026-08-05)
 
 **Summary**: The browser userscript that makes live drafting possible at all.
 Gate 0 (2026-08-03) proved ESPN's read API cannot see a draft in progress; the
