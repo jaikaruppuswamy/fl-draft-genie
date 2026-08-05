@@ -137,7 +137,7 @@ describe("foldBatches", () => {
     expect(o.ledger!.map((p) => p.playerId)).toEqual([100, -16007]);
   });
 
-  it("lets a later ledger supersede an earlier one — it is a snapshot, not a delta", () => {
+  it("lets a fuller ledger supersede a smaller one — it is a snapshot, not a delta", () => {
     const o = foldBatches(null, [
       batch({ id: "b1", receivedAt: "2026-01-01T00:00:01.000Z", messages: [msg({ kind: "ledger", payload: [{ teamId: 1, playerId: 1, slot3: 0 }] })] }),
       batch({ id: "b2", receivedAt: "2026-01-01T00:00:02.000Z", messages: [msg({ kind: "ledger", payload: [{ teamId: 1, playerId: 1, slot3: 0 }, { teamId: 2, playerId: 2, slot3: 0 }] })] }),
@@ -165,5 +165,50 @@ describe("foldBatches", () => {
   it("ignores a malformed pick rather than throwing mid-draft", () => {
     const o = foldBatches(null, [batch({ messages: [msg({ payload: { teamId: "x", playerId: null } })] })]);
     expect(o.picks).toEqual([]);
+  });
+});
+
+describe("ordering and ledger selection (regressions)", () => {
+  it("sorts messages by seq WITHIN a batch, not just across batches", () => {
+    // Deleting the within-batch sort used to keep the entire suite green,
+    // because every fixture batch carried one message. A tap flush that merges
+    // a retained buffer with newly observed frames can carry them out of
+    // order, and then two picks swap overall numbers silently.
+    const o = foldBatches(null, [
+      batch({
+        messages: [
+          msg({ seq: 2, payload: { teamId: 1, playerId: 202, slot3: 0 } }),
+          msg({ seq: 1, payload: { teamId: 1, playerId: 201, slot3: 0 } }),
+        ],
+      }),
+    ]);
+    expect(o.picks.map((p) => p.playerId)).toEqual([201, 202]);
+  });
+
+  it("keeps the FULLEST ledger in a read, not the last-arriving one", () => {
+    // A tap buffering through an outage flushes an OLD snapshot with a NEW
+    // received_at. Ordering by arrival threw away a 40-row ledger for a stale
+    // 5-row one — discarding the recovery data the ledger exists to provide.
+    const ledgerBatch = (id: string, receivedAt: string, rows: number) =>
+      batch({
+        id,
+        receivedAt,
+        messages: [
+          msg({
+            kind: "ledger",
+            payload: Array.from({ length: rows }, (_, i) => ({
+              teamId: 0,
+              playerId: 2000 + i,
+              slot3: 0,
+              overallPickNumber: i + 1,
+            })),
+          }),
+        ],
+      });
+    const o = foldBatches(null, [
+      ledgerBatch("a", "2026-01-01T00:00:01.000Z", 40),
+      ledgerBatch("b", "2026-01-01T00:00:02.000Z", 5),
+    ]);
+    expect(o.ledger).toHaveLength(40);
   });
 });

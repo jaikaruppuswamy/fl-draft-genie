@@ -303,3 +303,80 @@ describe("a ledger that is STALER than the stream (regression)", () => {
     expect(r.state.revision).toBe(0);
   });
 });
+
+describe("gaps a broken implementation used to slip through", () => {
+  const advance = (s: DraftState, n: number, from = 3000) => {
+    let cur = s;
+    const all: ReturnType<typeof reconcile>["events"] = [];
+    for (let i = cur.picks.length; i < n; i++) {
+      const r = reconcile(cur, obs({ picks: [pick(0, from + i)] }));
+      cur = r.state;
+      all.push(...r.events);
+    }
+    return { state: cur, events: all };
+  };
+
+  it("RE-FIRES the affected turn events under the new revision after a correction", () => {
+    // Suppressing turn events after a correction entirely used to keep the
+    // whole suite green. In production that means: a ledger corrects a pick
+    // below the owner's upcoming turn, the revision bumps, and no
+    // on_the_clock ever fires for that turn — the owner sits at the board with
+    // no alert, which is the one thing this feature exists to prevent.
+    const { state } = advance(base(), 8); // owner (team 1) picks overall 3 and 10
+    expect(state.picks).toHaveLength(8);
+
+    const ledger = Array.from({ length: 8 }, (_, i) =>
+      pick(0, i === 7 ? 9999 : 3000 + i, { overallPickNumber: i + 1 }),
+    );
+    const corrected = reconcile(state, obs({ ledger }));
+
+    expect(corrected.state.revision).toBe(1);
+    const deck = corrected.events.filter((e) => e.kind === "on_deck" && e.overall === 10);
+    const clock = corrected.events.filter((e) => e.kind === "on_the_clock" && e.overall === 10);
+    expect(deck, "on_deck must re-fire under the new revision").toHaveLength(1);
+    expect(clock, "on_the_clock must re-fire under the new revision").toHaveLength(1);
+    expect(deck[0]!.revision).toBe(1);
+    expect(clock[0]!.revision).toBe(1);
+    // Still in order, still exactly once each at that revision.
+    expect(corrected.events.indexOf(deck[0]!)).toBeLessThan(corrected.events.indexOf(clock[0]!));
+  });
+
+  it("does NOT re-fire a turn the draft has already passed", () => {
+    // The other half: re-announcing a turn that already happened would be
+    // just as wrong as missing one.
+    const { state } = advance(base(), 8);
+    const ledger = Array.from({ length: 8 }, (_, i) =>
+      pick(0, i === 7 ? 9999 : 3000 + i, { overallPickNumber: i + 1 }),
+    );
+    const corrected = reconcile(state, obs({ ledger }));
+    expect(corrected.events.filter((e) => e.kind === "on_the_clock" && e.overall === 3)).toHaveLength(0);
+  });
+
+  it("does not duplicate picks when a ledger carries NO ordinals", () => {
+    // feed.ts sets overallPickNumber: undefined for any non-integer, so one
+    // shape change upstream reaches this path. It used to append every row
+    // again: two streamed picks plus a restating ledger produced four.
+    let s = base();
+    s = reconcile(s, obs({ picks: [pick(0, 100), pick(0, 101)] })).state;
+    const r = reconcile(s, obs({ ledger: [pick(0, 100), pick(0, 101)] }));
+    expect(r.state.picks).toHaveLength(2);
+    expect(r.state.picks.map((p) => p.playerId)).toEqual([100, 101]);
+  });
+
+  it("places a pick recovered LATE at its observed position, not at the end", () => {
+    // A second tab supplying a frame the first tab dropped. Appending by
+    // arrival made a first-round player the last pick of the draft.
+    const at = (n: number) => `2026-01-01T00:00:0${n}.000Z`;
+    let s = base();
+    for (const [pid, n] of [
+      [1001, 1],
+      [1002, 2],
+      [1004, 4],
+      [1005, 5],
+    ] as [number, number][]) {
+      s = reconcile(s, obs({ picks: [pick(0, pid, { observedAt: at(n) })] })).state;
+    }
+    const r = reconcile(s, obs({ picks: [pick(0, 1003, { observedAt: at(3) })] }));
+    expect(r.state.picks.map((p) => p.playerId)).toEqual([1001, 1002, 1003, 1004, 1005]);
+  });
+});

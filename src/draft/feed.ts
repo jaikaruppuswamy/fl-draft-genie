@@ -144,6 +144,14 @@ function toPick(p: PickPayload, m: RelayMessage): PickObservation | null {
  * dropped — in the observed draft, 3 of 72 picks existed ONLY in a ledger.
  * Both sources are kept; the reducer unions them on pick identity.
  */
+/** How much of the draft a ledger snapshot accounts for. */
+function coverage(rows: PickObservation[]): number {
+  let max = 0;
+  for (const r of rows) max = Math.max(max, r.overallPickNumber ?? 0);
+  // Ordinal-less rows cannot be measured by position, so fall back to volume.
+  return Math.max(max, rows.length);
+}
+
 export function foldBatches(previous: FeedCursor | null, batches: readonly FeedBatch[]): Observation {
   const ordered = [...batches].sort(compareBatches);
   const picks: PickObservation[] = [];
@@ -158,9 +166,14 @@ export function foldBatches(previous: FeedCursor | null, batches: readonly FeedB
       } else if (m.kind === "ledger") {
         const rows = Array.isArray(m.payload) ? (m.payload as PickPayload[]) : [];
         const decoded = rows.map((r) => toPick(r, m)).filter((p): p is PickObservation => p !== null);
-        // A later ledger supersedes an earlier one within the same read: it is
-        // a full snapshot, not a delta.
-        ledger = decoded;
+        // Keep the ledger with the greatest COVERAGE, not the latest arrival.
+        //
+        // Arrival order is not recency here: a tap that buffered through an
+        // outage (FR-008) flushes an OLD snapshot with a NEW `received_at`.
+        // Ordering by arrival then threw away a 40-row ledger in favour of a
+        // stale 5-row one from a reconnecting second tab — discarding exactly
+        // the recovery data the ledger exists to provide.
+        if (ledger === null || coverage(decoded) > coverage(ledger)) ledger = decoded;
       } else if (m.kind === "status") {
         const s = (m.payload ?? {}) as { state?: unknown };
         if (typeof s.state === "string") statuses.push({ state: s.state, observedAt: m.observedAt });

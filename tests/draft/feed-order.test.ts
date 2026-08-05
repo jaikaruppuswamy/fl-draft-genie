@@ -13,7 +13,7 @@
 
 import { env, runInDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DraftSession, sessionIdFor, type SessionScope } from "../../src/draft/session";
+import { DraftSession, SAFETY_ALARM_MS, sessionIdFor, type SessionScope } from "../../src/draft/session";
 import type { Env } from "../../src/env";
 
 const ACCOUNT = "acct-order";
@@ -172,5 +172,77 @@ describe("the session pulls from the log", () => {
     await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
     const snap = await runInDurableObject(stub(), (i: DraftSession) => i.snapshot());
     expect(snap!.picks).toHaveLength(0);
+  });
+});
+
+describe("re-arming and the safety bound", () => {
+  it("re-arming does NOT erase the picks already recorded", async () => {
+    // Arming is the STEADY STATE, not a one-off: a heartbeat arrives every
+    // 15 s and re-pushes the scope. Every existing test armed exactly once
+    // against freshly wiped storage, so the re-arm branch never ran — and a
+    // regression that dropped the `if (!s.scope)` guard would have wiped the
+    // whole draft on the next heartbeat, mid-draft, with no test failing.
+    await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
+    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
+
+    await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
+    const snap = await runInDurableObject(stub(), (i: DraftSession) => i.snapshot());
+    expect(snap!.picks).toHaveLength(1);
+  });
+
+  it("survives a re-arm carrying EMPTY pre-draft data", async () => {
+    // ESPN publishes the order about an hour before the draft, so an early
+    // heartbeat legitimately arms with `order: []` and `totalPicks: 0`. That
+    // must not erase what has been observed, nor blank the known order.
+    await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
+    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
+
+    await runInDurableObject(stub(), (i: DraftSession) =>
+      i.arm({ ...scope, order: [], totalPicks: 0, myTeamId: null }),
+    );
+    const snap = await runInDurableObject(stub(), (i: DraftSession) => i.snapshot());
+    expect(snap!.picks).toHaveLength(1);
+    expect(snap!.totalPicks).toBe(72); // the known total is not blanked
+    expect(snap!.orderTrust).not.toBe("unknown"); // nor the known order
+  });
+
+  it("REVIVES a session whose completion was based on a wrong total", async () => {
+    // `closed` used to latch on completion with no clearing path, so one bad
+    // totalPicks silenced the session for the rest of a live draft — and arm(),
+    // whose job is correcting exactly that data, could not undo it.
+    await runInDurableObject(stub(), (i: DraftSession) => i.arm({ ...scope, totalPicks: 1 }));
+    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
+    expect((await runInDurableObject(stub(), (i: DraftSession) => i.snapshot()))!.complete).toBe(true);
+
+    // Corrected pre-draft data arrives: the draft is really 72 picks.
+    await runInDurableObject(stub(), (i: DraftSession) => i.arm({ ...scope, totalPicks: 72 }));
+    const revived = await runInDurableObject(stub(), (i: DraftSession) => i.snapshot());
+    expect(revived!.complete).toBe(false);
+
+    // ...and it accepts picks again.
+    await writeBatch("b2", "2026-08-30T23:00:02.000Z", [pickMessage(2, 2, 101)]);
+    await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
+    expect((await runInDurableObject(stub(), (i: DraftSession) => i.snapshot()))!.picks).toHaveLength(2);
+  });
+
+  it("schedules the alarm WITHIN the safety bound, not merely at some point", async () => {
+    // SC-001's "100% within 10 s" rests entirely on this delay. Asserting only
+    // that an alarm exists let SAFETY_ALARM_MS be raised to five minutes with
+    // the whole suite still green — the documented ceiling would be gone and
+    // nothing would say so.
+    await runInDurableObject(stub(), (i: DraftSession) => i.arm(scope));
+    const alarm = await runInDurableObject(stub(), (_i: DraftSession, s: DurableObjectState) => s.storage.getAlarm());
+    expect(alarm).not.toBeNull();
+    expect(alarm! - Date.now()).toBeLessThanOrEqual(SAFETY_ALARM_MS);
+    expect(SAFETY_ALARM_MS).toBeLessThanOrEqual(10_000); // SC-001's ceiling
+
+    // And the reschedule after real work is bounded too.
+    await writeBatch("b1", "2026-08-30T23:00:01.000Z", [pickMessage(1, 5, 100)]);
+    await runInDurableObject(stub(), (i: DraftSession) => i.nudge());
+    const again = await runInDurableObject(stub(), (_i: DraftSession, s: DurableObjectState) => s.storage.getAlarm());
+    expect(again! - Date.now()).toBeLessThanOrEqual(SAFETY_ALARM_MS);
   });
 });

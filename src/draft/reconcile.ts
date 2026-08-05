@@ -178,7 +178,21 @@ function applyLedger(s: DraftState, ledger: PickObservation[]): { confirmed: Pic
 
   // Drop by IDENTITY, not position: a player the ledger has now placed must not
   // survive at whatever slot derivation had guessed for it.
-  const pending = [...s.pending, ...ordinalLess.map((o) => toPick(o, 0))].filter((p) => !claimed.has(p.playerId));
+  const pending = s.pending.filter((p) => !claimed.has(p.playerId));
+
+  // Ordinal-less rows are stream arrivals, not placements — and they must be
+  // deduped against what we ALREADY hold, or a ledger restating known picks
+  // records every one of them a second time. Verified: two streamed picks plus
+  // an ordinal-less ledger restating the same two yielded four picks, a
+  // frontier two ahead of reality, and no correction flagged. Reachable
+  // because `feed.ts` sets `overallPickNumber: undefined` for any non-integer,
+  // so one shape change upstream is enough.
+  const known = new Set([...claimed, ...pending.map((p) => p.playerId)]);
+  for (const o of ordinalLess) {
+    if (known.has(o.playerId)) continue;
+    known.add(o.playerId);
+    pending.push(toPick(o, 0));
+  }
   return { confirmed, pending };
 }
 
@@ -206,7 +220,19 @@ function materialise(confirmed: Pick[], pending: Pick[]): Pick[] {
   const out = [...confirmed];
   const taken = new Set(confirmed.map((p) => p.overall));
   let next = 1;
-  for (const p of pending) {
+  // Number by WHEN THE PICK WAS OBSERVED, not when its batch happened to
+  // arrive. A pick recovered late from a second tab — the first tab dropped
+  // its frame — would otherwise be appended at the end of the draft: a
+  // first-round player recorded as the last pick, with every intervening
+  // ordinal shifted one early.
+  //
+  // Stamps compare only WITHIN an epoch (the tap re-anchors its clock across
+  // sleep), so epoch orders first and the sort is stable, leaving same-instant
+  // arrivals in the order they were seen.
+  const ordered = [...pending].sort((a, b) =>
+    a.epoch !== b.epoch ? a.epoch - b.epoch : a.observedAt < b.observedAt ? -1 : a.observedAt > b.observedAt ? 1 : 0,
+  );
+  for (const p of ordered) {
     while (taken.has(next)) next++;
     taken.add(next);
     out.push({ ...p, overall: next });
