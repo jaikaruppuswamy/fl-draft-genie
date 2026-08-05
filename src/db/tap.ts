@@ -53,7 +53,7 @@ export async function issuePairing(
 
 export type VerifyResult =
   | { ok: true; accountId: string; pairingId: string }
-  | { ok: false; reason: "unknown" | "revoked" | "expired" | "wrong_install" };
+  | { ok: false; reason: "unknown" | "revoked" | "expired" | "wrong_install" | "missing_install" };
 
 export async function verifyPairing(
   db: D1Database,
@@ -69,7 +69,18 @@ export async function verifyPairing(
   if (row.revoked_at) return { ok: false, reason: "revoked" };
   if (row.expires_at <= now.toISOString()) return { ok: false, reason: "expired" };
   // Bound on first use, so one token is not silently shared across machines.
-  if (row.install_id && installId && row.install_id !== installId) {
+  //
+  // The install id is REQUIRED, not merely compared when present. The previous
+  // form was `row.install_id && installId && row.install_id !== installId`,
+  // which short-circuits to "ok" the moment `installId` is null — so a caller
+  // that simply OMITTED the `X-Tap-Install` header skipped the binding check
+  // entirely and a captured token worked from any machine. The control that
+  // bounds a stolen token's blast radius was disabled by leaving out a header.
+  //
+  // An absent id also means an unbound token can never become bound, so the
+  // gap does not close by itself with use.
+  if (!installId) return { ok: false, reason: "missing_install" };
+  if (row.install_id && row.install_id !== installId) {
     return { ok: false, reason: "wrong_install" };
   }
   return { ok: true, accountId: row.account_id, pairingId: row.id };

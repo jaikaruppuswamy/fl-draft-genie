@@ -36,6 +36,39 @@ declare function GM_xmlhttpRequest(opts: {
 
 const W: Window & typeof globalThis = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
+// --- page-reachable functions --------------------------------------------
+//
+// T033: "No function the page can reach may close over the pairing token."
+// The pairing prompt violated that literally. Under `@sandbox raw` +
+// `@inject-into page` there is no second realm — `W` IS ESPN's window, so
+// `W.prompt` is `window.prompt` inside ESPN's own JS, and any script on the
+// page (or an XSS on it) could replace it and read the Draft Genie bearer
+// token as the owner typed it in. That token authenticates writes to their
+// account.
+//
+// `@run-at document-start` is what makes the fix possible: we execute before
+// any page script, so the natives are still pristine when we take them. We
+// keep those references and never re-read the globals afterwards.
+//
+// `Function.prototype.toString` is captured FIRST and used to verify each
+// reference really is native, because a replacement could otherwise fake its
+// own `toString`. If anything has already been patched by the time we run, we
+// refuse to handle the token at all rather than hand it over — an unusable
+// pairing command is recoverable, a stolen token is not.
+const NATIVE_TO_STRING = Function.prototype.toString;
+
+function captureNative<T>(fn: T): T | null {
+  try {
+    if (typeof fn !== "function") return null;
+    return NATIVE_TO_STRING.call(fn).includes("[native code]") ? fn : null;
+  } catch {
+    return null;
+  }
+}
+
+const PAGE_PROMPT = captureNative(W.prompt);
+const PAGE_ALERT = captureNative(W.alert);
+
 const gmStorage: StoragePort = {
   get: (k) => GM_getValue(k, "") || null,
   set: (k, v) => GM_setValue(k, v),
@@ -343,15 +376,28 @@ function start(): void {
   render(token() ? "watching" : "not-paired");
 
   GM_registerMenuCommand("Draft Genie: status", () => {
-    W.alert(
+    const text =
       `${status.state}\n\n${EXPLANATIONS[status.state]}\n\n` +
-        `buffered: ${status.buffered}\nunrecognised: ${status.unrecognisedCount}\n` +
-        `picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}\nversion: ${TAP_VERSION}`,
-    );
+      `buffered: ${status.buffered}\nunrecognised: ${status.unrecognisedCount}\n` +
+      `picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}\nversion: ${TAP_VERSION}`;
+    // Carries no secret, but the same reasoning applies: use the reference we
+    // took at document-start, not whatever the page has since installed.
+    if (PAGE_ALERT) PAGE_ALERT.call(W, text);
+    else render(status.state, "cannot display status — the page replaced alert()");
   });
   GM_registerMenuCommand("Draft Genie: paste pairing token", () => {
-    const t = W.prompt("Paste the pairing token from Draft Genie settings:");
-    if (t) { GM_setValue("dg:token", t.trim()); render("watching"); flush(); }
+    if (!PAGE_PROMPT) {
+      // Refuse. Handing the token to whatever replaced prompt() is exactly the
+      // failure this guard exists to prevent, and a token is not revocable by
+      // the person who typed it.
+      render(
+        status.state,
+        "cannot accept a token on this page — prompt() was replaced. Pair from Draft Genie instead.",
+      );
+      return;
+    }
+    const t = PAGE_PROMPT.call(W, "Paste the pairing token from Draft Genie settings:");
+    if (t) { GM_setValue("dg:token", String(t).trim()); render("watching"); flush(); }
   });
 }
 

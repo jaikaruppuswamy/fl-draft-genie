@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Draft Genie draft tap
 // @namespace    https://draft.neelamjai.com/
-// @version      0.1.3
+// @version      0.1.4
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
@@ -23,7 +23,7 @@
 "use strict";
 (() => {
   // tap/meta.ts
-  var TAP_VERSION = "0.1.3";
+  var TAP_VERSION = "0.1.4";
   var CONTRACT_VERSION = 1;
   var INGEST_ORIGIN = "https://draft.neelamjai.com";
   var DRAFT_HOST = "fantasydraft.espn.com";
@@ -492,6 +492,17 @@
 
   // tap/main.ts
   var W = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+  var NATIVE_TO_STRING = Function.prototype.toString;
+  function captureNative(fn) {
+    try {
+      if (typeof fn !== "function") return null;
+      return NATIVE_TO_STRING.call(fn).includes("[native code]") ? fn : null;
+    } catch {
+      return null;
+    }
+  }
+  var PAGE_PROMPT = captureNative(W.prompt);
+  var PAGE_ALERT = captureNative(W.alert);
   var gmStorage = {
     get: (k) => GM_getValue(k, "") || null,
     set: (k, v) => GM_setValue(k, v),
@@ -745,21 +756,28 @@
     });
     render(token() ? "watching" : "not-paired");
     GM_registerMenuCommand("Draft Genie: status", () => {
-      W.alert(
-        `${status.state}
+      const text = `${status.state}
 
 ${EXPLANATIONS[status.state]}
 
 buffered: ${status.buffered}
 unrecognised: ${status.unrecognisedCount}
 picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}
-version: ${TAP_VERSION}`
-      );
+version: ${TAP_VERSION}`;
+      if (PAGE_ALERT) PAGE_ALERT.call(W, text);
+      else render(status.state, "cannot display status \u2014 the page replaced alert()");
     });
     GM_registerMenuCommand("Draft Genie: paste pairing token", () => {
-      const t = W.prompt("Paste the pairing token from Draft Genie settings:");
+      if (!PAGE_PROMPT) {
+        render(
+          status.state,
+          "cannot accept a token on this page \u2014 prompt() was replaced. Pair from Draft Genie instead."
+        );
+        return;
+      }
+      const t = PAGE_PROMPT.call(W, "Paste the pairing token from Draft Genie settings:");
       if (t) {
-        GM_setValue("dg:token", t.trim());
+        GM_setValue("dg:token", String(t).trim());
         render("watching");
         flush();
       }

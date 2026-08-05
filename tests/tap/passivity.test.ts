@@ -50,3 +50,33 @@ describe("shipped userscript is passive (FR-001 / SC-003)", () => {
     expect(bundle).toContain(`"${banner}"`);
   });
 });
+
+// 010 — T033's credential rule, asserted against the shipped artifact.
+//
+// "No function the page can reach may close over the pairing token." The
+// pairing command broke that literally: under `@sandbox raw` + `@inject-into
+// page` there is no second realm, so `W.prompt` IS `window.prompt` inside
+// ESPN's JS, and any script on the page could replace it and read the bearer
+// token as the owner typed it.
+describe("the pairing token never passes through a page-replaceable function", () => {
+  it("never reads prompt or alert off the global at a call site", () => {
+    // Every use must go through the reference captured at document-start.
+    expect(bundle).not.toMatch(/\b(?:W|window|unsafeWindow|globalThis)\s*\.\s*(?:prompt|alert)\s*\(/);
+  });
+
+  it("captures those natives up front and verifies they are native", () => {
+    expect(bundle).toMatch(/captureNative|\[native code\]/);
+    expect(bundle).toMatch(/Function\.prototype\.toString/);
+  });
+
+  it("refuses rather than falling back when prompt has been replaced", () => {
+    // The failure mode must be "no pairing", never "pair through whatever the
+    // page installed" — a token is not revocable by the person who typed it.
+    expect(bundle).toMatch(/prompt\(\) was replaced|cannot accept a token/);
+  });
+
+  it("keeps the token out of the DOM and out of page-visible storage", () => {
+    expect(bundle).not.toMatch(/localStorage|sessionStorage/);
+    expect(bundle).not.toMatch(/dg:token["']?\s*\)?\s*[,)]?\s*;?\s*(?:W|window)\./);
+  });
+});

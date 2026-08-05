@@ -134,7 +134,11 @@ export function tapRoutes() {
       );
     }
 
-    await touchPairing(c.env.DB, verified.pairingId, body.install, at);
+    // Bind against the SAME source that verification reads — the header. This
+    // used to bind `body.install`, so a token could be bound by one field and
+    // checked against another; they coincide only because the shipped tap
+    // happens to send the same value in both, and /status has no body at all.
+    await touchPairing(c.env.DB, verified.pairingId, installHeader, at);
 
     // FR-010 / FR-012: ordering is (install, session, seq); duplicates are
     // expected and are not

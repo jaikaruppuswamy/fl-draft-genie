@@ -48,12 +48,22 @@ const batch = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+const INSTALL = "11111111-1111-1111-1111-111111111111";
+
 const post = (body: unknown, headers: Record<string, string> = {}) =>
   app.request(
     "/api/tap/batch",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", Origin: ORIGIN, Authorization: `Bearer ${token}`, ...headers },
+      headers: {
+        "Content-Type": "application/json",
+        Origin: ORIGIN,
+        Authorization: `Bearer ${token}`,
+        // The real tap sends this on every request. It is REQUIRED: omitting it
+        // used to skip the install binding entirely (see the bypass test below).
+        "X-Tap-Install": INSTALL,
+        ...headers,
+      },
       body: JSON.stringify(body),
     },
     env,
