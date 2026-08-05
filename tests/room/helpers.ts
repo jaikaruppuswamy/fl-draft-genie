@@ -32,6 +32,7 @@ export function board(revision: number, over: Record<string, unknown> = {}) {
     revision,
     withheld: null,
     forced: false,
+    needs: [],
     round_value: 10,
     warnings: [],
     shortlist: [],

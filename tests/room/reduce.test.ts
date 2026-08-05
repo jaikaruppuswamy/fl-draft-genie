@@ -208,3 +208,36 @@ describe("purity, as a property of the signature", () => {
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
 });
+
+describe("the owner's identity comes from the league, not the stream", () => {
+  // 005's snapshot never carries `myTeamId`. Without an explicit input it stays
+  // null and THREE things fail silently: the owner's column is not highlighted,
+  // `rosterView()` filters their picks to nothing, and the bye grid is empty.
+  // Nothing errors — the screen just omits the owner from their own draft.
+  //
+  // Found by looking at the rendered page, not by any test.
+
+  it("is null until told", () => {
+    expect(initialState().myTeamId).toBeNull();
+  });
+
+  it("is adopted from the identity input", () => {
+    const { state } = reduce(initialState(), { kind: "identity", myTeamId: 7 }, AT);
+    expect(state.myTeamId).toBe(7);
+  });
+
+  it("emits no effect — it is not a reason to refetch", () => {
+    expect(reduce(initialState(), { kind: "identity", myTeamId: 7 }, AT).effects).toEqual([]);
+  });
+
+  it("survives a snapshot, which does not carry it", () => {
+    let state = reduce(initialState(), { kind: "identity", myTeamId: 7 }, AT).state;
+    state = reduce(state, { kind: "frame", frame: snapshotFrame({ seq: 3 }) }, AT).state;
+    expect(state.myTeamId).toBe(7);
+  });
+
+  it("accepts null for a league with no identified team", () => {
+    const start = reduce(initialState(), { kind: "identity", myTeamId: 7 }, AT).state;
+    expect(reduce(start, { kind: "identity", myTeamId: null }, AT).state.myTeamId).toBeNull();
+  });
+});

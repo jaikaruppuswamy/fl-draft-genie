@@ -170,12 +170,27 @@ export interface Warning {
   detail: string;
 }
 
+/**
+ * One position's requirement, for a display that draws progress rather than
+ * prose. 007's ratified design shows filled/total bars per position, and
+ * recomputing that in the browser would be a second implementation of a rule
+ * this engine already owns (FR-008/FR-025).
+ */
+export interface RosterNeedView {
+  position: string;
+  required: number;
+  owned: number;
+  unfilled: number;
+}
+
 export interface RankedBoard {
   revision: number;
   /** When set, `entries` and `shortlist` are both empty (FR-012). */
   withheld: { reason: string; detail: string } | null;
   /** True once every remaining pick is mandated (FR-025). */
   forced: boolean;
+  /** Per-position requirement, so a display need not re-derive it. */
+  needs: RosterNeedView[];
   roundValue: number;
   warnings: Warning[];
   /** The head, with full explanations. */

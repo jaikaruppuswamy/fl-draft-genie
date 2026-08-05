@@ -42,6 +42,7 @@ export interface RankedBoardLike {
   revision: number;
   withheld: { reason: string; detail: string } | null;
   forced: boolean;
+  needs: { position: string; required: number; owned: number; unfilled: number }[];
   round_value: number;
   warnings: { kind: string; detail: string }[];
   shortlist: unknown[];
@@ -106,6 +107,16 @@ export type RoomInput =
    * pick to have pre-warmed it.
    */
   | { kind: "opened" }
+  /**
+   * Which team is the owner's. Comes from the league connection, NOT from the
+   * draft stream — 005's snapshot never carries it.
+   *
+   * Without this `myTeamId` stays null and three things fail QUIETLY: the
+   * owner's column is never highlighted, `rosterView()` filters their picks to
+   * nothing, and the bye grid is empty. Nothing errors; the screen just omits
+   * the owner from their own draft.
+   */
+  | { kind: "identity"; myTeamId: number | null }
   | { kind: "frame"; frame: DraftFrame }
   | { kind: "recommendation"; board: RankedBoardLike | null; forRevision: number }
   | { kind: "reachability"; state: Reachability }
@@ -219,6 +230,9 @@ export function reduce(
   at: number,
 ): { state: RoomState; effects: Effect[] } {
   switch (input.kind) {
+    case "identity":
+      return { state: { ...state, myTeamId: input.myTeamId }, effects: [] };
+
     case "opened":
       return requestRefresh(state);
 

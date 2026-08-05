@@ -135,6 +135,7 @@ export function recommendationRoutes() {
       revision: board.revision,
       withheld: board.withheld,
       forced: board.forced,
+      needs: board.needs,
       round_value: board.roundValue,
       freshness: {
         fetched_at: assembled.bundle.freshness.fetchedAt,

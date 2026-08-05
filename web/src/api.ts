@@ -102,11 +102,20 @@ export interface RecRecommendation extends RecEntry {
   explanation: RecExplanation;
 }
 
+/** Per-position requirement, so the rail's bars need no client-side rule. */
+export interface RecNeed {
+  position: string;
+  required: number;
+  owned: number;
+  unfilled: number;
+}
+
 export interface RankedBoardResponse {
   revision: number;
   /** Non-null means the engine declined to guess, and says why. Still a 200. */
   withheld: { reason: string; detail: string } | null;
   forced: boolean;
+  needs: RecNeed[];
   round_value: number;
   freshness: { fetched_at: string; stale: boolean };
   warnings: { kind: string; detail: string }[];
