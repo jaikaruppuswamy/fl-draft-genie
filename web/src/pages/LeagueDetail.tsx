@@ -54,6 +54,9 @@ export default function LeagueDetail() {
           <Link to={`/leagues/${id}/preferred`}>
             <button className="secondary">Preferred players</button>
           </Link>
+          <Link to={`/leagues/${id}/room`}>
+            <button>Draft room</button>
+          </Link>
           <button className="secondary" onClick={syncNow} disabled={syncing}>
             {syncing ? "Syncing…" : "Sync now"}
           </button>

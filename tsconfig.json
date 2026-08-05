@@ -15,5 +15,10 @@
   "include": ["src/**/*.ts", "tests/**/*.ts"],
   // tap/** and tests/tap/** target the browser + node, not the Worker runtime;
   // they are typechecked by tsconfig.tap.json with a different `types` set.
-  "exclude": ["web", "node_modules", "tests/tap"]
+  //
+  // tests/room/** is the same situation for 007: it imports web/src/lib, so
+  // pulling it in here would typecheck browser code against workers-types and
+  // fail on things like `RequestInit.credentials`. It is covered by
+  // web/tsconfig.json instead.
+  "exclude": ["web", "node_modules", "tests/tap", "tests/room"]
 }

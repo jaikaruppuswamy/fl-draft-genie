@@ -7,15 +7,18 @@ export default defineWorkersConfig(async () => {
     test: {
       setupFiles: ["./tests/apply-migrations.ts"],
       include: ["tests/**/*.test.ts"],
-      // tests/tap/** belongs to the node project — see vitest.config.ts. Without
-      // this exclude the workers pool also collects them and they fail there.
+      // tests/tap/** and tests/room/** belong to the node project — see
+      // vitest.config.ts. Without this exclude the workers pool also collects
+      // them and they fail there. 007's room tests are pure by construction
+      // (the reducer takes `at` as a parameter and touches no platform), which
+      // is exactly why they can live in the plain node project.
       //
       // tests/draft/** belongs to vitest.draft.config.ts, which runs with
       // isolatedStorage: false because WebSockets in Durable Objects are
       // unsupported with per-file storage isolation. This include glob is
       // `tests/**/*.test.ts`, so without the exclude every DO test ALSO runs
       // here, under the isolation that cannot support it.
-      exclude: ["tests/tap/**", "tests/draft/**"],
+      exclude: ["tests/tap/**", "tests/draft/**", "tests/room/**"],
       poolOptions: {
         workers: {
           singleWorker: true,

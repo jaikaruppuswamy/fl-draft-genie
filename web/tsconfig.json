@@ -10,5 +10,7 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src"]
+  // tests/room/** exercises web/src/lib and belongs to this type graph, not
+  // the Worker one — see the note in ../tsconfig.json.
+  "include": ["src", "../tests/room"]
 }

@@ -59,6 +59,61 @@ export interface LeagueDetail extends LeagueSummary {
   warning?: string;
 }
 
+// --- 007: 006's ranked board, mirrored verbatim -----------------------------
+//
+// These shapes are 006's response, not a reinterpretation. The draft room
+// renders what the engine emitted and recomputes nothing — Constitution III
+// lives in the engine, and a second opinion here would be a second engine.
+
+export interface RecAdjustment {
+  rule: string;
+  /** SIGNED, in the league's own value currency. */
+  magnitude: number;
+  direction: "up" | "down";
+  /** The named cause — "top-5 offense", never a bare score. */
+  reason: string;
+}
+
+export interface RecExplanation {
+  rawValue: number;
+  finalValue: number;
+  roundValue: number;
+  /** EMPTY means no rule fired — said plainly, never omitted. */
+  adjustments: RecAdjustment[];
+  missing: { input: string; detail: string }[];
+  alternatives: { playerId: number; name: string; finalValue: number }[];
+  /** Set when FR-025 forced the pick rather than the engine choosing it. */
+  forcedBy: string | null;
+}
+
+export interface RecEntry {
+  playerId: number;
+  name: string;
+  position: string;
+  team: string;
+  rank: number;
+  rawValue: number;
+  finalValue: number;
+  /** Present on EVERY entry, so a display can badge below the head. */
+  preferred: boolean;
+}
+
+export interface RecRecommendation extends RecEntry {
+  explanation: RecExplanation;
+}
+
+export interface RankedBoardResponse {
+  revision: number;
+  /** Non-null means the engine declined to guess, and says why. Still a 200. */
+  withheld: { reason: string; detail: string } | null;
+  forced: boolean;
+  round_value: number;
+  freshness: { fetched_at: string; stale: boolean };
+  warnings: { kind: string; detail: string }[];
+  shortlist: RecRecommendation[];
+  entries: RecEntry[];
+}
+
 // --- 006: the preferred-player list -----------------------------------------
 
 export interface PreferredPlayer {
@@ -203,6 +258,13 @@ export const apiClient = {
   syncLeague: (id: string) => request<LeagueDetail>("POST", `/api/leagues/${id}/sync`),
   deleteLeague: (id: string) => request<void>("DELETE", `/api/leagues/${id}`),
   getBoard: (id: string) => request<BoardResponse>("GET", `/api/leagues/${id}/board`),
+  getRecommendations: (id: string) =>
+    request<RankedBoardResponse>("GET", `/api/leagues/${id}/recommendations`),
+  getRecommendationForPlayer: (id: string, playerId: number) =>
+    request<RecRecommendation & { revision: number }>(
+      "GET",
+      `/api/leagues/${id}/recommendations/players/${playerId}`,
+    ),
   getPreferred: (id: string) => request<PreferredResponse>("GET", `/api/leagues/${id}/preferred`),
   addPreferred: (id: string, playerId: number) =>
     request<void>("PUT", `/api/leagues/${id}/preferred/${playerId}`),
