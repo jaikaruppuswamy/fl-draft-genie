@@ -106,6 +106,23 @@ connected clients in real time. Emits the events the engine and UI consume:
 > 2026-08-02 is withdrawn. Everything server-side in 005 (session, reconciler,
 > events, delivery, archive) stands; `plan.md`/`tasks.md` need regeneration.
 
+**Ratified decisions (2026-08-05, round 4 — after 010 shipped and fed two real
+drafts)**: SC-001's tiered latency promise is replaced by a **flat push budget —
+p95 ≤ 2 s, 100% ≤ 10 s** from the tap's `observed_at` (measured p95 was
+0.223 s across a 72-pick draft); ingest **acks on the durable log write** and
+the live session is fed *from* that log, never inside the ingest request;
+liveness comes from a **tap heartbeat**, not pick silence, because measured
+inter-pick gaps ranged from ~1 s under autodraft to 90 s+ between human picks;
+a session is **armed lazily by the first tap frame** (heartbeat included) and
+fetches pre-draft data then, so it exists before the first pick; and
+recommendations are withheld for `incompatible`/`version-rejected` but **not**
+for `buffering`/`draft-end-unknown`.
+
+> ⚠️ **This puts one obligation back on 010**: the tap must emit a periodic
+> heartbeat. It currently reports only on state *change*, so a healthy tap is
+> silent — exactly the case 005's liveness check needs to see. Tracked as 005
+> FR-007e; the change belongs in 010's tap.
+
 **Ratified decisions (2026-08-03, round 3)**: picks arrive by **ingest from a
 browser tap**, not polling; the tap is its own feature (`010-draft-tap`) and
 ships **before** 005 resumes, so the reconciler is written against real frames;
