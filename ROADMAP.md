@@ -217,7 +217,7 @@ outcomes needs 008's replay lab.
 should be the last starter (as shipped) or a different definition per league
 shape, and every magnitude above once there is evidence to move it with.
 
-## 007 — draft-room-ui
+## 007 — draft-room-ui 🔨 IMPLEMENTED (2026-08-05, not yet deployed)
 
 **CORRECTED 2026-08-05 (007 clarify).** This section previously said the draft
 room MUST request recommendations on 005's `on_deck` event and **never** on
@@ -232,6 +232,21 @@ makes readiness a property of the design rather than of catching one moment, and
 removes the turnaround as a special case. **SC-005 is measured at this call
 site** — 006 only made it possible. 006's `contracts/api.md` §1a still carries
 the old wording and should be restated as the outcome.
+
+**Built 2026-08-05.** The room's brain is a PURE REDUCER
+(`web/src/lib/draftRoom.ts`) — `reduce(state, input, at)`, where `at` is a
+parameter and effects are DESCRIBED rather than performed. React renders it and
+decides nothing. That is what let SC-005 be measured offline over the real
+72-frame corpus with **no jsdom, no component-testing library, and no new
+dependency at all** — and it measures the thing that can actually fail (deciding
+to fetch too late), not React's paint.
+
+The measurement sweeps the modelled round trip **200–2000 ms** and requires
+**all 12 turns** of the corpus, because 95% of 12 is 11.4 and a single chosen
+latency would rig the result. A companion test proves the harness CAN fail.
+
+**006's contract was corrected here**, in both `contracts/api.md` §1a and the
+header comment in `src/api/recommendations.ts`.
 
 **Ratified in clarify (2026-08-05)** — five decisions:
 

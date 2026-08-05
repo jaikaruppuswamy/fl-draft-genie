@@ -105,10 +105,20 @@ describe("the draft room is read-only (FR-020, Constitution VI)", () => {
       // Files that do not exist yet are skipped rather than failing — but the
       // set as a whole is asserted non-empty below, so this cannot go vacuous.
       if (source === null) return;
+
+      // SCANNED AGAINST THE RAW SOURCE, not the stripped body. An HTTP verb IS
+      // a string literal, so stripping strings first made this check incapable
+      // of firing — it passed against a deliberately planted
+      // `fetch('/x', { method: 'POST' })`. Caught by T051, which exists
+      // precisely because a guard that has never failed is not known to work.
+      const methods = [...source.matchAll(/method\s*:\s*["'`]([A-Za-z]+)["'`]/g)].map((m) =>
+        m[1]!.toUpperCase(),
+      );
+      expect(methods.filter((m) => m !== "GET"), `${rel} must issue only GET`).toEqual([]);
+
+      // The api client's verb-named helpers are the other way a write arrives,
+      // and those ARE identifiers, so the stripped body is right for them.
       const body = code(source);
-      const methods = [...body.matchAll(/method\s*:\s*["'`]?([A-Za-z]+)/g)].map((m) => m[1]!.toUpperCase());
-      expect(methods.filter((m) => m !== "GET")).toEqual([]);
-      // The api client's verb-named helpers are the other way a write arrives.
       for (const verb of ["addPreferred", "removePreferred"]) {
         expect(body.includes(verb), `${rel} must not call ${verb} — 006 owns the list`).toBe(false);
       }
