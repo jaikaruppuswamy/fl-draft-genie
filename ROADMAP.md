@@ -189,10 +189,33 @@ Rules are code, not config (Principle IV).
   the player and show what the preference was worth. (Resolves "how rule
   adjustments combine" and the *unit* of the preferred bound.)
 
-**Still open — deliberately deferred to `/speckit-plan` and its own tuning
-session(s)**: the replacement-level baseline definition per league shape, and
-every numeric magnitude — the size of the preferred cap, and how heavily each
-signal and the survival estimate weigh.
+**Numbers ratified in `/speckit-plan` and shipped (2026-08-05)** — all in
+`src/engine/constants.ts`, which exists so this tuning session has ONE file to
+open. Every one is expressed as a fraction of `ROUND_VALUE` (the value given up
+by waiting a round, measured on the current board), so they mean the same thing
+in a 10-team standard league and a 14-team PPR one:
+
+| Constant | Value | Note |
+|---|---|---|
+| `WEIGHT.offense` | 0.30 | broadest signal; every offensive position incl. K |
+| `WEIGHT.sos` | 0.20 | real but noisy this far from the season |
+| `WEIGHT.oline` | 0.25 | curated (PFF); RB and QB only |
+| `WEIGHT.bye` | 0.35 | concrete rather than forecast, so the largest |
+| `WEIGHT.scarcity` | 0.30 | observed from the draft itself |
+| `PREFERRED_CAP` | 1.0 | "about one round early", and no further |
+| `ADP_COMBINED_CAP` | 0.75 | ceiling on `slot_value` + `survival` together |
+| `SHORTLIST_SIZE` | 5 | how many get a full explanation |
+| `FLOOR_DENSITY_RATIO` | 10 | ADP-floor detection; provably not load-bearing |
+
+Their plausible maximum sum is about one round, which is the intended ceiling
+for the whole rule layer: rules break ties and move a player a round, they never
+overturn the value ranking. **These are first estimates**, chosen for the right
+order of magnitude and the right RELATIVE ordering. Scoring them against
+outcomes needs 008's replay lab.
+
+**Still open — its own tuning session**: whether the replacement-level baseline
+should be the last starter (as shipped) or a different definition per league
+shape, and every magnitude above once there is evidence to move it with.
 
 ## 007 — draft-room-ui
 
