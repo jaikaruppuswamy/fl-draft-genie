@@ -372,6 +372,36 @@ exactly, so ordering is sound even though the frame carries no ordinal.
    diagnostic tooling rather than the product. The verdict is now suppressed
    unless the run is continuous and live.
 
+### Live-draft run (2026-08-04, shipped tap v0.1.2)
+
+A second real draft, this time relayed by the shipped tap rather than the
+instrumentation script. 72 batches accepted, 0 rejected, retained in
+`tap_batches` and exported to `tests/fixtures/tap/replay-full.jsonl`.
+
+- **69 picks + 3 ledger snapshots (sizes 0, 24, 31) = 72 distinct players** —
+  the complete draft.
+- **3 picks arrived ONLY in the ledger** (never as `SELECTED`). The incremental
+  stream is lossy on a second, independent draft — this is no longer a
+  one-off observation, and it is why FR-005 makes the ledger non-discretionary.
+- All 6 D/ST negative ids survived end to end.
+- Sequence contiguous, single epoch, no identifiers or URLs on the wire.
+
+**Two tooling lessons from the run, both recorded because they cost real time:**
+
+1. `wrangler tail` is **not a reliable observer**. It misses the first seconds
+   while attaching (it missed both early ledger relays) and drops the session
+   long before an explicit timeout (it died at 9:19 while traffic continued to
+   9:20). Relying on it once produced a confident "no ledger relayed" that was
+   simply wrong. The retained `tap_batches` table is the authoritative record.
+2. `wrangler tail --format json` emits **pretty-printed multi-line JSON**, not
+   line-delimited. A line-based parser matches the bare `{`, fails to parse, and
+   silently reports nothing — which is how an entire live draft went unobserved
+   while the relay worked perfectly. `scripts/tail-tap.mjs` decodes the stream
+   by brace depth.
+
+**Still unobserved after two live drafts**: the SSE fallback (Chrome DevTools
+throttling does not force it — see above) and sleep/wake ledger behaviour.
+
 ### Pick rate — a measured number for the batcher
 
 Pick-to-pick gaps: **median 3.75 s, minimum 1.0 s**, 33 of 69 gaps under 3 s

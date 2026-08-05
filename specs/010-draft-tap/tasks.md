@@ -181,7 +181,7 @@ in turn and confirm a distinct, accurate, actionable status.
 offline to the independent oracle's pick sequence.
 
 - [X] T046 [P] [US5] Build the `/tap/self-test` replay harness in `web/src/pages/` — a product deliverable, not just a test: load the committed corpus, run it through decode → filter, and show the resulting pick sequence, so a protocol regression is diagnosable without a draft
-- [ ] T047 [US5] Capture the **full-draft** corpus with the shipped tap (not the T001 instrumentation script) and commit it as `tests/fixtures/tap/replay-full.jsonl`, sanitized and verified clean before commit (depends on T033)
+- [X] T047 [US5] **DONE (2026-08-04)** — 72 messages (69 picks + 3 ledger snapshots) captured by the shipped tap v0.1.2 from a live 6-team/12-round draft, retained server-side in `tap_batches` and exported to `tests/fixtures/tap/replay-full.jsonl`. Union of picks and ledger = 72 distinct players, i.e. the whole draft; 3 picks arrived ONLY via the ledger, independently reconfirming FR-005/FR-012 on a second draft. Original: capture the **full-draft** corpus with the shipped tap (not the T001 instrumentation script) and commit it as `tests/fixtures/tap/replay-full.jsonl`, sanitized and verified clean before commit (depends on T033)
 - [X] T048 [US5] Publish the finalised message contract in `specs/010-draft-tap/contracts/ingest.md` with **every field's meaning recorded against the capture it was derived from and zero fields marked "assumed"** — this is SC-000's evidence and what 005 builds against (depends on T004, T047)
 
 ---
