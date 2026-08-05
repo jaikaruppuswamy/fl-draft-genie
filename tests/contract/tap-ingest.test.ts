@@ -161,6 +161,48 @@ describe("POST /api/tap/batch", () => {
   });
 });
 
+describe("retention (T047)", () => {
+  it("keeps every accepted batch, so a live draft leaves a corpus behind", async () => {
+    // The first real draft relayed perfectly and left nothing: the ingest
+    // acknowledged without storing. This is the regression for that.
+    await post(batch());
+    const row = await env.DB.prepare(
+      "SELECT message_count, first_seq, last_seq, kinds, messages_json FROM tap_batches WHERE account_id = ?",
+    ).bind(accountId).first<{ message_count: number; first_seq: number; last_seq: number; kinds: string; messages_json: string }>();
+    expect(row).toBeTruthy();
+    expect(row!.message_count).toBe(2);
+    expect(row!.first_seq).toBe(0);
+    expect(row!.last_seq).toBe(1);
+    expect(JSON.parse(row!.messages_json)).toHaveLength(2);
+  });
+
+  it("does not store an empty batch", async () => {
+    await post(batch({ messages: [] }));
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM tap_batches WHERE account_id = ?")
+      .bind(accountId).first<{ n: number }>();
+    expect(row!.n).toBe(0);
+  });
+
+  it("REJECTS a payload carrying an identifier, and stores nothing", async () => {
+    // FR-006a enforced at the boundary: a buggy or compromised tap must not be
+    // able to write identifiers into our store.
+    const dirty = batch();
+    (dirty.messages as { payload: unknown }[])[0]!.payload = { teamId: 5, who: "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}" };
+    const res = await post(dirty);
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: string }).error).toBe("payload_not_clean");
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM tap_batches WHERE account_id = ?")
+      .bind(accountId).first<{ n: number }>();
+    expect(row!.n).toBe(0);
+  });
+
+  it("REJECTS a payload carrying a URL", async () => {
+    const dirty = batch();
+    (dirty.messages as { payload: unknown }[])[0]!.payload = { href: "https://fantasy.espn.com/x?memberId=y" };
+    expect((await post(dirty)).status).toBe(400);
+  });
+});
+
 describe("GET /api/tap/health", () => {
   // FR-021: the install is verifiable without waiting for a real draft.
   it("is unauthenticated so the install can be verified without a draft", async () => {

@@ -16,7 +16,9 @@
     "deploy": "npm run build && wrangler deploy",
     "build:tap": "node build/build-tap.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tap.json --noEmit",
-    "privacy": "node scripts/privacy-sweep.mjs"
+    "privacy": "node scripts/privacy-sweep.mjs",
+    "tail:tap": "node scripts/tail-tap.mjs",
+    "export:corpus": "tsx scripts/export-tap-corpus.ts"
   },
   "dependencies": {
     "hono": "^4.6.0",

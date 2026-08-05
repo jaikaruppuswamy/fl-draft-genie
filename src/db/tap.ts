@@ -106,3 +106,69 @@ export async function listPairings(db: D1Database, accountId: string): Promise<T
     .all<TapPairingRow>();
   return r.results ?? [];
 }
+
+/** One accepted relay batch, retained so a live draft leaves a corpus behind
+ *  (010 T047). Contents are numeric-only by the time they get here. */
+export interface RetainedBatch {
+  accountId: string;
+  connectionId: string;
+  espnLeagueId: string;
+  season: number;
+  installId: string;
+  sessionId: string;
+  firstSeq: number;
+  lastSeq: number;
+  kinds: string;
+  messages: unknown[];
+}
+
+export async function retainBatch(db: D1Database, b: RetainedBatch, now: Date): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO tap_batches
+         (id, account_id, connection_id, espn_league_id, season, install_id, session_id,
+          received_at, first_seq, last_seq, message_count, kinds, messages_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      b.accountId,
+      b.connectionId,
+      b.espnLeagueId,
+      b.season,
+      b.installId,
+      b.sessionId,
+      now.toISOString(),
+      b.firstSeq,
+      b.lastSeq,
+      b.messages.length,
+      b.kinds,
+      JSON.stringify(b.messages),
+    )
+    .run();
+}
+
+export interface BatchSummary {
+  espn_league_id: string;
+  season: number;
+  session_id: string;
+  batches: number;
+  messages: number;
+  first_at: string;
+  last_at: string;
+}
+
+export async function summariseBatches(db: D1Database, accountId: string): Promise<BatchSummary[]> {
+  const r = await db
+    .prepare(
+      `SELECT espn_league_id, season, session_id,
+              COUNT(*) AS batches, SUM(message_count) AS messages,
+              MIN(received_at) AS first_at, MAX(received_at) AS last_at
+         FROM tap_batches WHERE account_id = ?
+        GROUP BY espn_league_id, season, session_id
+        ORDER BY MAX(received_at) DESC`,
+    )
+    .bind(accountId)
+    .all<BatchSummary>();
+  return r.results ?? [];
+}

@@ -17,8 +17,8 @@ import { z } from "zod";
 import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { now } from "../env";
-import { logInfo } from "./logging";
-import { issuePairing, listPairings, revokePairing, touchPairing, verifyPairing } from "../db/tap";
+import { logError, logInfo } from "./logging";
+import { issuePairing, listPairings, retainBatch, revokePairing, summariseBatches, touchPairing, verifyPairing } from "../db/tap";
 import { findConnection, getConnectionById } from "../db/leagues";
 
 /** The tap runs on ESPN's origin; nothing else needs these routes. */
@@ -27,6 +27,9 @@ const ALLOWED_ORIGINS = new Set(["https://fantasy.espn.com"]);
 /** Wire-contract versions this Worker understands. A tap outside this set gets
  *  409 so it can tell the user to update, rather than being misread. */
 const SUPPORTED_CONTRACT_VERSIONS = new Set([1]);
+
+/** Brace-form or bare SWID. Nothing numeric-only can match this. */
+const GUID_ON_WIRE = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/;
 
 const relayMessage = z.object({
   v: z.number().int(),
@@ -119,6 +122,18 @@ export function tapRoutes() {
       );
     }
 
+    // FR-006a enforced at the BOUNDARY, not only at the source. The tap filters
+    // before sending, but a compromised or buggy tap must not be able to write
+    // identifiers into our store — so we re-assert it here and reject loudly.
+    const wire = JSON.stringify(body.messages);
+    if (GUID_ON_WIRE.test(wire) || /https?:\/\//.test(wire)) {
+      logError("tap batch rejected: payload carried an identifier or URL", new Error("privacy_violation"));
+      return withCors(
+        jsonError(400, "payload_not_clean", "Relayed messages must contain numeric identifiers only."),
+        cors,
+      );
+    }
+
     await touchPairing(c.env.DB, verified.pairingId, body.install, at);
 
     // FR-010 / FR-012: ordering is (install, session, seq); duplicates are
@@ -130,6 +145,27 @@ export function tapRoutes() {
       return acc;
     }, {});
     logInfo(`tap batch: connection=${connection.id} n=${body.messages.length} kinds=${JSON.stringify(kinds)}`);
+
+    // Retain it. Without this a live draft relays perfectly and leaves nothing
+    // behind — which is exactly what happened on the first real run.
+    if (body.messages.length > 0) {
+      await retainBatch(
+        c.env.DB,
+        {
+          accountId: verified.accountId,
+          connectionId: connection.id,
+          espnLeagueId: body.league.espnLeagueId,
+          season: body.league.season,
+          installId: body.install,
+          sessionId: body.session,
+          firstSeq: body.messages[0]!.seq,
+          lastSeq: acceptedThrough,
+          kinds: JSON.stringify(kinds),
+          messages: body.messages,
+        },
+        at,
+      );
+    }
 
     // 005 owns applying these to a draft session. Until it lands, the ingest
     // validates, authorises and acknowledges — which is exactly the seam the
@@ -181,6 +217,10 @@ export function pairingRoutes() {
     // Shown once and never again — only the hash is stored.
     const { token, row } = await issuePairing(c.env.DB, c.get("accountId"), now(c.env));
     return Response.json({ id: row.id, token, expires_at: row.expires_at }, { status: 201 });
+  });
+
+  app.get("/captures", async (c) => {
+    return Response.json({ captures: await summariseBatches(c.env.DB, c.get("accountId")) });
   });
 
   app.delete("/:id", async (c) => {

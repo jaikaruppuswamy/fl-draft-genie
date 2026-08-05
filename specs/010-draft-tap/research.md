@@ -329,6 +329,12 @@ carries no names and no SWIDs, so its blob is committable as-is.
 | **§4 SPA navigation** | **RESOLVED — real document load.** `navigationType: "navigate"`, `readyState: "loading"`, and the wrapper was installed before the page's client. `document-start` fires; the userscript delivery form survives. (A `replaceState` fires post-load — Next.js normalising the URL, not a route transition.) |
 | **§4/§6 frames & origins** | **RESOLVED — top frame.** `isTopFrame: true`, `pageWorld: true`, `wrapperInstalled: true` on Chrome 150. `@noframes` is safe and the CORS allowlist is a single origin. |
 
+**Chrome DevTools throttling does NOT force the SSE fallback** (observed
+2026-08-04): offline mode there gates new HTTP requests but leaves an
+already-open WebSocket connected, so ESPN never reconnects and never falls back.
+Disabling wifi at the OS level is what would exercise it. The SSE path therefore
+remains unobserved by anyone.
+
 **Still unobserved**: sleep/wake behaviour (§6) — the machine was not slept, so
 whether the room re-emits the ledger on resume remains unknown. The "resumed,
 no ledger, no messages → loud reload prompt" requirement stands unvalidated.
