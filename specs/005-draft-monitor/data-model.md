@@ -18,13 +18,13 @@ from picks + keepers + order.
 ```jsonc
 {
   "format": "snake",                  // FR-006a discriminator; drives nothing else
-  "status": "live",                   // unsupported|idle|armed|live|degraded|complete|aborted
+  "status": "live",                   // unsupported|idle|armed|live|not_receiving|degraded|complete|aborted
   "connection_id": "…", "season": 2026, "my_team_id": 7,
   "epoch": "uuid",                    // regenerated on rebuild; invalidates client cursors
   "seq": 412,                         // monotonic within an epoch
   "revision": 3,                      // increments on each ESPN correction (FR-012)
   "order": { "team_ids": [7,3,11,…], "trust": "observed" },  // observed|projected|unknown
-  "picks": [                          // ordered, ESPN-authoritative, playerId > 0 only
+  "picks": [                          // ordered; empty slots are the -1 SENTINEL, never "negative"
     { "overall": 1, "round": 1, "round_pick": 1, "team_id": 3, "player_id": 4362628,
       "keeper": false, "autodrafted": false, "observed_at": "…", "detail": null }
   ],
@@ -32,7 +32,11 @@ from picks + keepers + order.
   "teams": [ { "team_id": 3, "name": "…" } ],
   "turn_marks": [24, 25],             // owner turns whose on_deck/on_the_clock already fired
   "event_window": [ /* last 500 events, oldest evicted; backs ?since= resume */ ],
-  "last_poll_started_at": "…", "last_success_at": "…", "consecutive_errors": 0,
+  "feed_cursor": { "received_at": "…", "id": "…" },  // keyset into tap_batches (§ Feed cursor)
+  "last_heartbeat_at": "…",           // FR-007e; liveness comes from THIS, not pick silence
+  "tap": { "state": "relaying", "version": "0.1.5" },  // last reported by the tap
+  "withholding": null,                // null | "not_receiving" | "incompatible" | "version_rejected"
+  "last_espn_read_at": "…", "last_success_at": "…", "consecutive_errors": 0,
   "due_at": 1785000000000, "armed_deadline": "…",   // scheduled_at + 6 h
   "last_error": null                  // "espn_unreachable"|"espn_rejected"|"league_not_found"
 }
@@ -75,6 +79,38 @@ trigger — the cron distinguishes dead from degraded by `getAlarm()`, never by
 timestamp (research §5).
 
 ---
+
+## Feed cursor (FR-007h)
+
+The session pulls from `tap_batches` rather than receiving frames inline. The
+cursor is a **keyset**, not an offset:
+
+```sql
+WHERE account_id = ? AND espn_league_id = ? AND season = ?
+  AND (received_at > ?1 OR (received_at = ?1 AND id > ?2))
+ORDER BY received_at, id
+LIMIT 200
+```
+
+- **Keyset, not offset**: a batch inserted mid-read shifts an offset window and
+  silently skips a row. The keyset is stable under concurrent inserts.
+- **Not "re-read and dedupe"**: the reducer *is* idempotent (FR-010), but that
+  should be a safety net, not the mechanism. A design whose correctness depends
+  on its own error-tolerance has no margin left when something else goes wrong.
+- **Advanced only after the batch is committed to `SessionState`.** A crash
+  between read and commit re-reads the same rows, which is safe; a cursor
+  advanced first would skip them, which is not.
+- Backed by the existing `idx_tap_batches_league`; **no migration needed**.
+
+## The empty-slot sentinel
+
+`playerId === -1` marks an unfilled slot. **Nothing may filter on sign.**
+
+D/ST player ids are legitimately negative — around −16000 — so `playerId > 0`
+drops every defence in the draft. This is not hypothetical: that exact predicate
+made 010's capture script report 66 of 72 picks for a complete draft, and an
+earlier revision of this document carried the same rule. Compare against the
+sentinel, never against zero.
 
 ## Derived at read time
 

@@ -140,10 +140,51 @@ re-sync so a just-published draft time arms on the same tick:
    work-list above deliberately excludes `aborted` — joining `draft_sessions` to
    `league_snapshots.draft_at`.
 
+## Ingest boundary (owned by 010, consumed here)
+
+005 does **not** define the tap's wire format — `010-draft-tap`'s
+[contracts/ingest.md](../../010-draft-tap/contracts/ingest.md) does, and it is
+authoritative. Two obligations flow the other way, and both are load-bearing:
+
+### `POST /api/tap/batch` — acknowledgement ordering (FR-007h)
+
+The tap discards its buffer **only** on `accepted_through`, so the ack is a
+durability boundary:
+
+1. authorise and re-assert the privacy filter
+2. `INSERT INTO tap_batches` — the durable commit
+3. respond `202 { accepted_through }` — the tap may now forget these messages
+4. `ctx.waitUntil(session.nudge())` — **after** the response
+
+The ack MUST NOT be sent before step 2, and MUST NOT wait on step 4.
+
+### `POST /api/tap/status` — periodic heartbeat (FR-007e)
+
+**Requires a change in 010.** Today the tap posts only on state *change*, so a
+healthy tap is silent — the exact case liveness detection must observe.
+
+- interval **15 s**, carrying `{ state, tapVersion }`
+- a **45 s** gap is a lapse (three intervals, so one dropped request is not an
+  alarm)
+- a heartbeat **arms** the session if none exists (FR-007g), which is what makes
+  a missing tap visible *before* the first pick rather than after it
+
+Liveness MUST NOT be inferred from pick silence: measured gaps run from ~1 s
+under autodraft to 90 s+ between human picks.
+
 ## Internal RPC (Worker → DO)
 
-`ensureRunning()`, `snapshot()`, `shutdown()`. Not public API.
+`ensureRunning()`, `snapshot()`, `shutdown()`, `nudge()`. Not public API.
+
+`nudge()` carries **no frame data** — only "there is new work". The session
+pulls from `tap_batches` by cursor. This is deliberate: frames in the nudge
+would make the DO's availability a durability dependency, so a tap that had
+already discarded its buffer on the ack could lose picks to an object that was
+restarting. A dropped nudge costs latency; the 5 s safety alarm bounds it, and
+SC-001's 100%-within-10 s ceiling is enforced by that alarm rather than by
+assuming `waitUntil` always runs.
+
 `shutdown()` (deleteAlarm + deleteAll, refuse to re-arm) **must** be called from
 `deleteConnection` — re-adding a league mints a new connection UUID and hence a
-new DO, and an orphaned session would keep polling ESPN forever with no D1 row
-behind it (research §1).
+new DO, and an orphaned session would keep reading D1 and ESPN forever with no
+row behind it (research §1).

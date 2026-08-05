@@ -222,7 +222,15 @@ polling — cannot hold WebSockets or poll faster than 1/minute; `newUniqueId()`
 
 ---
 
-## 2. Poll cadence: one self-rescheduling alarm
+## 2. Poll cadence: one self-rescheduling alarm — ⛔ **RETIRED (round 4)**
+
+> This section described the live pick cadence. Gate 0 disproved polling as a
+> source of live picks, and round 4 removed the tier structure entirely: the tap
+> pushes at one rate regardless of whose turn it is, so there is nothing for an
+> attended/near-turn tier to change. What survives is the *back-off ladder* and
+> the idea of a pure cadence function, both now scoped to ESPN's remaining
+> pre-draft and flag reads — see §8 and `src/draft/schedule.ts`. Kept for the
+> record; do not implement from it.
 
 **Decision**: A single self-rescheduling DO alarm drives all four tiers —
 **3 s** (owner within 3 picks), **10 s** (live, client attached), **30 s**
@@ -515,3 +523,87 @@ to `unknown` — baseline cadence, no turn events — rather than fabricating.
   first-seen-wins (`ON CONFLICT DO UPDATE` that never overwrites it).
 - **Broadcast after the commit, never inside it.** A crash between commit and
   fan-out loses a push but not state, and the cursor hand-off recovers it.
+
+
+## 8. Round 4: how the session is fed (2026-08-05)
+
+Written after `010-draft-tap` shipped, was deployed, and fed two real drafts.
+These resolve the questions that only became answerable once the transport
+existed and could be measured.
+
+### 8.1 Notify-then-pull, not push-through
+
+**Decision**: `/api/tap/batch` writes to `tap_batches`, acknowledges, and *then*
+nudges the `DraftSession` via `ctx.waitUntil`. The session pulls from the log by
+keyset cursor. The nudge carries no frame data.
+
+**Rationale**: The tap discards its buffer only on `accepted_through`, which
+makes the ack a durability boundary. Acking before a durable write loses picks
+the tap has already forgotten; acking after a DO round-trip lets a restarting or
+migrating object stall the tap's buffer, which is exactly what FR-008's
+buffering guarantees exist to prevent. Writing the log first and nudging after
+satisfies both, and a dropped nudge then costs latency rather than data.
+
+It also collapses two code paths into one. Round 3 already made the persisted
+log the automatic rebuild path; if the live path reads the same log through the
+same cursor, the recovery path is exercised on every pick rather than only after
+a crash. The restore routine that only runs in emergencies is the one that rots.
+
+**Alternatives considered**:
+
+- **Pass frames inline in the nudge** — makes the DO's availability a durability
+  dependency and reintroduces the exact failure the ack ordering was chosen to
+  avoid.
+- **Cloudflare Queues** — a second delivery system and a new binding, to move
+  data that is already durably written to a table the feature must maintain
+  regardless. Rejected under Constitution VIII.
+- **DO alarm polls D1 with no nudge** — simple, but latency becomes the alarm
+  interval. Meeting SC-001's p95 ≤ 2 s would need a ~1 s alarm, i.e. polling D1
+  ~10,800 times per draft to carry ~72 picks.
+
+**Cursor shape**: keyset on `(received_at, id)` over the existing
+`idx_tap_batches_league`, not an offset and not "re-read and dedupe". An offset
+window shifts under concurrent inserts; dedupe-on-re-read makes correctness
+depend on the reducer's idempotency, which should be a safety net rather than
+the mechanism.
+
+**Safety alarm**: 5 s while the room is open. SC-001 promises 100% within 10 s,
+so the ceiling is enforced by a timer rather than by assuming `waitUntil` always
+runs. It performs a D1 read and no external request.
+
+### 8.2 Liveness is a heartbeat, not silence
+
+**Decision**: the tap emits a heartbeat every **15 s**; a **45 s** gap is a
+lapse; a **15 s** alarm evaluates it.
+
+**Rationale**: measured inter-pick gaps span ~1 s (autodraft) to 90 s+ (human
+picks in the same league). No silence threshold separates a slow draft from a
+dead tap, and both errors are bad: a false alarm during a slow round destroys
+trust in the indicator, while a missed one is precisely the silent-failure mode
+FR-017 exists to forbid. 45 s tolerates a single dropped request; 15 s detection
+lands inside SC-001b's 30 s.
+
+**Consequence for 010**: the tap currently reports only on state *change*, so a
+healthy tap is silent — the exact case this check must observe. The periodic
+heartbeat is a change in 010 (005 FR-007e), recorded in ROADMAP.
+
+### 8.3 ESPN's post-completion flush is promoted to a production oracle
+
+**Decision**: on `drafted`, fetch the authoritative `mDraftDetail` and reconcile
+the tap-built draft against it before archiving; divergence bumps the revision
+through the existing correction path.
+
+**Rationale**: the single thing Gate 0 proved ESPN writes reliably is the
+*completed* draft. 010 used exactly this as an independent oracle in tests,
+where it earned its keep twice — it disproved the field-3 = round reading
+(agreeing on 5 of 70 picks) and confirmed the ledger offsets (31/31). Promoting
+it to production means every archived draft is checked against a source that did
+not produce it, for one request per draft. Self-consistency checks cannot catch
+a systematically missed pick; an independent source can.
+
+### 8.4 What did not change
+
+§1 (Durable Object as the session), §3 (WebSocket transport), §5 (storage split),
+§6 (testing strategy) and §7 (event derivation and reconciliation) are unaffected
+by the transport change and stand as written. §4 (`mDraftDetail`) narrows to
+pre-draft reads, the `inProgress`/`drafted` flags, and the completion oracle.
