@@ -15,6 +15,8 @@ import type { SessionScope } from "./session";
 export interface SnapshotLike {
   team_count: number;
   draft_json: string | null;
+  /** 001's stored roster shape; `starting_slots` + `bench_slots` per team. */
+  roster_json?: string | null;
 }
 
 interface ParsedDraft {
@@ -62,11 +64,7 @@ export function armingScope(i: ArmingInput): ArmingResult {
   const draft = parseDraft(i.snapshot?.draft_json ?? null);
   const teamCount = i.snapshot?.team_count ?? 0;
   const order = draft.order && draft.order.length > 0 ? draft.order : [];
-  // A round count is not published directly; it follows from the roster size,
-  // which 001 stores separately. Until a ledger states the real total, 0 keeps
-  // completion unreachable — deliberately, since a false "complete" stops the
-  // relay and is the worse error.
-  const totalPicks = 0;
+  const totalPicks = totalPicksFrom(teamCount, i.snapshot?.roster_json ?? null);
 
   return {
     scope: {
@@ -84,6 +82,36 @@ export function armingScope(i: ArmingInput): ArmingResult {
     // said anything about the draft at all.
     supported: draft.type === undefined || draft.type === null ? true : draft.supported === true,
   };
+}
+
+/**
+ * How many picks a full draft has: teams × roster spots.
+ *
+ * THIS USED TO BE HARDCODED TO 0, which made completion unreachable in
+ * production — the session never finished, never wrote `complete`, and
+ * therefore never archived. The archive tests passed because they armed with
+ * an explicit total that nothing in production supplied.
+ *
+ * ESPN does not publish a round count directly, but 001 already stores the
+ * roster shape, and every roster spot is one pick. Returns 0 when either input
+ * is missing: 0 means "not yet known" and keeps completion unreachable, which
+ * is the safe direction — a false `complete` stops the relay mid-draft, while a
+ * missing one only delays the archive until the data arrives.
+ *
+ * KEEPER LEAGUES draft fewer picks than this, so the count errs HIGH there. The
+ * authoritative figure is the ledger's own slot count, which ESPN sends and the
+ * tap decodes as `totalSlots` but does not currently relay — relaying it is the
+ * better long-term source and is recorded in the 010 backlog.
+ */
+export function totalPicksFrom(teamCount: number, rosterJson: string | null): number {
+  if (teamCount <= 0 || !rosterJson) return 0;
+  try {
+    const r = JSON.parse(rosterJson) as { starting_slots?: number; bench_slots?: number };
+    const spots = Number(r.starting_slots ?? 0) + Number(r.bench_slots ?? 0);
+    return spots > 0 ? teamCount * spots : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /** How long an armed session may wait before it aborts itself. */
