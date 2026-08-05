@@ -16,6 +16,9 @@ export default defineWorkersConfig(async () => {
   const migrations = await readD1Migrations(path.join(__dirname, "migrations"));
   return {
     test: {
+      // Distinct from the workers project's name, or vitest refuses to load
+      // both: projects must be uniquely named.
+      name: "draft",
       setupFiles: ["./tests/apply-migrations.ts"],
       include: ["tests/draft/**/*.test.ts"],
       poolOptions: {

@@ -20,6 +20,7 @@ import { now } from "../env";
 import { logError, logInfo } from "./logging";
 import { issuePairing, listPairings, retainBatch, revokePairing, summariseBatches, touchPairing, verifyPairing } from "../db/tap";
 import { findConnection, getConnectionById } from "../db/leagues";
+import { sessionStub } from "../draft/session";
 
 /** The tap runs on ESPN's origin; nothing else needs these routes. */
 const ALLOWED_ORIGINS = new Set(["https://fantasy.espn.com"]);
@@ -186,9 +187,42 @@ export function tapRoutes() {
       );
     }
 
-    // 005 owns applying these to a draft session. Until it lands, the ingest
-    // validates, authorises and acknowledges — which is exactly the seam the
-    // two features were split at.
+    // 005 FR-007h — NUDGE AFTER THE ACK, never before it, and never inside it.
+    //
+    // The ordering is the whole design. The tap discards its buffer only on
+    // `accepted_through`, so the ack is a durability boundary: it must follow
+    // the `retainBatch` write above, and it must NOT wait on the session. A
+    // restarting or migrating Durable Object would otherwise stall the tap's
+    // buffer — the outcome FR-008's buffering guarantees exist to prevent.
+    //
+    // `waitUntil` runs this after the response is sent. The nudge carries no
+    // frame data; the session pulls from the log it was just written to. A
+    // dropped nudge therefore costs latency, never a pick, and the session's
+    // 5 s safety alarm bounds that latency inside SC-001's 10 s ceiling.
+    if (body.messages.length > 0) {
+      // Accessing `executionCtx` THROWS when the app is invoked without one.
+      // Guarded rather than assumed, because the nudge is an optimisation and
+      // must never be able to fail a relay whose frames are already durable —
+      // the worst case here is the session collecting them on its next alarm.
+      let scheduled = false;
+      try {
+        const ctx = c.executionCtx;
+        ctx.waitUntil(
+          (async () => {
+            try {
+              await sessionStub(c.env, connection.id, body.league.season).nudge();
+            } catch (e) {
+              logError("tap nudge failed; the session will catch up on its alarm", e as Error);
+            }
+          })(),
+        );
+        scheduled = true;
+      } catch {
+        scheduled = false;
+      }
+      if (!scheduled) logInfo("tap batch stored without a nudge; the session's alarm will collect it");
+    }
+
     return withCors(
       Response.json({ accepted_through: acceptedThrough, session_known: true, server_time: at.toISOString() }, { status: 202 }),
       cors,

@@ -96,15 +96,15 @@ picks remain until the owner's turn.
 **Independent test**: replay the committed corpus through the session and assert
 the resulting state matches the independent oracle — no browser, no live draft.
 
-- [ ] T020 [US1] Contract test in `tests/draft/feed-order.test.ts`: `/api/tap/batch` writes to `tap_batches` and acks **before** nudging, an unavailable session does **not** delay `accepted_through`, and a batch acked but never nudged still lands within the 5 s safety alarm. Deliberately drop the nudge and assert no pick is lost — only delayed
-- [ ] T021 [US1] Implement `src/draft/session.ts` — the `DraftSession` DO shell: `nudge()`, the cursor pull, `reconcile()` invocation, and the commit. **Broadcast after the commit, never inside it** (research §7)
-- [ ] T022 [US1] Extend `src/api/tap.ts` to nudge the session via `ctx.waitUntil` **after** the 202. The ack must not wait on the DO, or a restarting object stalls the tap's buffer — the outcome FR-008's buffering guarantees exist to prevent
-- [ ] T023 [US1] Implement the 5 s safety alarm in `src/draft/session.ts`, scheduled **only while the room is open**. SC-001 promises 100% within 10 s and a lost nudge must not breach it, so the ceiling is enforced by a timer rather than by assuming `waitUntil` always runs
-- [ ] T024 [US1] Do **not** persist on a no-op observation in `src/draft/session.ts` — gate the transaction on `events.length > 0 || orderChanged || statusChanged`, or every safety-alarm sweep that finds the cursor already current commits pointlessly (research §7)
-- [ ] T025 [P] [US1] Implement `src/api/draft.ts`: `GET /api/leagues/:id/draft` (status) and `/draft/snapshot`, per [contracts/api.md](contracts/api.md)
-- [ ] T026 [US1] Mount `/api/leagues/:id/draft` in `src/api/app.ts` and re-export `DraftSession` from `src/index.ts`
-- [ ] T027 [P] [US1] Implement `web/src/pages/DraftDiagnostics.tsx` — the deliberately plain throwaway page (FR-025): session status, live pick feed, on-the-clock, picks-until-your-turn, staleness age. Not styled to the design system; 007 replaces it wholesale
-- [ ] T028 [US1] Integration test in `tests/draft/replay-live.test.ts`: feed `tests/fixtures/tap/replay-full.jsonl` through the session and assert the final state matches `oracle-live-2026.json` on all 72 picks — including the 3 that arrived **only** in a ledger
+- [X] T020 [US1] Contract test in `tests/draft/feed-order.test.ts`: `/api/tap/batch` writes to `tap_batches` and acks **before** nudging, an unavailable session does **not** delay `accepted_through`, and a batch acked but never nudged still lands within the 5 s safety alarm. Deliberately drop the nudge and assert no pick is lost — only delayed
+- [X] T021 [US1] Implement `src/draft/session.ts` — the `DraftSession` DO shell: `nudge()`, the cursor pull, `reconcile()` invocation, and the commit. **Broadcast after the commit, never inside it** (research §7)
+- [X] T022 [US1] Extend `src/api/tap.ts` to nudge the session via `ctx.waitUntil` **after** the 202. The ack must not wait on the DO, or a restarting object stalls the tap's buffer — the outcome FR-008's buffering guarantees exist to prevent
+- [X] T023 [US1] Implement the 5 s safety alarm in `src/draft/session.ts`, scheduled **only while the room is open**. SC-001 promises 100% within 10 s and a lost nudge must not breach it, so the ceiling is enforced by a timer rather than by assuming `waitUntil` always runs
+- [X] T024 [US1] Do **not** persist on a no-op observation in `src/draft/session.ts` — gate the transaction on `events.length > 0 || orderChanged || statusChanged`, or every safety-alarm sweep that finds the cursor already current commits pointlessly (research §7)
+- [X] T025 [P] [US1] Implement `src/api/draft.ts`: `GET /api/leagues/:id/draft` (status) and `/draft/snapshot`, per [contracts/api.md](contracts/api.md)
+- [X] T026 [US1] Mount `/api/leagues/:id/draft` in `src/api/app.ts` and re-export `DraftSession` from `src/index.ts`
+- [X] T027 [P] [US1] Implement `web/src/pages/DraftDiagnostics.tsx` — the deliberately plain throwaway page (FR-025): session status, live pick feed, on-the-clock, picks-until-your-turn, staleness age. Not styled to the design system; 007 replaces it wholesale
+- [X] T028 [US1] Integration test in `tests/draft/replay-live.test.ts`: feed `tests/fixtures/tap/replay-full.jsonl` through the session and assert the final state matches `oracle-live-2026.json` on all 72 picks — including the 3 that arrived **only** in a ledger
 
 **Checkpoint**: US1 is independently demonstrable from the corpus alone.
 

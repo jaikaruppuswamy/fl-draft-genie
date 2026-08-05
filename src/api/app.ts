@@ -7,6 +7,7 @@ import { logError } from "./logging";
 import { authRoutes } from "./auth";
 import { credentialRoutes } from "./credentials";
 import { leagueRoutes } from "./leagues";
+import { draftRoutes } from "./draft";
 import { boardRoutes } from "./board";
 import { projectionRoutes } from "./projections";
 import { accountRoutes } from "./account";
@@ -50,6 +51,8 @@ export function createApp() {
 
   app.route("/api/credentials", credentialRoutes());
   app.route("/api/leagues", leagueRoutes());
+  // 005: session-authenticated, so mounted after the /api/* middleware.
+  app.route("/api/leagues", draftRoutes());
   app.route("/api/leagues", boardRoutes());
   app.route("/api/projections", projectionRoutes());
   app.route("/api/account", accountRoutes());
