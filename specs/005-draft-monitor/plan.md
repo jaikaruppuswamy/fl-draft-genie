@@ -87,16 +87,30 @@ Pick silence is not evidence. Measured across real drafts: **~1 s** between
 autodrafted picks and **90 s+** between human ones, so no silence threshold
 separates a slow draft from a dead tap.
 
-- The tap posts a **heartbeat every 15 s** carrying its state and version.
-- **Lapse = 45 s** without one (three intervals, so a single dropped request is
-  not an alarm).
+- The tap posts a **heartbeat every 15 s** carrying its state, version and
+  whether its tab is **hidden**.
+- **Lapse = 45 s** while the tab is visible (three intervals, so one dropped
+  request is not an alarm) and **150 s while it is hidden**.
 - A **15 s liveness alarm** evaluates the lapse, so detection lands well inside
   SC-001b's 30 s.
 
-> ⚠️ **Cross-feature dependency**: 010's tap reports only on state *change*, so a
-> healthy tap is currently silent. The periodic heartbeat is a change **in 010**,
-> tracked as 005 FR-007e and recorded in ROADMAP. 005 cannot satisfy FR-007c
-> without it.
+The two thresholds are not belt-and-braces. A hidden tab's timers are throttled
+to **1/minute** after five chained timers with the tab hidden five minutes —
+010's own research recorded this, and it is why the tap's flush is event-driven
+rather than timed. A flat 45 s threshold would therefore mark a healthy tap dead
+roughly every minute of a backgrounded draft, and the ratified design *expects*
+the tab to be backgrounded: the tap runs where the draft room is open, the UI
+runs wherever the owner is looking. The tap cannot defeat the throttling, but it
+can observe it, so it states it and the session picks the matching bound.
+
+The tap also heartbeats on `visibilitychange`, `pageshow`, `focus` and `online`
+— including on the transition *into* hidden, so the session learns to relax its
+threshold before the throttling starts rather than after a false alarm.
+
+> ✅ **Cross-feature dependency — DISCHARGED (2026-08-05).** 010 tap **0.1.6**
+> emits the periodic heartbeat with the `hidden` flag, and `/api/tap/status`
+> accepts, validates and privacy-screens it. 005 can now build FR-007c against a
+> real signal.
 
 ### Arming (FR-007g)
 

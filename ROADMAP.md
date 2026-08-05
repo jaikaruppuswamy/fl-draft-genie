@@ -118,10 +118,12 @@ fetches pre-draft data then, so it exists before the first pick; and
 recommendations are withheld for `incompatible`/`version-rejected` but **not**
 for `buffering`/`draft-end-unknown`.
 
-> ⚠️ **This puts one obligation back on 010**: the tap must emit a periodic
-> heartbeat. It currently reports only on state *change*, so a healthy tap is
-> silent — exactly the case 005's liveness check needs to see. Tracked as 005
-> FR-007e; the change belongs in 010's tap.
+> ✅ **The one obligation this put back on 010 is DISCHARGED (2026-08-05).** Tap
+> **0.1.6** emits a periodic heartbeat carrying a `hidden` flag, and
+> `/api/tap/status` validates, privacy-screens and records it (010 FR-015a,
+> T055). The flag is load-bearing: a background tab's timers throttle to
+> ~1/minute, so 005 applies a 45 s lapse when visible and 150 s when hidden
+> rather than declaring a healthy backgrounded tap dead.
 
 **Ratified decisions (2026-08-03, round 3)**: picks arrive by **ingest from a
 browser tap**, not polling; the tap is its own feature (`010-draft-tap`) and

@@ -70,8 +70,10 @@ log through the same cursor, so this covers both.
    within the 5 s safety alarm. Drop the nudge deliberately and confirm no pick
    is lost — only delayed.
 6a. **Liveness (FR-007c/e)** — with `vi.useFakeTimers({ toFake: ['Date'] })`:
-   a 45 s heartbeat gap enters `not_receiving` within 15 s, while a **90 s gap
-   between picks with heartbeats still arriving does not**. That second half is
+   a 45 s heartbeat gap on a **visible** tab enters `not_receiving` within 15 s;
+   the same gap on a **hidden** tab does **not**, because its timers are
+   throttled to ~1/minute — only 150 s does. And a **90 s gap between picks with
+   heartbeats still arriving** never does. That second half is
    the one that matters — it is the false alarm a silence-based rule would
    raise on every slow human round.
 6b. **Withholding (FR-007f, SC-001c)** — `incompatible` and `version-rejected`

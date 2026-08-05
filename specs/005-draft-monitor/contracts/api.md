@@ -160,12 +160,16 @@ The ack MUST NOT be sent before step 2, and MUST NOT wait on step 4.
 
 ### `POST /api/tap/status` — periodic heartbeat (FR-007e)
 
-**Requires a change in 010.** Today the tap posts only on state *change*, so a
-healthy tap is silent — the exact case liveness detection must observe.
+**Shipped in 010 tap 0.1.6.** Before it, the tap posted only on state *change*,
+so a healthy tap was silent — the exact case liveness detection must observe.
 
-- interval **15 s**, carrying `{ state, tapVersion }`
-- a **45 s** gap is a lapse (three intervals, so one dropped request is not an
-  alarm)
+- interval **15 s**, carrying `{ state, tapVersion, heartbeat, hidden, league }`
+- a **45 s** gap is a lapse while `hidden` is false; **150 s** while it is true,
+  because a background tab's timers are throttled to ~1/minute and one threshold
+  would declare a healthy tap dead
+- also sent on `visibilitychange`, `pageshow`, `focus` and `online`, including
+  the transition *into* hidden, so the session widens its bound before the
+  throttling begins rather than after a false alarm
 - a heartbeat **arms** the session if none exists (FR-007g), which is what makes
   a missing tap visible *before* the first pick rather than after it
 

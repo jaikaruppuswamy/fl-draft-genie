@@ -80,3 +80,46 @@ describe("the pairing token never passes through a page-replaceable function", (
     expect(bundle).not.toMatch(/dg:token["']?\s*\)?\s*[,)]?\s*;?\s*(?:W|window)\./);
   });
 });
+
+// 010 — the heartbeat must actually be wired, not merely defined (005 FR-007e).
+describe("the shipped tap reports liveness on a timer", () => {
+  it("schedules a periodic heartbeat", () => {
+    expect(bundle).toMatch(/setInterval\(\s*\(\)\s*=>\s*heartbeat\(/);
+  });
+
+  it("also heartbeats on the wake events, which a throttled tab depends on", () => {
+    // A hidden tab's timers stretch to ~1/minute; without these a wake-up is
+    // invisible to the receiver for up to that long.
+    expect(bundle).toMatch(/visibilitychange/);
+    expect(bundle).toMatch(/heartbeat\(\s*true\s*\)/);
+  });
+
+  it("reports its own visibility, which the receiver cannot observe", () => {
+    // Load-bearing: one lapse threshold applied to a throttled tab declares a
+    // healthy tap dead, during the hour that mistake costs the most.
+    expect(bundle).toMatch(/hidden:/);
+  });
+
+  it("still sends status when the state has NOT changed", () => {
+    // The whole defect: reportStatus returns early on an unchanged state, so a
+    // healthy tap was silent. The heartbeat must not go through that gate.
+    //
+    // Sliced between stable declaration anchors rather than matched with a
+    // balanced-brace regex, which cannot be written correctly and silently
+    // matched an empty string when it failed.
+    const between = (from: string, to: string) => {
+      const a = bundle.indexOf(from);
+      const b = bundle.indexOf(to, a + 1);
+      expect(a, `${from} not found in bundle`).toBeGreaterThan(-1);
+      expect(b, `${to} not found after ${from}`).toBeGreaterThan(a);
+      return bundle.slice(a, b);
+    };
+
+    const reportStatus = between("function reportStatus(", "function heartbeat(");
+    expect(reportStatus).toMatch(/lastReportedState/); // the change gate lives here
+
+    const heartbeat = between("function heartbeat(", "function postStatus(");
+    expect(heartbeat).not.toMatch(/lastReportedState/); // ...and NOT here
+    expect(heartbeat).toMatch(/postStatus\(/);
+  });
+});

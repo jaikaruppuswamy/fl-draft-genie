@@ -31,6 +31,21 @@ const SUPPORTED_CONTRACT_VERSIONS = new Set([1]);
 /** Brace-form or bare SWID. Nothing numeric-only can match this. */
 const GUID_ON_WIRE = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/;
 
+/**
+ * 005 FR-007e. `hidden` is load-bearing, not telemetry: a background tab's
+ * timers are throttled to ~1/minute, so a receiver applying one lapse
+ * threshold would declare a healthy backgrounded tap dead. The tap is the only
+ * party that can observe this, so it reports it.
+ */
+const statusBody = z.object({
+  state: z.string().min(1).max(40),
+  detail: z.string().max(300).optional(),
+  tapVersion: z.string().max(20).optional(),
+  heartbeat: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  league: z.object({ espnLeagueId: z.string().max(32), season: z.number().int() }).optional(),
+});
+
 const relayMessage = z.object({
   v: z.number().int(),
   seq: z.number().int().nonnegative(),
@@ -187,8 +202,30 @@ export function tapRoutes() {
     if (!token) return withCors(jsonError(401, "unpaired", "This browser is not linked to Draft Genie."), cors);
     const verified = await verifyPairing(c.env.DB, token, c.req.header("X-Tap-Install") ?? null, now(c.env));
     if (!verified.ok) return withCors(jsonError(401, `pairing_${verified.reason}`, "Re-pair this browser."), cors);
-    const body = (await c.req.json().catch(() => ({}))) as { state?: string; detail?: string };
-    logInfo(`tap status: ${String(body.state)} ${String(body.detail ?? "")}`.trim());
+    const parsed = statusBody.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return withCors(jsonError(400, "invalid_status", "Malformed status report."), cors);
+    const body = parsed.data;
+
+    // Same boundary the batch route enforces. `detail` is free-ish text built
+    // from wrapper errors and ESPN message fragments, and the draft-room URL
+    // carries the owner's SWID as a query parameter — so it is a real path for
+    // an identifier to reach the log. The tap scrubs it; this does not trust
+    // that, because a privacy control asserted only at the source is asserted
+    // once, by the party most likely to be out of date.
+    const detail = body.detail ?? "";
+    if (GUID_ON_WIRE.test(detail) || /https?:\/\//.test(detail)) {
+      return withCors(jsonError(400, "payload_not_clean", "Status detail must not carry identifiers."), cors);
+    }
+
+    // 005 FR-007e: liveness. Any status — heartbeat or state change — proves
+    // the tap is attached, so both refresh it. Picks do too; this only has to
+    // cover the silence between them.
+    await touchPairing(c.env.DB, verified.pairingId, c.req.header("X-Tap-Install") ?? null, now(c.env));
+
+    logInfo(
+      `tap ${body.heartbeat ? "heartbeat" : "status"}: ${body.state}` +
+        `${body.hidden ? " (hidden)" : ""}${detail ? ` ${detail}` : ""}`,
+    );
     return withCors(new Response(null, { status: 204 }), cors);
   });
 

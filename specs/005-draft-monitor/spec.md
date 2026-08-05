@@ -324,7 +324,14 @@ yields one `draft_complete` — all in draft order.
   beyond appending frames to that one draft session.
 - **FR-007e**: The tap MUST report **liveness on a timer, independently of pick
   traffic**, and the session MUST treat a lapsed heartbeat — not pick silence —
-  as the trigger for FR-007c. The heartbeat MUST carry the tap's state and
+  as the trigger for FR-007c. The heartbeat MUST carry whether the tap's tab is
+  **hidden**, and the session MUST apply a **wider lapse threshold when it is**:
+  a background tab's timers are throttled to roughly one per minute, so a single
+  threshold sized for a visible tab declares a perfectly healthy backgrounded tap
+  dead. This is not a rare case — the ratified design expects the draft room and
+  the recommendation UI on different devices, so the tap's tab is usually the one
+  nobody is looking at. Only the tap can observe its own throttling, so it
+  reports it rather than the session guessing. The heartbeat MUST carry the tap's state and
   version (010 FR-015/FR-022) so a tap that is attached but *degraded* is
   distinguishable from one that is absent. **This obliges a change in 010**,
   which today reports only on state change and so goes silent precisely when it

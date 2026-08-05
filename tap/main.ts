@@ -18,6 +18,7 @@ import { Buffer as TapBuffer, type StoragePort } from "./buffer";
 import { EXPLANATIONS, isDegraded, type TapState, type TapStatus } from "./status";
 import { install, type Transport } from "./intercept";
 import { DraftEnd } from "./draftEnd";
+import { HEARTBEAT_MS, shouldSendHeartbeat } from "./heartbeat";
 
 declare const unsafeWindow: Window & typeof globalThis;
 declare function GM_getValue(key: string, dflt?: string): string;
@@ -247,13 +248,49 @@ function flush(): void {
 function reportStatus(state: TapState, detail: string): void {
   if (!token() || state === lastReportedState) return;
   lastReportedState = state;
+  postStatus(state, detail, false);
+}
+
+let lastHeartbeatAt: number | null = null;
+
+/**
+ * 005 FR-007e. A tap that only speaks when something changes is silent exactly
+ * when it is healthy, and the receiver cannot tell that from a tap that died.
+ *
+ * `hidden` is not decoration: a background tab's timers are throttled to
+ * 1/minute, so the receiver must widen its lapse threshold rather than declare
+ * a healthy tap dead. See tap/heartbeat.ts for why the tap reports this itself.
+ */
+function heartbeat(triggeredByEvent: boolean): void {
+  const decision = shouldSendHeartbeat({
+    now: clock.now(),
+    lastSentAt: lastHeartbeatAt,
+    paired: Boolean(token()),
+    triggeredByEvent,
+  });
+  if (!decision.send) return;
+  lastHeartbeatAt = clock.now();
+  postStatus(status.state, status.detail, true);
+}
+
+function postStatus(state: TapState, detail: string, isHeartbeat: boolean): void {
+  if (!token()) return;
   try {
     GM_xmlhttpRequest({
       method: "POST",
       url: `${INGEST_ORIGIN}/api/tap/status`,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}`, "X-Tap-Install": installId() },
       anonymous: true,
-      data: JSON.stringify({ state, detail: scrubDetail(detail), tapVersion: TAP_VERSION }),
+      data: JSON.stringify({
+        state,
+        detail: scrubDetail(detail),
+        tapVersion: TAP_VERSION,
+        heartbeat: isHeartbeat,
+        // Whether OUR timers are being throttled. The receiver cannot observe
+        // this and must not guess it.
+        hidden: Boolean(W.document?.hidden),
+        league: { espnLeagueId: league.espnLeagueId, season: league.season },
+      }),
     });
   } catch { /* status reporting must never disturb the relay */ }
 }
@@ -384,11 +421,20 @@ function start(): void {
   // per second and then ONE PER MINUTE, which alone would fail the 60s recovery
   // target — hence these triggers, with the timer only as a backstop.
   for (const ev of ["online", "pageshow", "focus"] as const) {
-    W.addEventListener(ev, () => { sequencer.reanchor(); flush(); });
+    W.addEventListener(ev, () => { sequencer.reanchor(); flush(); heartbeat(true); });
   }
   W.document.addEventListener("visibilitychange", () => {
+    // Heartbeat on BOTH transitions. Going hidden must be reported, or the
+    // receiver keeps applying the strict threshold to a tab whose timers have
+    // just been throttled, and declares a healthy tap dead.
+    heartbeat(true);
     if (!W.document.hidden) { sequencer.reanchor(); flush(); }
   });
+
+  // Backstop. Throttled to ~1/minute in a hidden tab, which is why the events
+  // above exist and why `hidden` is reported.
+  setInterval(() => heartbeat(false), HEARTBEAT_MS);
+  heartbeat(false);
 
   render(token() ? "watching" : "not-paired");
 
