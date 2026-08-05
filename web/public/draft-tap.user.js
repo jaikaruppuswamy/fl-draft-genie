@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Draft Genie draft tap
 // @namespace    https://draft.neelamjai.com/
-// @version      0.1.4
+// @version      0.1.5
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
@@ -23,7 +23,7 @@
 "use strict";
 (() => {
   // tap/meta.ts
-  var TAP_VERSION = "0.1.4";
+  var TAP_VERSION = "0.1.5";
   var CONTRACT_VERSION = 1;
   var INGEST_ORIGIN = "https://draft.neelamjai.com";
   var DRAFT_HOST = "fantasydraft.espn.com";
@@ -86,7 +86,11 @@
       return { kind: "ledger", verb, payload: text.slice(5).trim() };
     }
     if (KNOWN_NON_DRAFT.has(verb)) return { kind: "known-non-draft", verb };
-    return { kind: "unrecognised", verb: verb.slice(0, 32) };
+    return { kind: "unrecognised", verb: safeVerb(verb) };
+  }
+  var VERB_SHAPE = /^[A-Z][A-Z0-9_]{0,23}$/;
+  function safeVerb(raw) {
+    return VERB_SHAPE.test(raw) ? raw : `<non-verb:${raw.length}>`;
   }
 
   // tap/decode.ts
@@ -528,13 +532,17 @@
   };
   var badge = null;
   var lastReportedState = null;
+  var GUID_ANY = /\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?/g;
+  function scrubDetail(detail) {
+    return detail.replace(/https?:\/\/\S+/g, "<url>").replace(GUID_ANY, "<id>").replace(/\{[0-9A-Fa-f-]{20,}\}/g, "<id>");
+  }
   function render(state, detail = "") {
     const changed = state !== status.state;
     status.state = state;
     status.detail = detail;
     if (changed) reportStatus(state, detail);
     if (!badge) return;
-    const safe = detail.replace(/https?:\/\/\S+/g, "<url>").replace(/\{[0-9A-Fa-f-]{20,}\}/g, "<id>");
+    const safe = scrubDetail(detail);
     badge.textContent = `Draft Genie ${TAP_VERSION}: ${state}${safe ? ` \u2014 ${safe}` : ""}`;
     badge.style.background = isDegraded(status) ? "#7a2020" : "#20502a";
     badge.title = EXPLANATIONS[state];
@@ -648,7 +656,7 @@
         url: `${INGEST_ORIGIN}/api/tap/status`,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}`, "X-Tap-Install": installId() },
         anonymous: true,
-        data: JSON.stringify({ state, detail: detail.replace(/https?:\/\/\S+/g, "<url>"), tapVersion: TAP_VERSION })
+        data: JSON.stringify({ state, detail: scrubDetail(detail), tapVersion: TAP_VERSION })
       });
     } catch {
     }

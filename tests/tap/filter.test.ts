@@ -4,7 +4,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { classify, isDraftChannel, normalise, KNOWN_NON_DRAFT } from "../../tap/classify";
+import { classify, isDraftChannel, normalise, KNOWN_NON_DRAFT, safeVerb } from "../../tap/classify";
 import { assertTransmittable, filterPickFields } from "../../tap/filter";
 
 const frames = readFileSync("tests/fixtures/tap/capture-2026.jsonl", "utf8")
@@ -96,5 +96,45 @@ describe("isDraftChannel", () => {
   it("rejects anything else, including junk", () => {
     expect(isDraftChannel("https://fantasy.espn.com/x")).toBe(false);
     expect(isDraftChannel("not a url")).toBe(false);
+  });
+});
+
+describe("unrecognised verbs never carry free text (FR-006a)", () => {
+  it("passes a real verb through, so FR-017a stays diagnostic", () => {
+    expect(safeVerb("AUTOSUGGEST")).toBe("AUTOSUGGEST");
+    expect(safeVerb("SELECTING")).toBe("SELECTING");
+    expect(classify("BRANDNEWVERB 1 2\n")).toMatchObject({ kind: "unrecognised", verb: "BRANDNEWVERB" });
+  });
+
+  it("replaces anything NOT verb-shaped with its shape alone", () => {
+    // The old code relayed `verb.slice(0, 32)` — raw wire text, which FR-006a
+    // forbids outright.
+    expect(safeVerb('{"type":"presence","user":"someone"}')).toMatch(/^<non-verb:\d+>$/);
+    expect(safeVerb("hello world")).toMatch(/^<non-verb:\d+>$/);
+  });
+
+  it("cannot emit a TRUNCATED identifier, which defeated every downstream guard", () => {
+    // 32 < 36, so a SWID in the leading token used to arrive clipped — and
+    // assertTransmittable, the ingest boundary check and the privacy sweep all
+    // match only a COMPLETE GUID. Truncation disabled the controls meant to
+    // catch exactly this.
+    const swid = "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}";
+    const out = safeVerb(swid);
+    expect(out).toMatch(/^<non-verb:\d+>$/);
+    expect(out).not.toContain("AAAAAAAA");
+    // And the old behaviour would have produced something no guard would catch:
+    expect(swid.slice(0, 32)).toContain("AAAAAAAA");
+    expect(() => assertTransmittable({ verb: swid.slice(0, 32) })).not.toThrow(); // the gap, demonstrated
+    expect(() => assertTransmittable({ verb: out })).not.toThrow();
+  });
+
+  it("survives the whole committed corpus without emitting free text", () => {
+    for (const f of frames) {
+      const line = f.data;
+      if (typeof line !== "string") continue;
+      const c = classify(line);
+      if (c.kind !== "unrecognised") continue;
+      expect(c.verb).toMatch(/^([A-Z][A-Z0-9_]{0,23}|<non-verb:\d+>)$/);
+    }
   });
 });

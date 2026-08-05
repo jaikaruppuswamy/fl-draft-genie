@@ -216,12 +216,23 @@ Per research §2 the reader is **ours**, never a port of ESPN's: their
 
 ## What 005 must not assume
 
-- **Field meanings are now established** (see the section above, US1 capture
-  2026-08-04) — with one correction to ESPN's own naming: `SELECTED`'s third
-  field is the **round**, not a lineup slot, and there is a **fourth field
-  carrying a member SWID** that the client's parser did not suggest. SC-000 is
-  satisfied for `SELECTED`; the **ledger's internal offsets remain unresolved**
-  and no requirement may depend on them until T016 decodes it.
+- **`SELECTED`'s third field is UNRESOLVED. Do not treat it as the round.**
+  An earlier revision of this section asserted it *was* the round. That reading
+  was **disproven** by the independent oracle: it agreed on only 5 of 70 picks.
+  It is a real, stable protocol field — the ledger's `+12` equals it on 27/27 —
+  but its meaning is unknown, `tap/filter.ts` carries it opaquely as `slot3`,
+  and **no requirement in 005 may depend on it**. In particular it is not a
+  valid pick identity (FR-005a) and cannot be used to derive round or
+  pick-in-round; derive those from `overallPickNumber` and the league's team
+  count instead.
+- **There IS a fourth field carrying a member SWID** on `SELECTED`, which
+  ESPN's own client parser did not suggest. It is stripped at the source and
+  never relayed.
+- **The ledger's internal offsets ARE resolved** (T016): 72 fixed-width records
+  at stride 45 — `+0` teamId, `+4` overallPickNumber, `+8` playerId (`-1` is the
+  empty sentinel), `+12` the same unresolved field as above. What is *not*
+  fixed is the array's byte offset, which varies by league shape and within a
+  single draft; locate it by invariant, never by constant.
 - **Player ids may be negative** (D/ST). Any filter on sign is wrong.
 - **Unrecognised messages are reported, not dropped.** 005 will receive
   `kind: "status"` messages saying the tap saw something it did not understand;

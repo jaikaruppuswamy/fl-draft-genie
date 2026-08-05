@@ -102,15 +102,32 @@ const status: TapStatus = {
 let badge: HTMLElement | null = null;
 let lastReportedState: TapState | null = null;
 
+/**
+ * Scrub a detail string of anything identifying, for BOTH the badge and the
+ * wire.
+ *
+ * These used to differ: the badge stripped URLs and brace-form identifiers,
+ * while the status POST stripped only URLs — so the copy that left the machine
+ * was the less clean of the two, and it is the one that gets logged
+ * server-side. Details come from wrapper errors and ESPN message text, and the
+ * draft-room URL carries the owner's SWID as a query parameter, so this is a
+ * real path for an identifier to escape. One function, used by both.
+ */
+const GUID_ANY = /\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?/g;
+function scrubDetail(detail: string): string {
+  return detail
+    .replace(/https?:\/\/\S+/g, "<url>")
+    .replace(GUID_ANY, "<id>")
+    .replace(/\{[0-9A-Fa-f-]{20,}\}/g, "<id>");
+}
+
 function render(state: TapState, detail = ""): void {
   const changed = state !== status.state;
   status.state = state;
   status.detail = detail;
   if (changed) reportStatus(state, detail);
   if (!badge) return;
-  // Never render a URL: the draft-room URL carries the owner's SWID as a query
-  // parameter, so any detail string is scrubbed before it is displayed.
-  const safe = detail.replace(/https?:\/\/\S+/g, "<url>").replace(/\{[0-9A-Fa-f-]{20,}\}/g, "<id>");
+  const safe = scrubDetail(detail);
   badge.textContent = `Draft Genie ${TAP_VERSION}: ${state}${safe ? ` — ${safe}` : ""}`;
   badge.style.background = isDegraded(status) ? "#7a2020" : "#20502a";
   badge.title = EXPLANATIONS[state];
@@ -236,7 +253,7 @@ function reportStatus(state: TapState, detail: string): void {
       url: `${INGEST_ORIGIN}/api/tap/status`,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}`, "X-Tap-Install": installId() },
       anonymous: true,
-      data: JSON.stringify({ state, detail: detail.replace(/https?:\/\/\S+/g, "<url>"), tapVersion: TAP_VERSION }),
+      data: JSON.stringify({ state, detail: scrubDetail(detail), tapVersion: TAP_VERSION }),
     });
   } catch { /* status reporting must never disturb the relay */ }
 }

@@ -51,5 +51,27 @@ export function classify(raw: string): Classification {
     return { kind: "ledger", verb, payload: text.slice(5).trim() };
   }
   if (KNOWN_NON_DRAFT.has(verb)) return { kind: "known-non-draft", verb };
-  return { kind: "unrecognised", verb: verb.slice(0, 32) };
+  return { kind: "unrecognised", verb: safeVerb(verb) };
+}
+
+/** A real ESPN verb: an uppercase token. Everything observed fits this. */
+const VERB_SHAPE = /^[A-Z][A-Z0-9_]{0,23}$/;
+
+/**
+ * FR-006a: only a value that LOOKS like a verb may leave the machine.
+ *
+ * The unrecognised branch relays this string, and it previously sent
+ * `verb.slice(0, 32)` — the raw leading token of an unknown frame, which is
+ * free text and forbidden. Truncating made it worse rather than safer: 32 is
+ * shorter than a 36-character GUID, so a member SWID in that position arrived
+ * clipped, and every downstream guard (`assertTransmittable`, the ingest's
+ * boundary check, the privacy sweep) matches only a COMPLETE GUID. The
+ * truncation defeated the exact controls meant to catch it.
+ *
+ * Anything not verb-shaped is replaced by its shape alone. That still answers
+ * the diagnostic question FR-017a asks — "something arrived that we do not
+ * understand, and here is how big it was" — while carrying no payload at all.
+ */
+export function safeVerb(raw: string): string {
+  return VERB_SHAPE.test(raw) ? raw : `<non-verb:${raw.length}>`;
 }
