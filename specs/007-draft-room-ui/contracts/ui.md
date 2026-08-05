@@ -35,6 +35,14 @@ contractual, not implementation detail:
    and no effects — 005's stream is explicit that duplicates are expected, and
    treating one as a gap causes a resync storm exactly when the draft is busiest.
 
+### And one property of the screen as a whole
+
+5. **Read-only (FR-020, Constitution VI).** Nothing under the draft room issues a
+   request other than `GET`. This is asserted **structurally**, by reading the
+   source — the same way 006 proves it issues zero ESPN requests, and for the
+   same reason: "the code happens not to contain a write today" is not a property,
+   it is a coincidence waiting to be broken by a convenience helper.
+
 ---
 
 ## 2. What 007 owes 005

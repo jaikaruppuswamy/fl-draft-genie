@@ -295,8 +295,11 @@ manual steps; sever the connection and confirm the screen says so and recovers.
   board, the owner's roster, the turn state, and the current recommendation.
 - **Connection state**: whether the screen is live, reconnecting, or stale, and
   what the owner should do about it.
-- **Recommendation card**: one recommended player as shown — name, value,
-  reasoning, preferred badge, alternatives.
+- **Rail entry**: one recommended player as the rail shows them — name, value,
+  the headline reason, and the preferred badge. The full breakdown lives in the
+  detail panel, not here. *(Called `RailEntry` in the data model; "the rail" is
+  the region, "rail entry" is one row. ROADMAP's phrase "recommendation card",
+  quoted in Input above, means this — one name is used from here on.)*
 
 ## Success Criteria *(mandatory)*
 
@@ -306,13 +309,17 @@ manual steps; sever the connection and confirm the screen says so and recovers.
   screen before the turn begins, measured from the earliest signal available for
   that turn. *(This is 006's SC-005, measurable for the first time.)*
   **Verified offline**, by replaying an archived draft at its real recorded
-  timing — not deferred to draft day (FR-024).
+  timing — not deferred to draft day (FR-024). On the archived corpus, which is
+  6 teams × 12 rounds and therefore gives the owner exactly **12 turns**, 95%
+  rounds up: **all 12 must pass**, at every modelled latency the harness sweeps.
+  The 95% figure is the standard for a real draft, where turn counts are larger.
 - **SC-002**: **100%** of recommendations shown carry a visible value and reason
   with no interaction; none is a bare name. The full breakdown is reachable in
   one interaction for 100% of them.
 - **SC-003**: A pick made by any team appears on screen within **2 seconds** in
   95% of cases and within 10 seconds in all cases — matching the delivery budget
-  005 already meets.
+  005 already meets. Measured in the same offline replay as SC-001, from each
+  frame's recorded arrival to its placement on the board.
 - **SC-004**: After a **mid-draft reload**, the full draft state is restored with
   **zero missing and zero duplicated picks**, in 100% of trials.
 - **SC-005**: After a **dropped connection**, picks that landed during the gap
@@ -321,10 +328,16 @@ manual steps; sever the connection and confirm the screen says so and recovers.
   recommendations and states the reason in **100%** of trials.
 - **SC-007**: A player on the preferred list is visibly badged, with the
   preference's contribution shown, in **100%** of cases where one appears.
-- **SC-008**: The screen remains usable for a **full-length draft** on one device
-  without degradation.
+- **SC-008**: Across a full-length draft the screen's retained state stays
+  **bounded**: raw frames are not accumulated, and the objects held grow only
+  with picks made — never with frames received. Asserted by driving the reducer
+  with more frames than a draft contains and confirming retained state tracks
+  pick count, not frame count. *(Previously "usable without degradation", which
+  named no measurable thing.)*
 - **SC-009**: At a snake turnaround, a recommendation for the owner's **second
-  consecutive pick** is on screen when that turn begins, in at least 95% of cases.
+  consecutive pick** is on screen when that turn begins, in at least 95% of cases
+  — and in **every** such turn of the archived corpus, for the reason given in
+  SC-001.
 - **SC-010**: On deck and on the clock are **distinguishable from the ordinary
   state, and from each other, without reading text** — verifiable from a
   screenshot alone.

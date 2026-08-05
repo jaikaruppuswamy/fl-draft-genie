@@ -118,11 +118,14 @@ web/src/
 └── api.ts                       # EXTEND — recommendation types + the two GETs
 
 tests/room/                      # NEW — node project, no DOM
+├── purity.test.ts               #   the structural guard: FR-010's purity + FR-020's no-write
 ├── reduce.test.ts               #   frames, duplicates, epoch, revision
-├── replay-timing.test.ts        #   SC-001 + SC-009 over the real 72-frame corpus
+├── refresh.test.ts              #   the in-flight/dirty policy, revision staleness, withheld
+├── replay-timing.test.ts        #   SC-001 + SC-003 + SC-009 over the real 72-frame corpus
 ├── recovery.test.ts             #   SC-004 / SC-005 — reload, gap, epoch change
 ├── completion.test.ts           #   SC-011 — each route alone, and in conflict
-└── selectors.test.ts            #   headline choice, forced picks, preferred badge
+├── selectors-grid.test.ts       #   BoardGrid + RosterView — FOUNDATIONAL, not US2
+└── selectors-rail.test.ts       #   RailEntry: headline choice, forced picks, preferred badge
 
 specs/006-recommendation-engine/
 └── contracts/api.md             # AMEND — §1a's obligation, restated as an outcome
@@ -145,7 +148,16 @@ number for the clock; `draftRoomSelectors.ts` turns state into exactly what the
 ratified layout needs; `DraftRoom.tsx` is a rendering shell. A structural guard
 enforces that the reducer imports no platform — the same technique 006 uses on
 `src/engine/`, which was proven capable of failing three ways before being
-trusted.
+trusted. The same guard asserts **FR-020**: nothing under the draft room issues a
+non-GET request, so Constitution VI's read-only promise is structural rather than
+a property the code happens to have.
+
+**`draftRoomSelectors.ts` splits across phases, deliberately.** The *structural*
+selectors — `boardGrid()` and `rosterView()` — are **foundational**, because US3's
+grid and US4's completed summary both need them. Only the *reasoning* selector,
+`railEntries()` with its headline rule, belongs to US2. An earlier draft of this
+plan put the whole module in US2 and then claimed US2/US3/US4 were mutually
+independent, which was simply false: US3 could not start without it.
 
 ## Phase 0 — Research
 
@@ -156,7 +168,7 @@ Complete. See [research.md](research.md). Eight decisions:
 | 1 | Pure reducer; React decides nothing — **this is what removes the DOM test stack** |
 | 2 | Apply events additively; re-read the snapshot only on revision, epoch, gap, first load |
 | 3 | One request in flight + one trailing — bounded by round-trip, not pick rate |
-| 4 | SC-001 measured on a **virtual clock** over the real corpus, no DOM |
+| 4 | SC-001 measured on a **virtual clock** over the real corpus, no DOM; the round trip is **swept 200–2000 ms** rather than picked, and the 12-turn corpus requires **all 12** |
 | 5 | Completion by **either** route; divergence surfaced, not resolved |
 | 6 | Headline = largest-magnitude adjustment; `forcedBy` overrides it |
 | 7 | Three token-based visual states, verifiable from a screenshot |
@@ -215,7 +227,8 @@ No constitutional violations. Table intentionally empty.
 | Risk | Why it is real | Mitigation |
 |---|---|---|
 | **Completion has never fired in production** | `draft_archives` holds zero rows; the only live test had a draft length of 0, making completion unreachable | Two independent routes (research §5), each tested alone, with divergence surfaced rather than resolved |
-| **SC-001 is measured against a model, not a browser** | The harness times the *decision to fetch* plus a modelled round trip — not React's paint | Deliberate: the decision is where it can fail. The residual risk is render cost, bounded by a 180-cell grid, and worth checking once on a real iPad |
+| **SC-001 is measured against a model, not a browser** | The harness times the *decision to fetch* plus a modelled round trip — not React's paint | Deliberate: the decision is where it can fail. The round trip is **swept 200–2000 ms** so the conclusion cannot depend on a chosen constant — the same technique that made 006's floor ratio defensible. The residual risk is render cost, bounded by a 180-cell grid, and worth checking once on a real iPad |
+| **A green replay that proves nothing** | 95% of a 12-turn corpus is 11.4, so "95%" could be read as 11/12 and hide a real miss; and an optimistic round trip would pass by construction | The replay requires **all 12 turns at every swept latency**. Both were found by `/speckit-analyze`, not by running the test |
 | **The rail's headline may pick a dull reason** | "Largest magnitude" is mechanical; the most *interesting* reason may not be the biggest | Mechanical is the point — a selection over 006's own output, not a judgement. Revisit only with evidence from a real draft |
 | **`DraftDiagnostics` and `DraftRoom` overlap** | Two pages reading the same stream can drift | Diagnostics is retained deliberately as a *diagnostic*, not a second product surface. If it drifts, it is the one that gets deleted |
 | **006's contract is still wrong on disk** | It governs an implementation that disagrees with it, and would misdirect a future consumer | Amending it is a task in this feature, not a note |

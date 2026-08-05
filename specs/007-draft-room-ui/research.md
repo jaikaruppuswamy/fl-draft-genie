@@ -128,14 +128,44 @@ wrong moment.
 For every turn belonging to the owner it records:
 
 ```text
-readyAt   = when the reducer last marked a recommendation current
+readyAt   = when the reducer emitted the fetch, PLUS the modelled round trip
 turnAt    = when that turn began
 SC-001 passes for the turn if readyAt <= turnAt
 ```
 
-`readyAt` accounts for the modelled round trip, so the measurement is not
-trivially true. The harness reports the fraction of turns satisfied and asserts
-it meets 95%, and separately asserts the snake-turnaround turns (SC-009).
+### The round trip is a swept parameter, not a magic number
+
+`readyAt` has to include a round trip, or the measurement is trivially true — the
+reducer emits the fetch effect instantly, so without a modelled latency every
+turn "passes" by construction.
+
+But **any single number would be invented.** There is no production measurement
+of the recommendation endpoint's latency, and picking 5 ms would rig the test
+green while picking 5 s would rig it red.
+
+**Decision**: model `ROUND_TRIP_MS = 800`, and **sweep it from 200 ms to
+2000 ms**, asserting SC-001 holds across the whole range.
+
+This is the same technique that made 006's `FLOOR_DENSITY_RATIO` defensible: the
+test asserts the *conclusion is insensitive to the constant*, which is what earns
+the right to have a constant at all. If SC-001 fails at 2000 ms that is real
+information — it means the lead time genuinely is not enough — rather than a
+broken test.
+
+The upper bound is chosen to be pessimistic on purpose: 2 s is roughly ten times
+what the `/board` endpoint costs today, and the recommendation endpoint performs
+the same D1 reads.
+
+### The threshold, on a 12-turn corpus
+
+The archived draft is **6 teams × 12 rounds**, so the owner has exactly **12
+turns**. 95% of 12 is 11.4 — a threshold no integer count can express, and one an
+implementer could reasonably read as "11 of 12 is fine".
+
+**Decision**: the replay asserts **all 12 turns pass**, at every swept round trip.
+The 95% figure in SC-001 is the standard for a *real* draft, where turn counts are
+larger; on this corpus it rounds up to everything, and saying so explicitly is
+what stops a real miss shipping behind a green test.
 
 **Rationale**: a virtual clock is what makes this a *test* rather than an hour
 of waiting. It is also strictly more honest than a live measurement taken once:
@@ -145,6 +175,15 @@ stress.
 **The harness must prove it ran.** It asserts a minimum count of turns evaluated,
 for the reason 005 learned the hard way: an SC-010 test there passed while
 walking a corpus that could not express the failure it was written for.
+
+### SC-003 comes free from the same harness
+
+The harness already holds every frame's true `observedAt` and the moment the
+reducer placed its pick on the grid. Asserting **SC-003** — a pick visible within
+2 s p95, 10 s always — is therefore a second read of data already collected, not
+a second harness. With additive application (§2) the interval is bounded by
+reducer work rather than a round trip, so this should pass with enormous margin;
+asserting it is what turns "should" into a number.
 
 ---
 

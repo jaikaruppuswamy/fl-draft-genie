@@ -82,6 +82,11 @@ draft is the first evidence about which to trust (FR-022b).
 
 Computed from `RoomState` by pure selectors, so the React layer holds no logic.
 
+**Where each selector lives** matters for phasing, and an earlier draft got it
+wrong: `boardGrid()` and `rosterView()` are **foundational**, because US3's grid
+and US4's completed summary both depend on them. Only `railEntries()` — the one
+that applies the headline rule — belongs to US2.
+
 ### `BoardGrid`
 
 `rounds × teams` of `Cell`, matching the ratified layout. A cell is `empty`,
