@@ -261,7 +261,13 @@ function isCorrection(before: Pick[], after: Pick[]): boolean {
 
 /** A ledger refused as belonging to a different draft (011 FR-025). */
 export interface RejectedLedger {
-  reason: "complete_ledger_at_unstarted_session";
+  /**
+   * Which rule refused it. `tap_reported_finished_draft` is the tap saying what
+   * the room SHOWS; `complete_ledger_at_unstarted_session` is this module
+   * concluding it from shape. Kept apart because when one of them is ever wrong,
+   * the first question is which one fired.
+   */
+  reason: "complete_ledger_at_unstarted_session" | "tap_reported_finished_draft";
   rows: number;
   totalPicks: number;
 }
@@ -312,12 +318,30 @@ export interface ReduceResult {
  * That draft has already happened; refusing to re-ingest costs nothing, and the
  * refusal is recorded rather than silent (FR-025).
  */
-function ledgerDescribesAnotherDraft(s: DraftState, ledger: PickObservation[]): boolean {
-  // A session that has observed anything is on its own draft's timeline.
+function ledgerDescribesAnotherDraft(
+  s: DraftState,
+  ledger: PickObservation[],
+  statuses: Observation["statuses"],
+): boolean {
+  // A session that has observed anything is on its own draft's timeline. This
+  // precedes the tap's own report deliberately: the reload case is a session
+  // WITH picks receiving a ledger for a draft the tap has correctly called
+  // finished, and treating that as contamination would break recovery at the
+  // exact moment a draft ends.
   if (s.picks.length > 0) return false;
-  // `totalPicks === 0` means the draft's length is not established, so
-  // "complete" cannot be judged — and claiming it could would be the same
-  // mistake as 006 reading an unknown total as a real one.
+
+  // 011 T038 — the DIRECT signal, where present. The tap is attached to the
+  // room; it does not have to infer what the room is showing. Authoritative
+  // when it arrives, and it does not need `totalPicks` — which matters, because
+  // a freshly reconnected session often has no pre-draft data yet, and that is
+  // precisely when a stale tab's ledger lands.
+  if (statuses.some((st) => st.state === "draft-finished")) return true;
+
+  // ...and NEVER depended on alone (research §2): taps update on their own
+  // schedule, so this inference must stand up for every tap still running an
+  // older build. `totalPicks === 0` means the draft's length is not
+  // established, so "complete" cannot be judged — claiming it could would be
+  // the same mistake as 006 reading an unknown total as a real one.
   if (s.totalPicks <= 0) return false;
 
   let covered = 0;
@@ -333,12 +357,14 @@ export function reconcile(state: DraftState, obs: Observation): ReduceResult {
   let pending = state.pending;
   let rejectedLedger: RejectedLedger | null = null;
   if (obs.ledger) {
-    if (ledgerDescribesAnotherDraft(state, obs.ledger)) {
+    if (ledgerDescribesAnotherDraft(state, obs.ledger, obs.statuses)) {
       // RECORDED, never silent (FR-025): a genuine recovery must never be
       // mistaken for contamination, and the only way to tell them apart later
       // is to have said which this was.
       rejectedLedger = {
-        reason: "complete_ledger_at_unstarted_session",
+        reason: obs.statuses.some((st) => st.state === "draft-finished")
+          ? "tap_reported_finished_draft"
+          : "complete_ledger_at_unstarted_session",
         rows: obs.ledger.length,
         totalPicks: state.totalPicks,
       };

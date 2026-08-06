@@ -15,6 +15,7 @@ function harness(initial: TapState = "relaying") {
   let nextId = 1;
   const ports: DraftEndPorts = {
     render: vi.fn((s: TapState) => { state = s; }),
+    announce: vi.fn(),
     flush: vi.fn(),
     currentState: () => state,
     setTimer: (fn, ms) => { const id = nextId++; timers.push({ fn, ms, id }); return id; },
@@ -153,5 +154,58 @@ describe("DraftEnd", () => {
     h.de.notePicks([2]);
     h.de.notePicks([3]);
     expect(h.pending()).toBe(1); // never accumulates
+  });
+});
+
+describe("011 T038 — announcing completion ON THE RELAY", () => {
+  // The badge and the status POST already say `draft-finished`, and neither
+  // reaches a leaguemate's session: one is for the human at the keyboard, the
+  // other is per-connection. This is the signal that travels with the frames.
+
+  it("announces once, with the counts as evidence", () => {
+    const h = harness();
+    h.de.notePicks(ids(1, 72), 72);
+
+    expect(h.ports.announce).toHaveBeenCalledTimes(1);
+    expect(h.ports.announce).toHaveBeenCalledWith({ seen: 72, total: 72 });
+  });
+
+  it("announces BEFORE flushing, so the signal ships with its own evidence", () => {
+    // A batch late, the receiver has already applied the ledger it describes.
+    const h = harness();
+    const order: string[] = [];
+    (h.ports.announce as ReturnType<typeof vi.fn>).mockImplementation(() => order.push("announce"));
+    (h.ports.flush as ReturnType<typeof vi.fn>).mockImplementation(() => order.push("flush"));
+
+    h.de.notePicks(ids(1, 72), 72);
+    expect(order).toEqual(["announce", "flush"]);
+  });
+
+  it("stays silent while the draft is still running", () => {
+    // The whole value is that it means something. Announced on every pick, it
+    // would be noise, and the receiver could not use it to reject anything.
+    const h = harness();
+    for (const id of ids(1, 71)) h.de.notePicks([id]);
+    h.de.notePicks(ids(1, 71), 72);
+
+    expect(h.ports.announce).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when the total is unknown, however many picks arrive", () => {
+    // Rule 2 of this module: never guess the denominator. A false completion is
+    // the worse error because it stops the relay.
+    const h = harness();
+    h.de.notePicks(ids(1, 200));
+
+    expect(h.ports.announce).not.toHaveBeenCalled();
+    expect(h.de.finished).toBe(false);
+  });
+
+  it("does not re-announce as more frames arrive after the end", () => {
+    const h = harness();
+    h.de.notePicks(ids(1, 72), 72);
+    h.de.notePicks(ids(1, 72), 72);
+
+    expect(h.ports.announce).toHaveBeenCalledTimes(1);
   });
 });

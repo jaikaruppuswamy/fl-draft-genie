@@ -28,6 +28,21 @@ export interface DraftEndPorts {
   render(state: TapState, detail?: string): void;
   /** Deliver what is already buffered. Completion stops NEW picks, not delivery. */
   flush(): void;
+  /**
+   * 011 T038 — say, ON THE RELAY, that this room shows a finished draft.
+   *
+   * The badge and the status POST both already carry `draft-finished`, and
+   * neither reaches the thing that needs it: the badge is for the human at the
+   * keyboard, and the status POST is per-connection, so under fan-out it never
+   * arrives at a leaguemate's session. This travels with the frames, which is
+   * the only channel every session in the league actually reads.
+   *
+   * It makes the receiver's ledger rule DIRECT where it is present. It does not
+   * replace that rule (research §2): taps update on their own schedule, so a
+   * receiver that depended on this alone would be blind to every tap still
+   * running yesterday's build.
+   */
+  announce(completion: { seen: number; total: number }): void;
   currentState(): TapState;
   setTimer(fn: () => void, ms: number): unknown;
   clearTimer(handle: unknown): void;
@@ -69,6 +84,9 @@ export class DraftEnd {
     if (this.over || this.total <= 0 || this.seen.size < this.total) return;
     this.over = true;
     this.clear();
+    // Announced BEFORE the flush, so the signal leaves in the same delivery as
+    // the frames that produced it rather than trailing a batch behind.
+    this.ports.announce({ seen: this.seen.size, total: this.total });
     this.ports.render("draft-finished", `${this.seen.size}/${this.total} picks`);
     this.ports.flush();
   }

@@ -284,3 +284,33 @@ function safeParseMessages(json: string): unknown[] {
     return [];
   }
 }
+
+/**
+ * The newest batch in the log for this scope, as a cursor — or null if empty.
+ *
+ * 011 T042: a reset needs somewhere to stand. Clearing the session's cursor
+ * rewinds it to the start of the log, and the log deliberately OUTLIVES a reset
+ * (FR-029, capture history is never destroyed) — so the next pump would
+ * faithfully re-import the draft the reset just discarded. That is the
+ * 2026-08-06 "room is loaded with a previous draft" failure, arriving from
+ * inside instead of from a stale tab.
+ *
+ * Same keyset ordering as `readBatchesAfter`, because a floor read on a
+ * different ordering than the reads it bounds is not a floor.
+ */
+export async function latestBatchCursor(
+  db: D1Database,
+  scope: { accountId: string; espnLeagueId: string; season: number },
+): Promise<FeedCursorRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, received_at
+         FROM tap_batches
+        WHERE account_id = ? AND espn_league_id = ? AND season = ?
+        ORDER BY received_at DESC, id DESC
+        LIMIT 1`,
+    )
+    .bind(scope.accountId, scope.espnLeagueId, scope.season)
+    .first<{ id: string; received_at: string }>();
+  return row ? { receivedAt: row.received_at, id: row.id } : null;
+}

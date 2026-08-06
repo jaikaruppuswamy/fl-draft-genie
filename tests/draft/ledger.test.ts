@@ -145,3 +145,54 @@ describe("the refusal is RECORDED, not silent (FR-025, SC-007)", () => {
     expect(r.state.picks.length).toBeGreaterThan(0);
   });
 });
+
+describe("the tap's direct report (011 T038, research §2)", () => {
+  // The tap is attached to the room; it does not have to infer what the room is
+  // showing. Authoritative when present — and never depended on alone, since
+  // taps update on their own schedule.
+  const finished = [{ state: "draft-finished", observedAt: "2026-08-06T00:00:00.000Z" }];
+
+  it("rejects on the tap's report even when the ledger looks PARTIAL", () => {
+    // Shape alone cannot catch this: a partial ledger at a fresh session is the
+    // normal start of a live draft. Only the tap knows the room is finished.
+    const r = reconcile(fresh(), obs({ ledger: completeLedger.slice(0, 3), statuses: finished }));
+    expect(r.state.picks).toHaveLength(0);
+    expect(r.rejectedLedger?.reason).toBe("tap_reported_finished_draft");
+  });
+
+  it("rejects on the tap's report even when the draft's LENGTH is unknown", () => {
+    // The case that matters most in practice: a freshly reconnected session has
+    // no pre-draft data, so `totalPicks` is 0 and the inference cannot fire —
+    // and that is exactly when a stale tab's ledger arrives.
+    const unknownLength = initialState({ order: [1, 2, 3, 4, 5, 6], myTeamId: 1, totalPicks: 0 });
+    const r = reconcile(unknownLength, obs({ ledger: completeLedger, statuses: finished }));
+    expect(r.state.picks).toHaveLength(0);
+    expect(r.rejectedLedger?.reason).toBe("tap_reported_finished_draft");
+  });
+
+  it("does NOT break recovery — a session with picks still accepts", () => {
+    // The end of a real draft: the tap correctly reports finished, and the
+    // ledger for THIS draft arrives. Refusing here would discard the last picks
+    // of every draft, at the moment they matter most.
+    const started = reconcile(fresh(), obs({ picks: [pick(1)] })).state;
+    const r = reconcile(started, obs({ ledger: completeLedger, statuses: finished }));
+    expect(r.state.picks.length).toBeGreaterThan(1);
+    expect(r.rejectedLedger).toBeUndefined();
+  });
+
+  it("is not depended on ALONE — the inference still fires without any report", () => {
+    // An older tap sends no such status. The 2026-08-06 contamination must
+    // still be caught for every tap that has not updated.
+    const r = reconcile(fresh(), obs({ ledger: completeLedger, statuses: [] }));
+    expect(r.state.picks).toHaveLength(0);
+    expect(r.rejectedLedger?.reason).toBe("complete_ledger_at_unstarted_session");
+  });
+
+  it("ignores unrelated statuses", () => {
+    // Any status arriving must not become a rejection signal.
+    const noisy = [{ state: "relaying", observedAt: "2026-08-06T00:00:00.000Z" }];
+    const r = reconcile(fresh(), obs({ ledger: completeLedger.slice(0, 3), statuses: noisy }));
+    expect(r.state.picks.length).toBeGreaterThan(0);
+    expect(r.rejectedLedger).toBeUndefined();
+  });
+});

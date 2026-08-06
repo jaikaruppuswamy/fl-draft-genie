@@ -26,7 +26,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env";
-import { readBatchesAfter, type FeedCursorRow } from "../db/tap";
+import { latestBatchCursor, readBatchesAfter, type FeedCursorRow } from "../db/tap";
 import { markSessionStatus } from "../db/draft";
 import { foldBatches, type FeedBatch, type RelayMessage } from "./feed";
 import { initialState, reconcile, trust, frontier, type DraftEvent, type DraftState } from "./reconcile";
@@ -234,7 +234,12 @@ export class DraftSession extends DurableObject<Env> {
       deliverySeq: 0,
       eventWindow: [],
     });
-    await this.ctx.storage.delete("cursor");
+    // Rewind to the START OF THIS DRAFT, not the start of the log. After a
+    // reset the log still holds the previous draft (FR-029), and a rebuild that
+    // rewound past the floor would restore exactly what the reset discarded.
+    const floor = await this.ctx.storage.get<FeedCursorRow>("logFloor");
+    if (floor) await this.ctx.storage.put("cursor", floor);
+    else await this.ctx.storage.delete("cursor");
 
     // Drain the whole log, not just the first page: a full draft is more than
     // one READ_LIMIT window, and stopping early would rebuild a partial draft
@@ -273,6 +278,55 @@ export class DraftSession extends DurableObject<Env> {
     const s = await this.load();
     await this.ctx.storage.put("state", { ...s.state, complete: false });
     await this.ctx.storage.put("aborted", true);
+  }
+
+  /**
+   * 011 T042 — clear the draft, keep the session (FR-027).
+   *
+   * The distinction from `shutdown()` is the entire point, and it is one flag:
+   * shutdown sets `closed`, and `arm()` returns early on `closed`. That makes
+   * shutdown PERMANENT — which is why, before this existed, the only way to run
+   * a second mock draft was to disconnect the league and reconnect it. That
+   * mints a new connection id and took a preferred player with it on
+   * 2026-08-06.
+   *
+   * So this deletes the draft's own keys by name rather than calling
+   * `deleteAll()`. Naming them is deliberate: a future key that ought to
+   * survive a reset (an enablement, a retained frame index) would be destroyed
+   * silently by a blanket wipe, and nothing here would fail.
+   *
+   * THE CURSOR IS MOVED FORWARD, NOT CLEARED, and that is the subtle half.
+   * Clearing it rewinds the session to the start of a log that deliberately
+   * OUTLIVES the reset (FR-029) — so the very next pump would faithfully
+   * re-import the draft just discarded. The floor is recorded so `rebuild()`,
+   * which legitimately rewinds to recover from storage loss, rewinds only to
+   * the start of THIS draft rather than into the previous one.
+   */
+  async reset(): Promise<void> {
+    const s = await this.load();
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.delete([
+      "state",
+      "cursor",
+      "epoch",
+      "deliverySeq",
+      "eventWindow",
+      "aborted",
+    ]);
+
+    const floor = s.scope
+      ? await latestBatchCursor(this.env.DB, {
+          accountId: s.scope.accountId,
+          espnLeagueId: s.scope.espnLeagueId,
+          season: s.scope.season,
+        })
+      : null;
+    if (floor) await this.ctx.storage.put({ cursor: floor, logFloor: floor });
+    else await this.ctx.storage.delete("logFloor");
+
+    // `scope` stays: it is the league, the season and this manager's team, none
+    // of which the reset is about. `closed` is never set — that is the flag
+    // that would make this permanent.
   }
 
   /** Stop everything and forget. Called when a league is disconnected. */

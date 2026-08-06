@@ -80,7 +80,9 @@ describe("live-draft corpus", () => {
 
   it("the ledger's pick ordinals match ESPN's, so the decoder is right", () => {
     const byPlayer = new Map(oracle.picks.map((p) => [p.playerId, p]));
-    const entries = ledgers.flatMap((m) => m.payload as { playerId: number; overallPickNumber: number }[]);
+    const entries = ledgers.flatMap(
+      (m) => m.payload as unknown as { playerId: number; overallPickNumber: number }[],
+    );
     expect(entries.length).toBeGreaterThan(0);
     for (const e of entries) {
       expect(e.overallPickNumber, `player ${e.playerId}`).toBe(byPlayer.get(e.playerId)!.overallPickNumber);

@@ -173,7 +173,7 @@ progress and confirm its own ledger still restores it**.
 - [X] T035 [US4] Implement the admission rule in `src/draft/reconcile.ts` around `applyLedger` per research §2 — a finished draft cannot be the first thing a session learns (FR-023)
 - [X] T036 [US4] Stop selecting a ledger by coverage alone (FR-024). Coverage stays correct for choosing between ledgers **of the same draft**, which is what it was built for; it is what let a finished draft's ledger win outright
 - [X] T037 [US4] Record every rejection with its reason (FR-025, SC-007), so a genuine recovery is never mistaken for contamination — and assert **zero** of a rejected ledger's picks entered the session
-- [ ] T038 [P] [US4] Report draft-room completion from the tap, building on `tap/draftEnd.ts`, as the direct signal where present (research §2) — authoritative when available, never depended on alone
+- [X] T038 [P] [US4] Report draft-room completion from the tap, building on `tap/draftEnd.ts`, as the direct signal where present (research §2) — authoritative when available, never depended on alone
 - [X] T039 [US4] Add a regression test to `tests/draft/rebuild.test.ts` proving mid-draft rebuild still works — the containment rule must break **no** recovery case (FR-026, SC-008)
 
 ---
@@ -188,11 +188,11 @@ survive and the preferred list is untouched.
 - [X] T040 [US5] Write reset tests FIRST in `tests/draft/reset.test.ts`: state and alarm cleared, **`closed` NOT set**, and the session arms again afterwards (FR-031). `shutdown()` sets `closed` and `arm()` returns early on it — that is why the only workaround was disconnect-and-reconnect
 - [X] T041 [US5] Clear the completion stamp and the status **together** in `src/draft/session.ts` and `src/db/draft.ts`, and stop arming from producing a session that is `armed` while carrying `completed_at` (FR-044). Observed live 2026-08-06 on a freshly reconnected league; such a session can **never** transition to `live`, because that transition requires `completed_at IS NULL`. **This precedes the reset implementation** — clearing the stamp is only coherent once the split state cannot exist
 - [X] T042 [US5] Add `reset()` to `src/draft/session.ts` clearing state and the alarm in place, leaving the object armable (FR-027)
-- [ ] T043 [US5] Implement the **shared live-draft guard** — one implementation serving both an owner-initiated reset (FR-030) and a sync-initiated void (FR-031d). Determine "live" from the session's armed state and the tap **heartbeat**, never from how recently a pick arrived (FR-031d1, FR-031d2): 005 measured 90 s+ gaps between human picks, so a recency test would void a live draft while a manager deliberates
-- [ ] T044 [US5] Expose reset as an owner action, refused or explicitly confirmed during a live draft (FR-030)
-- [ ] T045 [US5] Assert reset preserves the preferred list, league settings and tap enablement (FR-028, SC-009) — the workaround destroyed a preferred player on 2026-08-06
-- [ ] T046 [US5] Assert reset preserves retained frames and any archived draft (FR-029) — capture history is never destroyed by a reset
-- [ ] T047 [US5] Confirm reset is per manager under fan-out and cannot disturb a leaguemate's session
+- [X] T043 [US5] Implement the **shared live-draft guard** — one implementation serving both an owner-initiated reset (FR-030) and a sync-initiated void (FR-031d). Determine "live" from the session's armed state and the tap **heartbeat**, never from how recently a pick arrived (FR-031d1, FR-031d2): 005 measured 90 s+ gaps between human picks, so a recency test would void a live draft while a manager deliberates
+- [X] T044 [US5] Expose reset as an owner action, refused or explicitly confirmed during a live draft (FR-030)
+- [X] T045 [US5] Assert reset preserves the preferred list, league settings and tap enablement (FR-028, SC-009) — the workaround destroyed a preferred player on 2026-08-06
+- [X] T046 [US5] Assert reset preserves retained frames and any archived draft (FR-029) — capture history is never destroyed by a reset
+- [X] T047 [US5] Confirm reset is per manager under fan-out and cannot disturb a leaguemate's session
 
 ---
 
