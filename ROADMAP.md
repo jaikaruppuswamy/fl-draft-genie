@@ -18,6 +18,7 @@ Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
  └─→ 010 draft-tap ✅ ─→ 005 draft-monitor ✅ ─┘                  ├─→ 007 draft-room-ui ✅
                                    └──────────────────────────────┴─→ 008 draft-replay-lab ✅
 009 deployment-ops (exercised continuously since 001; hardening at the end)
+011 shared-draft-sessions (found 2026-08-06 in live use; fixes 005/007/008)
 ```
 
 **010 is numbered after 009 but sequenced before 005** — inserting it as 006
@@ -549,6 +550,46 @@ app's session (plan-level).
 **Governance**: introduces a browser artifact the constitution's Technical
 Constraints do not contemplate ("responsive web app … No native app").
 Requires an explicit `/speckit-constitution` amendment before implementation.
+
+## 011 — shared-draft-sessions
+
+**Added 2026-08-06**, from five defects found in one evening while preparing a
+mock draft — none of them by a test.
+
+**The organising insight came from a question the owner asked, not from the
+code**: *"If a draft is tapped by one manager in a league, why can't everyone
+else receive those tap events?"* The answer is that **nobody decided they
+shouldn't**. Delivery is account-scoped because a session is addressed by
+connection and season, and that is where the owner's team id happens to live.
+No requirement anywhere forbids frames crossing accounts, and the
+constitution's isolation rule enumerates *"leagues, credentials, preferred
+lists"* — not the picks in a draft everyone in the room is watching.
+
+**The rule the feature turns on:**
+
+> **A draft's frames are LEAGUE-SHARED. A manager's perspective — team, league
+> settings, preferred list — is PER-ACCOUNT.**
+
+All five defects are the system conflating those two:
+
+1. **Live delivery is account-scoped.** Measured: a leaguemate relayed **71
+   batches** while the owner relayed 1, in the same league, and the owner
+   received nothing. This also matters beyond convenience — live monitoring
+   needs desktop Chrome (010's permanent limitation), so a leaguemate's tap is
+   the only route for anyone drafting from an iPad or the ESPN app.
+2. **"Cannot reach Draft Genie" is shown when no session is armed** — alarming,
+   wrong, and it fired seven minutes before a draft.
+3. **A completed draft room's ledger loads into a fresh session**, marking ~72
+   available players as gone. Worse than a blank screen: it looks like it works.
+4. **No way to reset a session.** The only workaround disconnects the league,
+   which mints a new connection and destroyed a preferred player.
+5. **Retained frames are scoped by connection, not account**, so a reconnect
+   orphans capture history from 008's lab. The correct fix is narrower than the
+   one shipped: exclude a leaguemate's *perspective*, not their frames.
+
+**Not in 009.** 009 changes how the product is operated and observed; this
+changes what it does. Alerting that a session died is 009's; deciding what a
+session *is* is this feature's.
 
 ## 009 — deployment-ops
 
