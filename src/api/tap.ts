@@ -202,10 +202,40 @@ export function tapRoutes() {
     // The league must belong to the authenticated account (FR-018 / 005
     // FR-007d). Both lookups are account-scoped, so ownership is enforced by
     // the query rather than by a comparison we could forget.
+    //
+    // That claim was true of the ACCOUNT and false of the LEAGUE. `findConnection`
+    // looks the row up BY league, so the body is validated on that path. But
+    // `getConnectionById` validates id + account only — nothing compared
+    // `body.league` against the row it returned, and `body.league` was then used
+    // authoritatively for the stored row, the arming and the session address.
+    // `tap_batches.espn_league_id` is plain TEXT with no foreign key, so a batch
+    // could be stored stamped with a league the sender has nothing to do with.
+    //
+    // Inert while frame reads are account-scoped — only the author could read
+    // the forged row. 011's league-scoped read is what would arm it, so this is
+    // a precondition of that change rather than a follow-up.
     const connection = body.connectionId
       ? await getConnectionById(c.env.DB, verified.accountId, body.connectionId)
       : await findConnection(c.env.DB, verified.accountId, body.league.espnLeagueId, body.league.season);
     if (!connection) {
+      return withCors(
+        jsonError(
+          403,
+          "not_your_league",
+          "That ESPN league is not connected to this Draft Genie account. Connect it first, then re-open the draft room.",
+        ),
+        cors,
+      );
+    }
+
+    // Refused rather than silently corrected. A tap whose body disagrees with
+    // its own connection is either misconfigured or lying, and both are worth
+    // hearing about — the same 403 either way, because the distinction is not
+    // the sender's business.
+    if (
+      body.league.espnLeagueId !== connection.espn_league_id ||
+      body.league.season !== connection.season
+    ) {
       return withCors(
         jsonError(
           403,
@@ -252,8 +282,11 @@ export function tapRoutes() {
         {
           accountId: verified.accountId,
           connectionId: connection.id,
-          espnLeagueId: body.league.espnLeagueId,
-          season: body.league.season,
+          // From the VERIFIED row, never the body — see the check above. The
+          // 403 and this are deliberately two controls: if one is ever relaxed,
+          // the other still holds.
+          espnLeagueId: connection.espn_league_id,
+          season: connection.season,
           installId: body.install,
           sessionId: body.session,
           firstSeq: body.messages[0]!.seq,
@@ -278,7 +311,7 @@ export function tapRoutes() {
     // dropped nudge therefore costs latency, never a pick, and the session's
     // 5 s safety alarm bounds that latency inside SC-001's 10 s ceiling.
     // FR-007g: any frame arms. Cheap and idempotent (reads 001's snapshot).
-    await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at, execCtx(c));
+    await armSession(c.env, connection, verified.accountId, connection.espn_league_id, connection.season, at, execCtx(c));
 
     if (body.messages.length > 0) {
       // Accessing `executionCtx` THROWS when the app is invoked without one.
@@ -291,7 +324,7 @@ export function tapRoutes() {
         ctx.waitUntil(
           (async () => {
             try {
-              await sessionStub(c.env, connection.id, body.league.season).nudge();
+              await sessionStub(c.env, connection.id, connection.season).nudge();
             } catch (e) {
               logError("tap nudge failed; the session will catch up on its alarm", e as Error);
             }
@@ -348,7 +381,7 @@ export function tapRoutes() {
         body.league.season,
       );
       if (connection) {
-        await armSession(c.env, connection, verified.accountId, body.league.espnLeagueId, body.league.season, at, execCtx(c));
+        await armSession(c.env, connection, verified.accountId, connection.espn_league_id, connection.season, at, execCtx(c));
         // `hidden` decides WHICH lapse threshold applies: a background tab's
         // timers throttle to ~1/minute, and one threshold would declare a
         // healthy backgrounded tap dead.
