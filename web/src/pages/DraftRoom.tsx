@@ -74,6 +74,27 @@ const posPill = (pos: string, big = false): CSSProperties => ({
   fontWeight: 700,
   fontSize: big ? 11 : 10,
 });
+/**
+ * Wrap to TWO lines instead of truncating.
+ *
+ * At 12 columns even a full-width viewport gives each manager ~120px, and
+ * `nowrap + ellipsis` turned "Kenji" into "Ke…" and most player names into
+ * initials. Height is the cheap dimension here — the owner scrolls vertically
+ * without complaint — so names fold rather than vanish.
+ */
+const twoLines = (fontSize: number, lineHeight = 1.15): CSSProperties => ({
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+  overflowWrap: "anywhere",
+  fontSize,
+  lineHeight,
+  // Reserve both lines so cells in a row stay aligned whether their name wraps
+  // or not — a ragged grid is harder to scan than a slightly taller one.
+  minHeight: `${(fontSize * lineHeight * 2).toFixed(1)}px`,
+});
+
 const card: CSSProperties = {
   borderRadius: "var(--radius-lg)",
   background: "var(--color-surface)",
@@ -310,7 +331,7 @@ export default function DraftRoom() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 318px", gap: "var(--space-3)" }}>
+      <div className="room-layout">
         {/* ================= the draft board ================= */}
         {/* `alignContent: start` matters: without it this column stretches to
             match the taller rail and its three grid rows balloon — the team
@@ -347,11 +368,7 @@ export default function DraftRoom() {
                 >
                   <strong
                     style={{
-                      fontSize: 12,
-                      lineHeight: 1.15,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
+                      ...twoLines(12),
                       color: mine ? "var(--color-accent-100)" : "var(--color-text)",
                     }}
                   >
@@ -365,6 +382,7 @@ export default function DraftRoom() {
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
+                      minHeight: 12,
                       color: mine ? "var(--color-accent-200)" : "var(--color-neutral-600)",
                     }}
                   >
@@ -431,11 +449,7 @@ export default function DraftRoom() {
                       >
                         <strong
                           style={{
-                            fontSize: 12,
-                            lineHeight: 1.1,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
+                            ...twoLines(12, 1.1),
                             color: info ? (INK[info.position] ?? "var(--color-text)") : "var(--color-neutral-600)",
                           }}
                         >
@@ -465,7 +479,7 @@ export default function DraftRoom() {
         </div>
 
         {/* ================= the rail ================= */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)", minWidth: 0 }}>
+        <div className="room-rail">
           {/* 1. turn pill — FR-023's three visual states */}
           <div
             style={{

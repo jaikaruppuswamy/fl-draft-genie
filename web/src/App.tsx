@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { apiClient, RequestError } from "./api";
 import AccountMenu from "./components/AccountMenu";
 import SignIn from "./pages/SignIn";
@@ -33,8 +33,10 @@ function useSessionProbe() {
 }
 
 function Layout({ onSignOut }: { onSignOut: () => void }) {
+  // The draft room needs the whole screen; every other page reads better narrow.
+  const wide = useLocation().pathname.endsWith("/room");
   return (
-    <div className="shell">
+    <div className={wide ? "shell wide" : "shell"}>
       <header className="topbar">
         <Link to="/" className="brand">
           Draft <span>Genie</span>

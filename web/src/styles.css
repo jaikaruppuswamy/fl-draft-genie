@@ -238,6 +238,32 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* — app layout layer (Draft Genie structural classes on Organic tokens) — */
 .shell { max-width: 920px; margin: 0 auto; padding: var(--space-3) var(--space-4) var(--space-8); }
+/* 007: the draft room is a 12-column grid read at arm's length on an iPad.
+   920px squeezes every manager column to an ellipsis, so this page — and only
+   this page — takes the full viewport width. Vertical scrolling is fine;
+   horizontal truncation is not. */
+.shell.wide { max-width: none; padding-left: var(--space-3); padding-right: var(--space-3); }
+
+/* 007 — the draft room's two columns.
+   The ratified design's 318px rail assumes a desktop-width viewport. On an
+   iPad in landscape (~1024px) that rail takes a third of the screen and squeezes
+   twelve manager columns to ~50px each, where every name truncates.
+   Below 1200px the rail moves BELOW the board so the grid gets the full width,
+   which is the dimension that cannot be recovered by scrolling. */
+.room-layout { display: grid; grid-template-columns: minmax(0, 1fr) 318px; gap: var(--space-3); }
+/* Declared here rather than inline: an inline `display` wins over the media
+   query below, which silently defeated the whole responsive rule. */
+.room-rail { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+@media (max-width: 1200px) {
+  .room-layout { grid-template-columns: minmax(0, 1fr); }
+  /* Side by side under the board rather than a long stack, so the
+     recommendation is still one glance away. */
+  .room-rail {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    align-items: start;
+  }
+}
 
 .topbar {
   display: flex;
