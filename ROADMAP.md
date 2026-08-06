@@ -16,7 +16,7 @@ Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
  ├─→ 002 projections-pipeline ✅ ─→ 003 board-refinements ✅
  ├─→ 004 context-signals ✅ ────────┬─→ 006 recommendation-engine ✅ ┐
  └─→ 010 draft-tap ✅ ─→ 005 draft-monitor ✅ ─┘                  ├─→ 007 draft-room-ui ✅
-                                   └──────────────────────────────┴─→ 008 draft-replay-lab
+                                   └──────────────────────────────┴─→ 008 draft-replay-lab ⚙️
 009 deployment-ops (exercised continuously since 001; hardening at the end)
 ```
 
@@ -59,6 +59,15 @@ on-demand refresh.
 season-long projections only; every season's projection sets retained as
 history for future trend signals; positional ranks on the board; draft-day
 top-up guarantees same-morning projections.
+
+> ⚠️ **The retention decision is NOT what shipped** (found 2026-08-05 during
+> 008's clarify). `pruneSets()` runs `DELETE FROM projection_sets WHERE season <
+> ?` on every scheduled-maintenance cron, and `player_projections` cascades from
+> it — so prior seasons are destroyed, not retained, and the 2026 sets go when
+> the clock rolls to 2027. 008 works around it by snapshotting inputs into each
+> corpus entry rather than depending on the tables, so nothing is urgent; but
+> the ratified decision and the code still disagree, and the "future trend
+> signals" this retention was for have no history to draw on. **Open for 002.**
 
 ## 003 — board-refinements ✅ SHIPPED (2026-08-02)
 
@@ -290,7 +299,96 @@ survives a page reload mid-draft.
 audio/visual alert when the user is on the clock or on deck; whether preferred
 lists are per-league or shared across leagues (recommend per-league).
 
-## 008 — draft-replay-lab
+## 008 — draft-replay-lab ⚙️ BUILT (2026-08-05) — gate passed, corpus pending
+
+**Built 2026-08-05.** Pure core in `src/lab/` (corpus, codec, setChoice, replay,
+scorecard, compare, behaviour, simulate, rng), I/O in `scripts/lab-*.ts`, 178
+tests in `tests/lab/`. **No migration, no endpoint, no page, no new dependency.**
+SC-008 verified against the **Worker bundle** (`wrangler deploy --dry-run`) — no
+lab symbol reaches it.
+
+**The corpus entry's input snapshot is a serialized `EngineBundle`.** That single
+decision is the architecture: the engine's slow half is exactly what a replay
+needs to freeze, so `recommend(bundle, state)` is called the way production
+calls it, with no adapter to drift. It also makes Principle III structural — the
+board in a bundle is already scored in the league's own currency, so a replay
+cannot accidentally score in generic PPR. The *output* is deliberately not
+stored; snapshotting the ranked board would make every replay return August's
+answer forever.
+
+> ✅ **GATE 0 PASSED (2026-08-05)**, run by the owner against a **2025** league —
+> a season the projections pipeline never covered, which is the case that
+> matters. `/speckit-analyze` caught its absence as a constitution violation
+> (verify-first is a MUST); 005's Gate 0 had established the post-completion
+> flush only for the *current* season, on a draft that had just finished.
+>
+> **140 filled picks, 0 skeleton rows, draft order present — by BOTH URL forms**
+> (`/seasons/…` and `/leagueHistory/…?seasonId=`), agreeing pick-for-pick. Three
+> consequences: `pick_sequence_only` has a real source so Phase 5 proceeds;
+> `src/espn/client.ts` needs no second URL shape; and zero skeleton rows is the
+> sharpest confirmation available that the completed-draft view is the reliable
+> one — 005's Gate 0 found the frozen `playerId: -1` shell during a *live*
+> draft, and this is the same endpoint after completion. Full result in
+> `specs/008-draft-replay-lab/research.md` §12.
+>
+> **Still outstanding**: re-admitting the already-captured drafts as `--class
+> test` (needs D1 access), and importing a real past season (needs the ESPN
+> cookie pair).
+
+**Ratified in clarify (2026-08-05)** — five decisions, already recorded below.
+
+**What the mutation sweep found.** Six mutations, all killed, with the full 178
+tests confirmed to run each time (006's M7 reported SURVIVED because only 10 of
+102 executed — the test **count** is what caught it). One survived at first, and
+it was real: `replayEntry` fed `observed` — built from each pick's own `teamId` —
+into `teamAt`, which prefers observation over projection. The turn was therefore
+derived from the field FR-006 says never to read, and no fixture could tell,
+because every fixture is internally consistent. **The code changed, not the
+test**: the schedule now comes from an empty-observation projection, and a
+disagreement with the recorded `teamId` is raised as a fault rather than silently
+resolved — the discipline 010 applied to its oracle.
+
+**Two fixture bugs found by running it rather than reading it**: the synthetic
+league had 8 mandatory slots over 3 rounds, so every turn reported `forced` and
+the engine was never actually choosing; and the deliberately off-board pick sat
+on a turn the owner does not hold, so FR-005's path was never exercised.
+
+**SC-001 measured**: `lab:run` takes **0.65–0.68 s**, indistinguishable at 0, 1
+or 3 entries — process start dominates and the replay work is below measurement
+noise. Measured on 18 picks / 24 players; a real draft is ~110× the engine work,
+still three orders of magnitude inside the five-minute bar. **An extrapolation,
+not a measurement**, to be redone when a real entry exists.
+
+**The evidential corpus is empty**, exactly as the spec said it would be. Three
+real drafts are committed (one 2024, two 2025), all `pick_sequence_only`; the
+only replayable entry is synthetic and classed `test`. `lab:run` exits non-zero
+and names each exclusion rather than comparing over them.
+
+> ⚠️ **FR-020c is unsatisfiable for past seasons — found on first real data
+> (2026-08-05), structural rather than a defect.** A past-season pick sequence
+> has no contemporaneous ADP for exactly the reason it has no board: the
+> pipeline never covered that season and ESPN serves preseason projections for
+> the current season only. Measuring 2025 picks against 2026 ADP measures a year
+> of player aging, not how that room drafted, so it is **refused rather than
+> caveated**.
+>
+> **This narrows what pick-sequence-only entries are for.** They cannot ground
+> the opponent model's noise; what they still carry is ADP-free structure
+> (positional runs, when K/DST go). Until a covered-season draft is admitted the
+> model runs `grounded: false`. The resolution is benign — a covered-season
+> draft is *also* replayable, so one admission serves both.
+>
+> **Two defects the same run exposed**, both now fixed: the synthetic fixture
+> used `-16000 - i` for its defences, which is *exactly* ESPN's D/ST id scheme,
+> so every synthetic defence was a real one and a genuine import "matched" two
+> of them; and `observeAdpBehaviour` had no minimum-sample floor, so those two
+> accidental collisions produced a standard deviation of 27 presented as the
+> opponent model's noise parameter. Synthetic ids now live at ±900,000,000 where
+> real ESPN ids cannot reach, and a sample below 30 picks or 25% coverage is
+> refused outright. **This is the exact failure the feature was built to
+> prevent, and it took real data to surface it.**
+
+### Original scope (008)
 
 **Summary**: The test harness that makes the secret sauce trustworthy. Record
 every live draft the monitor observes; import past ESPN drafts; replay any
@@ -299,9 +397,52 @@ recommended at each of the user's picks; run simulated drafts (ADP-driven
 opponents) to sanity-check rule changes before draft day. This is how rule
 tuning sessions (Principle IV) validate their changes.
 
-**Open questions**: simulation opponent model (pure ADP with noise?); metrics
-for "the engine did well" (projected points of resulting roster vs. actuals);
-CLI or UI.
+**Ratified in clarify (2026-08-05)** — five decisions, and all three open
+questions above are now answered:
+
+- **Metrics — behavioural now, outcome later.** Rule sets are compared on
+  structural measures (movement in the ordering in round-value units, changes of
+  shortlist head, size and direction of disagreement with the real pick, how
+  often each rule was decisive). The scorecard reserves a slot for **actual
+  season points**, left empty until a season is played. **A projection-derived
+  quality number may never be reported as evidence a rule change is an
+  improvement** — it shares its source with the engine's own input, so it
+  rewards agreement with projections, which is what the rule layer exists to
+  correct. *(Answers "metrics for the engine did well".)*
+- **CLI, not UI.** Repo harness, no page, no endpoint, no code on the deployed
+  worker. Runs read committed fixtures only; admitting a draft is an explicit
+  export step; baselines are committed so a rule change is reviewable as a diff.
+  *(Answers "CLI or UI".)*
+- **Opponent model — ADP with bounded, seeded noise**, but characterised against
+  real drafter-versus-ADP behaviour drawn from imported past-season drafts
+  rather than assumed. *(Answers "pure ADP with noise?".)*
+- **Corpus entries snapshot their engine inputs.** Board and signal values are
+  captured with the draft and read from the entry, never from live tables.
+- **Corpus entries are built from retained relay frames**, reconciled offline —
+  not from 005's archive path.
+
+**Three findings that forced those decisions**, none visible from this roadmap:
+
+1. **The corpus had a built-in expiry.** `pruneSets()` runs `DELETE FROM
+   projection_sets WHERE season < ?` on every maintenance cron, and
+   `player_projections` cascades — so the 2026 sets vanish in 2027 and the only
+   replayable draft stops being replayable. Snapshotting fixes it additively,
+   changing nothing in 002 or 004. **⚠️ This also contradicts 002's ratified
+   decision that "every season's projection sets [are] retained as history for
+   future trend signals" — the shipped code does the opposite. Left recorded
+   here rather than silently fixed; it is 002's to resolve.**
+2. **The archive path is not a viable corpus source.** Zero rows in production,
+   gated on two unfinished 005 items (draft-end detection, keeper pick-count
+   reconciliation). 008 does not wait for it and does not close it.
+3. **The captured drafts are the owner's test runs.** Retained as harness
+   fixtures — they are the only proof the reconciler works on real frames — and
+   excluded from every rule-set comparison. **The evidential corpus is empty
+   today**; its first entry arrives with the first real 2026 league draft.
+
+**Also settled**: a past-season draft can never be replayed (no board for that
+season exists or can be fetched), so imports do two distinct jobs — current-season
+drafts join the replayable corpus, earlier ones are pick-sequence-only and feed
+the opponent model.
 
 ## 010 — draft-tap ✅ SHIPPED (2026-08-05)
 

@@ -1,0 +1,6 @@
+{
+  "constantPath": "WEIGHT.bye",
+  "name": "bye-weight",
+  "note": "The largest of the five rule weights, because a bye clash is concrete rather than forecast. This sweep is the worked example: it exercises the mechanism under npm test and shows the SHAPE of the effect rather than a single before/after pair.",
+  "values": [0.2, 0.35, 0.5]
+}

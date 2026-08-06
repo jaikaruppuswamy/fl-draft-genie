@@ -18,7 +18,14 @@ export default defineWorkersConfig(async () => {
       // unsupported with per-file storage isolation. This include glob is
       // `tests/**/*.test.ts`, so without the exclude every DO test ALSO runs
       // here, under the isolation that cannot support it.
-      exclude: ["tests/tap/**", "tests/draft/**", "tests/room/**"],
+      //
+      // tests/lab/** is 008's, and it is the same situation as tests/room/**:
+      // the lab core is pure by construction (no D1, no clock, no fetch), it
+      // reads committed fixtures, and it has no business in a Worker runtime.
+      // `/speckit-analyze` caught its absence here BEFORE it was written —
+      // adding a node project without the matching exclude is precisely the
+      // double-collection this list already exists to prevent.
+      exclude: ["tests/tap/**", "tests/draft/**", "tests/room/**", "tests/lab/**"],
       poolOptions: {
         workers: {
           singleWorker: true,

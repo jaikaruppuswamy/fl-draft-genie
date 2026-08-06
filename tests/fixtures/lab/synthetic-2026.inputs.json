@@ -1,0 +1,662 @@
+{
+  "adpFloor": null,
+  "entryId": "synthetic-2026",
+  "formatVersion": 1,
+  "freshness": {
+    "fetchedAt": "2026-08-04T13:00:00.000Z",
+    "stale": false
+  },
+  "players": [
+    {
+      "adp": 24,
+      "bye_week": 12,
+      "eligible_positions": [
+        "DST"
+      ],
+      "espn_player_id": -900000023,
+      "name": "MIA D/ST",
+      "overall_rank": 24,
+      "position": "DST",
+      "position_rank": 4,
+      "projected_points": 87.5,
+      "team": "MIA"
+    },
+    {
+      "adp": 18,
+      "bye_week": 6,
+      "eligible_positions": [
+        "DST"
+      ],
+      "espn_player_id": -900000017,
+      "name": "KC D/ST",
+      "overall_rank": 18,
+      "position": "DST",
+      "position_rank": 3,
+      "projected_points": 132.5,
+      "team": "KC"
+    },
+    {
+      "adp": 12,
+      "bye_week": 8,
+      "eligible_positions": [
+        "DST"
+      ],
+      "espn_player_id": -900000011,
+      "name": "DAL D/ST",
+      "overall_rank": 12,
+      "position": "DST",
+      "position_rank": 2,
+      "projected_points": 177.5,
+      "team": "DAL"
+    },
+    {
+      "adp": 6,
+      "bye_week": 10,
+      "eligible_positions": [
+        "DST"
+      ],
+      "espn_player_id": -900000005,
+      "name": "CIN D/ST",
+      "overall_rank": 6,
+      "position": "DST",
+      "position_rank": 1,
+      "projected_points": 222.5,
+      "team": "CIN"
+    },
+    {
+      "adp": 1,
+      "bye_week": 5,
+      "eligible_positions": [
+        "QB"
+      ],
+      "espn_player_id": 900000000,
+      "name": "Synthetic Player 1",
+      "overall_rank": 1,
+      "position": "QB",
+      "position_rank": 1,
+      "projected_points": 260,
+      "team": "SF"
+    },
+    {
+      "adp": 2,
+      "bye_week": 6,
+      "eligible_positions": [
+        "RB"
+      ],
+      "espn_player_id": 900000001,
+      "name": "Synthetic Player 2",
+      "overall_rank": 2,
+      "position": "RB",
+      "position_rank": 1,
+      "projected_points": 252.5,
+      "team": "KC"
+    },
+    {
+      "adp": 3,
+      "bye_week": 7,
+      "eligible_positions": [
+        "WR"
+      ],
+      "espn_player_id": 900000002,
+      "name": "Synthetic Player 3",
+      "overall_rank": 3,
+      "position": "WR",
+      "position_rank": 1,
+      "projected_points": 245,
+      "team": "BUF"
+    },
+    {
+      "adp": 4,
+      "bye_week": 8,
+      "eligible_positions": [
+        "TE"
+      ],
+      "espn_player_id": 900000003,
+      "name": "Synthetic Player 4",
+      "overall_rank": 4,
+      "position": "TE",
+      "position_rank": 1,
+      "projected_points": 237.5,
+      "team": "DAL"
+    },
+    {
+      "adp": 5,
+      "bye_week": 9,
+      "eligible_positions": [
+        "K"
+      ],
+      "espn_player_id": 900000004,
+      "name": "Synthetic Player 5",
+      "overall_rank": 5,
+      "position": "K",
+      "position_rank": 1,
+      "projected_points": 230,
+      "team": "PHI"
+    },
+    {
+      "adp": 7,
+      "bye_week": 11,
+      "eligible_positions": [
+        "QB"
+      ],
+      "espn_player_id": 900000006,
+      "name": "Synthetic Player 7",
+      "overall_rank": 7,
+      "position": "QB",
+      "position_rank": 2,
+      "projected_points": 215,
+      "team": "DET"
+    },
+    {
+      "adp": 8,
+      "bye_week": 12,
+      "eligible_positions": [
+        "RB"
+      ],
+      "espn_player_id": 900000007,
+      "name": "Synthetic Player 8",
+      "overall_rank": 8,
+      "position": "RB",
+      "position_rank": 2,
+      "projected_points": 207.5,
+      "team": "MIA"
+    },
+    {
+      "adp": 9,
+      "bye_week": 5,
+      "eligible_positions": [
+        "WR"
+      ],
+      "espn_player_id": 900000008,
+      "name": "Synthetic Player 9",
+      "overall_rank": 9,
+      "position": "WR",
+      "position_rank": 2,
+      "projected_points": 200,
+      "team": "SF"
+    },
+    {
+      "adp": 10,
+      "bye_week": 6,
+      "eligible_positions": [
+        "TE"
+      ],
+      "espn_player_id": 900000009,
+      "name": "Synthetic Player 10",
+      "overall_rank": 10,
+      "position": "TE",
+      "position_rank": 2,
+      "projected_points": 192.5,
+      "team": "KC"
+    },
+    {
+      "adp": 11,
+      "bye_week": 7,
+      "eligible_positions": [
+        "K"
+      ],
+      "espn_player_id": 900000010,
+      "name": "Synthetic Player 11",
+      "overall_rank": 11,
+      "position": "K",
+      "position_rank": 2,
+      "projected_points": 185,
+      "team": "BUF"
+    },
+    {
+      "adp": 13,
+      "bye_week": 9,
+      "eligible_positions": [
+        "QB"
+      ],
+      "espn_player_id": 900000012,
+      "name": "Synthetic Player 13",
+      "overall_rank": 13,
+      "position": "QB",
+      "position_rank": 3,
+      "projected_points": 170,
+      "team": "PHI"
+    },
+    {
+      "adp": 14,
+      "bye_week": 10,
+      "eligible_positions": [
+        "RB"
+      ],
+      "espn_player_id": 900000013,
+      "name": "Synthetic Player 14",
+      "overall_rank": 14,
+      "position": "RB",
+      "position_rank": 3,
+      "projected_points": 162.5,
+      "team": "CIN"
+    },
+    {
+      "adp": 15,
+      "bye_week": 11,
+      "eligible_positions": [
+        "WR"
+      ],
+      "espn_player_id": 900000014,
+      "name": "Synthetic Player 15",
+      "overall_rank": 15,
+      "position": "WR",
+      "position_rank": 3,
+      "projected_points": 155,
+      "team": "DET"
+    },
+    {
+      "adp": 16,
+      "bye_week": 12,
+      "eligible_positions": [
+        "TE"
+      ],
+      "espn_player_id": 900000015,
+      "name": "Synthetic Player 16",
+      "overall_rank": 16,
+      "position": "TE",
+      "position_rank": 3,
+      "projected_points": 147.5,
+      "team": "MIA"
+    },
+    {
+      "adp": 17,
+      "bye_week": 5,
+      "eligible_positions": [
+        "K"
+      ],
+      "espn_player_id": 900000016,
+      "name": "Synthetic Player 17",
+      "overall_rank": 17,
+      "position": "K",
+      "position_rank": 3,
+      "projected_points": 140,
+      "team": "SF"
+    },
+    {
+      "adp": 19,
+      "bye_week": 7,
+      "eligible_positions": [
+        "QB"
+      ],
+      "espn_player_id": 900000018,
+      "name": "Synthetic Player 19",
+      "overall_rank": 19,
+      "position": "QB",
+      "position_rank": 4,
+      "projected_points": 125,
+      "team": "BUF"
+    },
+    {
+      "adp": 20,
+      "bye_week": 8,
+      "eligible_positions": [
+        "RB"
+      ],
+      "espn_player_id": 900000019,
+      "name": "Synthetic Player 20",
+      "overall_rank": 20,
+      "position": "RB",
+      "position_rank": 4,
+      "projected_points": 117.5,
+      "team": "DAL"
+    },
+    {
+      "adp": 21,
+      "bye_week": 9,
+      "eligible_positions": [
+        "WR"
+      ],
+      "espn_player_id": 900000020,
+      "name": "Synthetic Player 21",
+      "overall_rank": 21,
+      "position": "WR",
+      "position_rank": 4,
+      "projected_points": 110,
+      "team": "PHI"
+    },
+    {
+      "adp": 22,
+      "bye_week": 10,
+      "eligible_positions": [
+        "TE"
+      ],
+      "espn_player_id": 900000021,
+      "name": "Synthetic Player 22",
+      "overall_rank": 22,
+      "position": "TE",
+      "position_rank": 4,
+      "projected_points": 102.5,
+      "team": "CIN"
+    },
+    {
+      "adp": 23,
+      "bye_week": 11,
+      "eligible_positions": [
+        "K"
+      ],
+      "espn_player_id": 900000022,
+      "name": "Synthetic Player 23",
+      "overall_rank": 23,
+      "position": "K",
+      "position_rank": 4,
+      "projected_points": 95,
+      "team": "DET"
+    }
+  ],
+  "preferred": [
+    900000002
+  ],
+  "proTeamByPlayer": [
+    [
+      -900000023,
+      8
+    ],
+    [
+      -900000017,
+      2
+    ],
+    [
+      -900000011,
+      4
+    ],
+    [
+      -900000005,
+      6
+    ],
+    [
+      900000000,
+      1
+    ],
+    [
+      900000001,
+      2
+    ],
+    [
+      900000002,
+      3
+    ],
+    [
+      900000003,
+      4
+    ],
+    [
+      900000004,
+      5
+    ],
+    [
+      900000006,
+      7
+    ],
+    [
+      900000007,
+      8
+    ],
+    [
+      900000008,
+      1
+    ],
+    [
+      900000009,
+      2
+    ],
+    [
+      900000010,
+      3
+    ],
+    [
+      900000012,
+      5
+    ],
+    [
+      900000013,
+      6
+    ],
+    [
+      900000014,
+      7
+    ],
+    [
+      900000015,
+      8
+    ],
+    [
+      900000016,
+      1
+    ],
+    [
+      900000018,
+      3
+    ],
+    [
+      900000019,
+      4
+    ],
+    [
+      900000020,
+      5
+    ],
+    [
+      900000021,
+      6
+    ],
+    [
+      900000022,
+      7
+    ]
+  ],
+  "roster": {
+    "bench_slots": 1,
+    "slots": [
+      {
+        "count": 1,
+        "label": "QB",
+        "slotId": 0
+      },
+      {
+        "count": 1,
+        "label": "RB",
+        "slotId": 2
+      },
+      {
+        "count": 1,
+        "label": "BE",
+        "slotId": 20
+      }
+    ],
+    "starting_slots": 2
+  },
+  "signalFreshness": [
+    {
+      "computedAt": "2026-08-04T00:00:00.000Z",
+      "kind": "offense",
+      "provenance": "synthetic"
+    },
+    {
+      "computedAt": "2026-08-04T00:00:00.000Z",
+      "kind": "sos",
+      "provenance": "synthetic"
+    }
+  ],
+  "signals": [
+    {
+      "kind": "offense",
+      "proTeamId": 1,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 1,
+        "raw_value": 395,
+        "score": 97
+      }
+    },
+    {
+      "kind": "offense",
+      "proTeamId": 2,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 2,
+        "raw_value": 390,
+        "score": 94
+      }
+    },
+    {
+      "kind": "offense",
+      "proTeamId": 3,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 3,
+        "raw_value": 385,
+        "score": 91
+      }
+    },
+    {
+      "kind": "offense",
+      "proTeamId": 4,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 4,
+        "raw_value": 380,
+        "score": 88
+      }
+    },
+    {
+      "kind": "offense",
+      "proTeamId": 5,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 5,
+        "raw_value": 375,
+        "score": 85
+      }
+    },
+    {
+      "kind": "offense",
+      "proTeamId": 6,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 6,
+        "raw_value": 370,
+        "score": 82
+      }
+    },
+    {
+      "kind": "offense",
+      "proTeamId": 7,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 7,
+        "raw_value": 365,
+        "score": 79
+      }
+    },
+    {
+      "kind": "offense",
+      "proTeamId": 8,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 8,
+        "raw_value": 360,
+        "score": 76
+      }
+    },
+    {
+      "kind": "sos",
+      "proTeamId": 1,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 8,
+        "raw_value": 360,
+        "score": 76
+      }
+    },
+    {
+      "kind": "sos",
+      "proTeamId": 2,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 7,
+        "raw_value": 365,
+        "score": 79
+      }
+    },
+    {
+      "kind": "sos",
+      "proTeamId": 3,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 6,
+        "raw_value": 370,
+        "score": 82
+      }
+    },
+    {
+      "kind": "sos",
+      "proTeamId": 4,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 5,
+        "raw_value": 375,
+        "score": 85
+      }
+    },
+    {
+      "kind": "sos",
+      "proTeamId": 5,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 4,
+        "raw_value": 380,
+        "score": 88
+      }
+    },
+    {
+      "kind": "sos",
+      "proTeamId": 6,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 3,
+        "raw_value": 385,
+        "score": 91
+      }
+    },
+    {
+      "kind": "sos",
+      "proTeamId": 7,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 2,
+        "raw_value": 390,
+        "score": 94
+      }
+    },
+    {
+      "kind": "sos",
+      "proTeamId": 8,
+      "value": {
+        "computed_at": "2026-08-04T00:00:00.000Z",
+        "provenance": "synthetic",
+        "rank": 1,
+        "raw_value": 395,
+        "score": 97
+      }
+    }
+  ],
+  "sourceSetFetchedAt": "2026-08-04T13:00:00.000Z",
+  "sourceSetId": "synthetic-set",
+  "teamCount": 6
+}
