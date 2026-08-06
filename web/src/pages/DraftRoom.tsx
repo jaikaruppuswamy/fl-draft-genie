@@ -23,7 +23,7 @@
 //   withholding  — is the TAP still delivering picks?   remedy: go check its tab
 
 import { CSSProperties, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   apiClient,
   BoardResponse,
@@ -37,6 +37,7 @@ import { connectDraftStream, type DraftFrame } from "../lib/draftSocket";
 import { initialState, reduce, type Effect, type RoomInput, type RoomState } from "../lib/draftRoom";
 import { railEntries, type PlayerLookup } from "../lib/draftRoomSelectors";
 import RecommendationPanel from "../components/RecommendationPanel";
+import LeagueNav from "../components/LeagueNav";
 
 /** The design's position tints — same tokens, same mapping. */
 const TINT: Record<string, string> = {
@@ -287,18 +288,12 @@ export default function DraftRoom() {
                 ? "Polling"
                 : "Reconnecting"}
           </span>
-          <Link to={`/leagues/${id}/preferred`}>
-            <button className="secondary" style={{ minHeight: 38, fontSize: 14 }}>
-              Preferred list
-            </button>
-          </Link>
-          <Link to={`/leagues/${id}`}>
-            <button className="secondary" style={{ minHeight: 38, fontSize: 14 }}>
-              League
-            </button>
-          </Link>
         </div>
       </div>
+
+      {/* The same bar every league page carries, so the owner can move between
+          them without going via the league page first. */}
+      <LeagueNav leagueId={id!} />
 
       {state.reachability === "polling" && (
         <div className="banner warn">

@@ -117,7 +117,7 @@ describe("both routes agreeing", () => {
 describe("FR-022b — a disagreement is SURFACED, not resolved", () => {
   it("still completes, and records that the routes disagreed", () => {
     const signalOnly = (() => {
-      let s = armed({ cursor: 0, totalPicks: 999 });
+      const s = armed({ cursor: 0, totalPicks: 999 });
       return reduce(s, { kind: "frame", frame: eventFrame(1, { kind: "draft_complete" }) }, AT).state;
     })();
     const countOnly = runToLastPick();

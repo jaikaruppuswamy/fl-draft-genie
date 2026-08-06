@@ -78,7 +78,7 @@ describe("SC-005 — a connection gap", () => {
   });
 
   it("a duplicate arriving after the resync changes nothing", () => {
-    let state: RoomState = reduce(
+    const state: RoomState = reduce(
       armed(),
       { kind: "frame", frame: snapshotFrame({ seq: 11, state: { picks: midDraft().slice(0, 11), revision: 1 } }) },
       AT,

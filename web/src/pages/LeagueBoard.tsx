@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { apiClient, BoardResponse, RequestError } from "../api";
 import { relativeAge } from "../lib/time";
 import PlayerDetailSheet from "../components/PlayerDetailSheet";
+import LeagueNav from "../components/LeagueNav";
 
 const POSITION_ORDER = ["QB", "RB", "WR", "TE", "K", "DST"];
 
@@ -100,17 +101,12 @@ export default function LeagueBoard() {
 
   return (
     <div>
-      <div className="row">
-        <h1 className="page">Player board</h1>
-        <div className="actions" style={{ marginTop: 0 }}>
-          <button className="secondary" onClick={refresh} disabled={refreshing}>
-            {refreshing ? "Refreshing…" : "Refresh projections"}
-          </button>
-          <Link to={`/leagues/${id}`}>
-            <button className="secondary">League</button>
-          </Link>
-        </div>
-      </div>
+      <h1 className="page">Player board</h1>
+      <LeagueNav leagueId={id!}>
+        <button className="secondary" onClick={refresh} disabled={refreshing}>
+          {refreshing ? "Refreshing…" : "Refresh projections"}
+        </button>
+      </LeagueNav>
 
       <p className="muted small">
         Projections updated {relativeAge(board.freshness.fetched_at)}

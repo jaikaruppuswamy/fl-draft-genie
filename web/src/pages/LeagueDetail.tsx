@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiClient, LeagueDetail as Detail, RequestError } from "../api";
 import { formatLocal, relativeAge } from "../lib/time";
+import LeagueNav from "../components/LeagueNav";
 
 export default function LeagueDetail() {
   const { id } = useParams<{ id: string }>();
@@ -45,26 +46,15 @@ export default function LeagueDetail() {
 
   return (
     <div>
-      <div className="row">
-        <h1 className="page">{league.name}</h1>
-        <div className="actions" style={{ marginTop: 0 }}>
-          <Link to={`/leagues/${id}/board`}>
-            <button>Player board</button>
-          </Link>
-          <Link to={`/leagues/${id}/preferred`}>
-            <button className="secondary">Preferred players</button>
-          </Link>
-          <Link to={`/leagues/${id}/room`}>
-            <button>Draft room</button>
-          </Link>
-          <button className="secondary" onClick={syncNow} disabled={syncing}>
-            {syncing ? "Syncing…" : "Sync now"}
-          </button>
-          <Link to="/">
-            <button className="secondary">Back</button>
-          </Link>
-        </div>
-      </div>
+      <h1 className="page">{league.name}</h1>
+      {/* "Back" removed: the Draft Genie brand in the top bar already returns
+          to the dashboard, and a second route to the same place is one more
+          thing to read. */}
+      <LeagueNav leagueId={id!}>
+        <button className="secondary" onClick={syncNow} disabled={syncing}>
+          {syncing ? "Syncing…" : "Sync now"}
+        </button>
+      </LeagueNav>
 
       <p className="muted">
         Season {league.season} · {league.team_count} teams · {league.scoring_summary} · you:{" "}

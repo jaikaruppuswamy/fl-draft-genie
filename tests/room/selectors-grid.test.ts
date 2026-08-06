@@ -6,7 +6,7 @@
 // independent — which was false, and `/speckit-analyze` caught it.
 
 import { describe, expect, it } from "vitest";
-import { boardGrid, rosterView, type PlayerLookup } from "../../web/src/lib/draftRoomSelectors";
+import { boardGrid, rosterView } from "../../web/src/lib/draftRoomSelectors";
 import { armed, lookup } from "./helpers";
 
 const PLAYERS = lookup([

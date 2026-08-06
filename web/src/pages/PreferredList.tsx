@@ -12,8 +12,9 @@
 // no search endpoint and no name index were needed.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { apiClient, BoardResponse, PreferredResponse, RequestError } from "../api";
+import LeagueNav from "../components/LeagueNav";
 
 const POSITION_ORDER = ["QB", "RB", "WR", "TE", "K", "DST"];
 
@@ -95,17 +96,8 @@ export default function PreferredList() {
 
   return (
     <div>
-      <div className="row">
-        <h1 className="page">Preferred players</h1>
-        <div className="actions" style={{ marginTop: 0 }}>
-          <Link to={`/leagues/${id}/board`}>
-            <button className="secondary">Player board</button>
-          </Link>
-          <Link to={`/leagues/${id}`}>
-            <button className="secondary">League</button>
-          </Link>
-        </div>
-      </div>
+      <h1 className="page">Preferred players</h1>
+      <LeagueNav leagueId={id!} />
 
       <p className="muted small">
         Players you mark here can be recommended a little earlier than their value alone would justify — up to
