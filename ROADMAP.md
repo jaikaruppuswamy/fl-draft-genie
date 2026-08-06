@@ -337,9 +337,40 @@ answer forever.
 > draft, and this is the same endpoint after completion. Full result in
 > `specs/008-draft-replay-lab/research.md` §12.
 >
-> **Still outstanding**: re-admitting the already-captured drafts as `--class
-> test` (needs D1 access), and importing a real past season (needs the ESPN
-> cookie pair).
+> ✅ **T031 done (2026-08-05) — all 65 tasks complete.** The first real run of
+> `lab-admit.ts` found **four bugs**, every one of which would have produced a
+> plausible-looking wrong fixture:
+>
+> 1. **It folded every session for a league+season into one entry.** The capture
+>    held three sessions — 02:14, 16:17, 19:55 the same day — which is two mock
+>    drafts and a stray reconnect, not one draft. Merging them builds a chimera
+>    with a full-looking pick list that nothing downstream could detect. Now the
+>    sessions are listed and the choice is required.
+> 2. **One session spanned two accounts and two connections** (two managers in
+>    the same league both running the tap). The unit of admission is now
+>    (session, connection), because FR-027 says an entry belongs to exactly one
+>    account and picking the larger side is a privacy boundary crossed quietly.
+> 3. **`roundCount` summed every roster slot, including IR** — a spot that is
+>    never drafted. A complete 6×12 draft reported "6 picks missing" and was
+>    demoted to `pick_sequence_only`. Now uses `starting_slots + bench_slots`,
+>    which 001 already separates.
+> 4. **The snapshot carried a raw `projection_sets` UUID**, tripping the GUID
+>    screen — ours, not a member's, but no checker can tell by shape and
+>    inventing an exemption is how the real thing slips through. Now a digest
+>    (`sourceSetRef`).
+>
+> Also wrong in the schema reads: `my_team_id` is on `league_connections`, not
+> `league_snapshots`.
+>
+> **Outcome**: one capture admitted (6×12, 72 picks, all with observation
+> timing, 1026-player snapshot, ADP floor 168.89) and it **replays** — 12 owner
+> turns with real names and reasoning, the first real replay this project has
+> run. Two captures were refused, correctly: one has no picks (a stray ledger,
+> not a draft), and one hit `totalPicks 66 ≠ picks 72` because that connection's
+> league snapshot is **stale** — it records an 11-round roster for a draft that
+> ran 12. Re-syncing that league would let it be admitted.
+>
+> All three admitted/refused entries are `--class test`, so none is evidence.
 
 **Ratified in clarify (2026-08-05)** — five decisions, already recorded below.
 

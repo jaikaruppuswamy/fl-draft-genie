@@ -186,7 +186,7 @@ const entry: CorpusEntry = {
 
 const snapshot = bundleToSnapshot(bundle(players), {
   entryId: entry.id,
-  sourceSetId: "synthetic-set",
+  sourceSetRef: "synthetic-set",
   sourceSetFetchedAt: "2026-08-04T13:00:00.000Z",
 });
 
