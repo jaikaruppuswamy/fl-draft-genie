@@ -250,50 +250,48 @@ export default function DraftRoom() {
 
   return (
     <div>
-      {/* ---- header: league summary + live indicator, per the design ---- */}
-      <div className="row">
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
-          <strong style={{ fontSize: 16 }}>{league?.name ?? "Draft room"}</strong>
-          <span style={{ fontSize: 13, color: "var(--color-neutral-700)", fontVariantNumeric: "tabular-nums" }}>
-            {teamCount} teams · {league?.scoring_summary ?? "—"}
-            {state.picks.length > 0 && ` · round ${Math.floor(state.picks.length / teamCount) + 1} of ${rounds}`}
-          </span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+      {/* Same shape as every other league page: h1.page, then the nav bar,
+          then a muted detail line. The room previously used a bespoke inline
+          header, which made the league name a different size here than
+          everywhere else. */}
+      <h1 className="page">{league?.name ?? "Draft room"}</h1>
+
+      <LeagueNav leagueId={id!}>
+        {/* The live indicator rides in the nav bar rather than floating on its
+            own row — it is status about this page, and it keeps the header to
+            three predictable lines. */}
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            marginLeft: "auto",
+            fontSize: 13,
+            fontWeight: 700,
+            color: state.reachability === "connected" ? "var(--color-accent-2-700)" : "var(--color-accent-700)",
+          }}
+        >
           <span
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 13,
-              fontWeight: 700,
-              color:
-                state.reachability === "connected" ? "var(--color-accent-2-700)" : "var(--color-accent-700)",
+              width: 8,
+              height: 8,
+              borderRadius: 999,
+              background:
+                state.reachability === "connected" ? "var(--color-accent-2-600)" : "var(--color-accent-600)",
             }}
-          >
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 999,
-                background:
-                  state.reachability === "connected"
-                    ? "var(--color-accent-2-600)"
-                    : "var(--color-accent-600)",
-              }}
-            />
-            {state.reachability === "connected"
-              ? "Live"
-              : state.reachability === "polling"
-                ? "Polling"
-                : "Reconnecting"}
-          </span>
-        </div>
-      </div>
+          />
+          {state.reachability === "connected"
+            ? "Live"
+            : state.reachability === "polling"
+              ? "Polling"
+              : "Reconnecting"}
+        </span>
+      </LeagueNav>
 
-      {/* The same bar every league page carries, so the owner can move between
-          them without going via the league page first. */}
-      <LeagueNav leagueId={id!} />
+      <p className="muted small">
+        {teamCount} teams · {league?.scoring_summary ?? "—"}
+        {state.picks.length > 0 && ` · round ${Math.floor(state.picks.length / teamCount) + 1} of ${rounds}`}
+      </p>
 
       {state.reachability === "polling" && (
         <div className="banner warn">

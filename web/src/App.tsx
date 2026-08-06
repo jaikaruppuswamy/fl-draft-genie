@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { apiClient, RequestError } from "./api";
-import AccountMenu from "./components/AccountMenu";
+import TopBar from "./components/TopBar";
 import SignIn from "./pages/SignIn";
 import Dashboard from "./pages/Dashboard";
 import CredentialSetup from "./pages/CredentialSetup";
@@ -33,16 +33,15 @@ function useSessionProbe() {
 }
 
 function Layout({ onSignOut }: { onSignOut: () => void }) {
-  // The draft room needs the whole screen; every other page reads better narrow.
-  const wide = useLocation().pathname.endsWith("/room");
+  // EVERY league page is wide, not just the draft room. They all carry the same
+  // `LeagueNav`, and if the shell width changed between them the pills would
+  // jump horizontally on each navigation — the bar is meant to be the fixed
+  // thing you aim at. The dashboard and the account/setup forms stay narrow;
+  // they are lists and forms, and read worse stretched.
+  const wide = useLocation().pathname.startsWith("/leagues/");
   return (
     <div className={wide ? "shell wide" : "shell"}>
-      <header className="topbar">
-        <Link to="/" className="brand">
-          Draft <span>Genie</span>
-        </Link>
-        <AccountMenu onSignOut={onSignOut} />
-      </header>
+      <TopBar onSignOut={onSignOut} />
       <Outlet />
     </div>
   );
