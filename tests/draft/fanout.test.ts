@@ -337,3 +337,77 @@ describe("a manager JOINING does not inherit the league's history", () => {
     expect(ids).toContain(222222);
   });
 });
+
+describe("the room asks whether ANYONE is relaying (011 T012, FR-006)", () => {
+  // The bug fan-out creates. A manager who runs no tap still has an armed
+  // session, but `recordHeartbeat` only ever touches the RELAYER's row, so
+  // theirs keeps `last_heartbeat_at = NULL`. `heartbeatLapsed` reads a null
+  // heartbeat as "not lapsed" — correctly, there is nothing to be stale about —
+  // so asking the viewer's own row reported a healthy relay to a manager in a
+  // league where nobody was relaying at all.
+  //
+  // The room would say "Live" with no feed behind it. In the feature about
+  // telling the truth, that is the worst available answer.
+
+  async function draftStatus(m: { account: string; conn: string }): Promise<Record<string, unknown>> {
+    const { signIn } = await import("../helpers/app");
+    const cookie = await signIn(testEnv, `${m.account}@fan.test`);
+    const res = await app.request(`/api/leagues/${m.conn}/draft`, { headers: { Cookie: cookie } }, testEnv);
+    return (await res.json()) as Record<string, unknown>;
+  }
+
+  it("reports NO active relay to a manager whose league has none", async () => {
+    // Armed by fan-out, but nobody has heartbeated anywhere in the league.
+    await postBatch(batchBody(1, 4362628));
+
+    const body = await draftStatus(QUIET);
+    expect(body.armed).toBe(true);
+    expect((body.relay as { active: boolean }).active).toBe(false);
+  });
+
+  it("reports an ACTIVE relay when a LEAGUEMATE is heartbeating", async () => {
+    // The other direction, and it is not optional: a rule that only ever says
+    // "absent" is exactly as wrong as one that never does, and both pass a
+    // one-sided test.
+    await postBatch(batchBody(1, 4362628));
+    const ctx = createExecutionContext();
+    await app.request(
+      "/api/tap/status",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://fantasy.espn.com",
+          Authorization: `Bearer ${token}`,
+          "X-Tap-Install": INSTALL,
+        },
+        body: JSON.stringify({
+          state: "relaying",
+          heartbeat: true,
+          hidden: false,
+          league: { espnLeagueId: LEAGUE, season: SEASON },
+        }),
+      },
+      testEnv,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    // The RELAYER heartbeated; the QUIET manager is the one asking.
+    const body = await draftStatus(QUIET);
+    expect((body.relay as { active: boolean }).active).toBe(true);
+    expect((body.relay as { lastRelayedAt: string | null }).lastRelayedAt).toBeTruthy();
+  });
+
+  it("never names WHO is relaying, or what their tab is doing (FR-003)", async () => {
+    // "Someone is relaying" is a shared fact about the league. Which manager,
+    // and whether their browser tab is backgrounded, are facts about them.
+    await postBatch(batchBody(1, 4362628));
+    const body = await draftStatus(QUIET);
+
+    const relay = JSON.stringify(body.relay);
+    expect(relay).not.toContain(RELAYER.conn);
+    expect(relay).not.toContain(RELAYER.account);
+    expect(Object.keys(body.relay as object).sort()).toEqual(["active", "lastRelayedAt"]);
+  });
+});

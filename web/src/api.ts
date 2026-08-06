@@ -226,6 +226,15 @@ export interface DraftStatus {
     lastHeartbeatAt: string | null;
     lapsed: boolean;
   };
+  /**
+   * 011 — is ANYONE in this league relaying? Distinct from `tap`, which is
+   * about the viewer's OWN tap. Under fan-out most managers have no tap of
+   * their own, and asking their own row reports a healthy relay forever.
+   *
+   * Carries no relayer identity by design: whether a relay is running is a
+   * shared fact about the league; who is running it is not.
+   */
+  relay?: { active: boolean; lastRelayedAt: string | null };
   withholding: "not_receiving" | "incompatible" | "version_rejected" | null;
   completedAt?: string | null;
 }

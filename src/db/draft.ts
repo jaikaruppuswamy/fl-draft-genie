@@ -375,3 +375,52 @@ export async function resetSession(db: D1Database, connectionId: string, now: Da
     .bind(now.toISOString(), connectionId)
     .run();
 }
+
+/**
+ * 011 T012 — is ANYONE in this league relaying right now?
+ *
+ * A different question from "is my tap alive", and the room has to ask this one.
+ * Under fan-out a manager who runs no tap still has an armed session, but
+ * `recordHeartbeat` only ever touches the RELAYER's row — so their own
+ * `last_heartbeat_at` stays NULL forever. `heartbeatLapsed` reads a null
+ * heartbeat as "not lapsed" by design (there is nothing to be stale about), so
+ * asking the viewer's own row reported a healthy relay to a manager in a league
+ * where nobody was relaying at all. The room would say **Live** with no feed
+ * behind it — the precise failure this whole feature exists to stop.
+ *
+ * Entitlement is the same predicate the frame read uses, and for the same
+ * reason: a manager who may not see the league's frames must not be told a relay
+ * is running that they will never receive. That is worse than saying nothing.
+ *
+ * Returns the most recent heartbeat the asker is entitled to see, with the
+ * `hidden` flag that decides which lapse threshold applies. The flag is used to
+ * DERIVE liveness and is not itself for publishing — it is a fact about someone
+ * else's browser tab.
+ */
+export async function latestLeagueHeartbeat(
+  db: D1Database,
+  readerConnectionId: string,
+  espnLeagueId: string,
+  season: number,
+): Promise<{ lastHeartbeatAt: string; hidden: boolean } | null> {
+  const row = await db
+    .prepare(
+      `SELECT s.last_heartbeat_at, s.heartbeat_hidden
+         FROM draft_sessions s
+         JOIN league_connections c ON c.id = s.connection_id
+        WHERE c.espn_league_id = ? AND c.season = ?
+          AND s.last_heartbeat_at IS NOT NULL
+          AND EXISTS (
+                SELECT 1 FROM league_connections r
+                 WHERE r.id = ?
+                   AND r.espn_league_id = c.espn_league_id
+                   AND r.season = c.season
+                   AND (r.team_match_source = 'auto' OR r.account_id = c.account_id)
+              )
+        ORDER BY s.last_heartbeat_at DESC
+        LIMIT 1`,
+    )
+    .bind(espnLeagueId, season, readerConnectionId)
+    .first<{ last_heartbeat_at: string; heartbeat_hidden: number }>();
+  return row ? { lastHeartbeatAt: row.last_heartbeat_at, hidden: row.heartbeat_hidden === 1 } : null;
+}

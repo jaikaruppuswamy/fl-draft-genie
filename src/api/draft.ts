@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { getConnectionById } from "../db/leagues";
-import { getSession, resetSession } from "../db/draft";
+import { getSession, latestLeagueHeartbeat, resetSession } from "../db/draft";
 import { sessionStub } from "../draft/session";
 import { heartbeatLapsed, isLiveDraft, withholdReason, type TapReportedState } from "../draft/liveness";
 import { now } from "../env";
@@ -50,10 +50,29 @@ export function draftRoutes() {
       tapState: (row.tap_state as TapReportedState | null) ?? null,
     });
 
+    // 011 T012 — LEAGUE-wide relay liveness, alongside (never instead of) the
+    // per-connection tap block below. The room asks "is anyone relaying?"; the
+    // tap page asks "is MY tap alive?". Merging them is how the two surfaces
+    // drift, and telling them apart is the whole argument of observableState.
+    const leagueBeat = await latestLeagueHeartbeat(
+      c.env.DB,
+      connection.id,
+      connection.espn_league_id,
+      connection.season,
+    );
+    const relayActive =
+      leagueBeat !== null &&
+      !heartbeatLapsed({ lastHeartbeatAt: Date.parse(leagueBeat.lastHeartbeatAt), hidden: leagueBeat.hidden, now: at });
+
     return Response.json({
       armed: true,
       status: row.status,
       season: row.season,
+      // Whether SOMEONE is relaying, and when they last did. Deliberately not
+      // who, and not their `hidden` flag — that is a fact about another
+      // manager's browser tab, and FR-003 keeps a relayer's identity out of a
+      // delivered view. The flag is used to derive `active`, not published.
+      relay: { active: relayActive, lastRelayedAt: leagueBeat?.lastHeartbeatAt ?? null },
       tap: {
         state: row.tap_state,
         version: row.tap_version,

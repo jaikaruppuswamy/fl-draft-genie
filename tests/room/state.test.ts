@@ -207,3 +207,42 @@ describe("the tap page's four states (FR-008, FR-010)", () => {
     expect(r.state).toBe("installed_not_enabled");
   });
 });
+
+describe("011 T012/T013 — the room's question is about the LEAGUE, not the viewer", () => {
+  // Fan-out made "am I receiving?" the wrong question. Most managers now have
+  // an armed session and no tap of their own, so the only honest question is
+  // whether ANYONE in the league is relaying.
+
+  it("reports a failure when nothing in the league is relaying, even though the socket is fine", async () => {
+    // The exact shape of the T012 bug: transport connected, nothing withheld,
+    // session armed — and no relay anywhere. Before this the room said "Live".
+    const r = roomStateOf(room({ receiving: false, hasSeenPicks: false }));
+    expect(r.state).toBe("not_receiving");
+    expect(r.state).not.toBe("connected");
+  });
+
+  it("still says connected when a leaguemate IS relaying", async () => {
+    // The companion. A room that can only report failure is as useless as one
+    // that can only report health, and both pass a one-sided test.
+    expect(roomStateOf(room({ receiving: true })).state).toBe("connected");
+  });
+
+  it("names a remedy for BOTH mid-draft failure states (FR-006a, FR-013)", () => {
+    // T013's gap was not in this vocabulary — it was that DraftRoom rendered
+    // `remedy` only inside the pre-draft banner, so a relay stopping mid-draft
+    // showed a two-word pill and nothing to do about it. These are the two
+    // states that banner must now cover, and both must have something to say.
+    for (const state of ["relay_stopped", "not_receiving"] as const) {
+      expect(ROOM_REMEDY[state], state).toBeTruthy();
+      expect(ROOM_REMEDY[state].length, state).toBeGreaterThan(20);
+    }
+  });
+
+  it("keeps `relay_stopped` distinguishable from a draft that never started", () => {
+    // FR-006a: a stopped relay must never be presentable as "not started yet".
+    // Same remedy, different fact — and the mid-draft banner leads with the
+    // label, so the two must not collapse.
+    expect(roomStateOf(room({ receiving: false, hasSeenPicks: true })).state).toBe("relay_stopped");
+    expect(roomStateOf(room({ sessionArmed: false })).state).toBe("waiting_for_draft");
+  });
+});

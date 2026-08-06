@@ -265,14 +265,25 @@ export default function DraftRoom() {
   // how the room came to say "cannot reach Draft Genie" seven minutes before a
   // draft when the only thing true was that no session had armed yet.
   //
-  // `receiving` is deliberately conservative: connected transport AND 005 not
-  // withholding. A withheld feed is not a delivering one, whatever the socket
-  // says.
+  // `receiving` is deliberately conservative: connected transport, 005 not
+  // withholding, AND someone in the league actually relaying. A withheld feed is
+  // not a delivering one, whatever the socket says.
+  //
+  // 011 T012 — the relay term is LEAGUE-wide, and it has to be. Fan-out gives a
+  // manager with no tap an armed session whose own heartbeat is NULL forever,
+  // and a null heartbeat reads as "not lapsed" — correctly, since there is
+  // nothing to be stale about. Without this term the room told a manager in a
+  // league where nobody was relaying that it was Live.
+  //
+  // `!== false` rather than a truthiness test: a server that has not sent the
+  // field yet must not be read as "nobody is relaying", which would report a
+  // dead feed to every manager during a deploy.
+  const relayActive = status?.relay?.active !== false;
   const room = roomStateOf({
     sessionArmed: status?.armed ?? false,
     reachability: state.reachability,
     hasSeenPicks: state.picks.length > 0,
-    receiving: state.reachability === "connected" && tapWithholding === null,
+    receiving: state.reachability === "connected" && tapWithholding === null && relayActive,
   });
   const roomOk = room.state === "connected" || room.state === "waiting_for_draft";
   const turn = state.myTurnState;
@@ -336,6 +347,16 @@ export default function DraftRoom() {
           {/* Every state names what to DO, not only what is true (FR-013). */}
           {room.remedy}{" "}
           {state.order === null && "ESPN hasn't published the draft order yet."}
+        </div>
+      )}
+      {/* 011 T013 — a relay that stops MID-DRAFT is the case FR-006a is about,
+          and the remedy above cannot reach it: by then the phase is past
+          pre_draft, so the manager saw a two-word pill and nothing to act on.
+          Shown for both failure states, because "it stopped" and "it never
+          started" need the same thing done and differ only in what is true. */}
+      {state.phase !== "pre_draft" && (room.state === "relay_stopped" || room.state === "not_receiving") && (
+        <div className="banner warn">
+          <strong>{ROOM_LABEL[room.state]}.</strong> {room.remedy}
         </div>
       )}
       {state.phase === "complete" && state.completion && (
