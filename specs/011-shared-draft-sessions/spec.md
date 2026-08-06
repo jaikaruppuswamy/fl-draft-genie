@@ -78,6 +78,7 @@ page.
 | 4 | A **completed** draft room's ledger loads into a fresh session | ~72 available players marked gone; looks like it works |
 | 5 | No way to reset a session | Workaround mints a new connection and destroyed a preferred player |
 | 6 | Retained frames scoped by connection, not account | A reconnect orphans capture history |
+| 7 | A draft reset **in ESPN** is seen by sync and acted on by nothing | The stale session swallows the next draft; both status transitions are latched on `completed_at IS NULL` |
 
 Draft Genie stays **read-only against ESPN** (Constitution VI) — the tap remains
 strictly passive — and no recommendation rule changes (Principle IV).
@@ -251,7 +252,53 @@ draft is captured cleanly with the preferred list intact.
 
 ---
 
-### User Story 6 - Simplify the Draft Tap page to match (Priority: P6)
+### User Story 8 - Notice when ESPN says the draft was reset (Priority: P6)
+
+The owner resets the draft in ESPN and runs it again. Draft Genie notices at the
+next sync, voids the stale session, and captures the new draft cleanly — without
+the owner touching anything, and without losing the record of the draft that was
+reset.
+
+*(Story id 8, priority 6 — the two stories below it were written first and
+renumbering seven stories and fifty-eight tasks to insert one buys nothing.)*
+
+**Why this priority**: it is the same outcome as US5 arrived at automatically,
+and it covers the case that actually happened — the draft was reset in **ESPN**,
+not in Draft Genie, so no app action was ever going to fire. It ranks below the
+manual reset because that is the deterministic route and this one depends on
+ESPN reporting truthfully; it ranks above the page and the lab because a stale
+session silently swallows the next draft.
+
+**Verified 2026-08-06**: the sync already **sees** this — `mDraftDetail` is in
+the refresh view set and the completion flag lands in the stored snapshot — and
+nothing acts on it. Both session-status transitions are guarded on
+`completed_at IS NULL`, so once a draft completes the state cannot move back by
+any route.
+
+**Independent Test**: complete a draft, reset it in ESPN, sync, and confirm the
+next draft is captured as a new draft with none of the previous one's picks.
+
+**Acceptance Scenarios**:
+
+1. **Given** a session recorded as complete, **When** a sync observes that ESPN
+   no longer reports that draft as completed, **Then** the session is voided and
+   can arm again for a new draft.
+2. **Given** the session is voided, **Then** every manager's session for that
+   league and season is voided — under shared delivery there is more than one.
+3. **Given** a voided session, **Then** the frames and any archived record of the
+   draft that was reset **survive**. Voiding a session must never destroy the
+   record of a draft that really happened.
+4. **Given** a draft is **currently receiving picks**, **Then** no sync result
+   may void it. A transient or incorrect response must not be able to wipe a
+   live draft.
+5. **Given** a session is voided, **Then** the reason and the observation that
+   triggered it are recorded, so an unexpected void can be explained afterwards.
+6. **Given** ESPN's report is unavailable or ambiguous, **Then** nothing is
+   voided — absence of evidence is not evidence of a reset.
+
+---
+
+### User Story 6 - Simplify the Draft Tap page to match (Priority: P7)
 
 With setup reduced to install-and-acknowledge, the page loses its pairing
 instructions and keeps installation, state, and a way to turn the tap off.
@@ -276,7 +323,7 @@ confirm they succeed without asking a question.
 
 ---
 
-### User Story 7 - Keep the capture history reachable (Priority: P7)
+### User Story 7 - Keep the capture history reachable (Priority: P8)
 
 Frames captured before a reconnect remain admissible to the replay lab
 afterwards.
@@ -320,6 +367,10 @@ reconnect.
 - **Every manager in a league is on an iPad**, so nobody can relay at all.
 - **A manager leaves the league** but their connection lingers.
 - **A reset is requested while a draft is live.**
+- **ESPN reports a draft as not-completed transiently**, or the field is missing
+  from a partial response — this must never void a live draft.
+- **A draft is reset in ESPN after it was archived.** The archive is history and
+  survives; only the session is voided.
 - **The tap page is opened on a device that cannot run the script**, which is the
   common case for other managers.
 
@@ -420,6 +471,24 @@ reconnect.
   confirmed.
 - **FR-031**: A reset MUST leave the session able to arm again.
 
+**Reset observed from ESPN (US8)**
+
+- **FR-031a**: A sync that observes ESPN no longer reporting a previously
+  completed draft as completed MUST void the corresponding session so it can arm
+  again for a new draft.
+- **FR-031b**: Voiding MUST apply to **every** manager's session for that league
+  and season, not only the one whose sync observed it.
+- **FR-031c**: Voiding a session MUST NOT destroy retained frames or any
+  archived record of the draft that was reset. A draft that really happened
+  remains history.
+- **FR-031d**: A session that is **currently receiving picks** MUST NOT be
+  voided by any sync result. A transient or wrong response must never be able to
+  wipe a live draft.
+- **FR-031e**: Every void MUST record its reason and the observation that
+  triggered it.
+- **FR-031f**: Where ESPN's report is unavailable or ambiguous, nothing is
+  voided — absence of evidence is not evidence of a reset.
+
 **The tap page (US6)**
 
 - **FR-032**: The page MUST cover installing, enabling and current state, and
@@ -488,6 +557,10 @@ reconnect.
   containment fix breaks **no** recovery case.
 - **SC-009**: After a reset, a second mock is captured with **none** of the first
   draft's picks, and the preferred list is **unchanged**.
+- **SC-009a**: A draft reset in ESPN is noticed at the next sync and the next
+  draft is captured with **none** of the previous one's picks — with no action by
+  the owner.
+- **SC-009b**: **Zero** live drafts are ever voided by a sync result.
 - **SC-010**: Frames captured before a reconnect remain admissible **100%** of
   the time afterwards.
 - **SC-011**: **Zero** corpus entries can be produced carrying another account's

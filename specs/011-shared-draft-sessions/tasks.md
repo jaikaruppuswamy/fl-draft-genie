@@ -28,8 +28,10 @@ research §1 rejected.
 
 - **[P]** — parallelisable: a **different file** from every other task that could
   run alongside it, and no dependency on an incomplete task
-- **[US1]…[US7]** — the user story a task serves; absent for Setup, Foundational
-  and Polish
+- **[US1]…[US8]** — the user story a task serves; absent for Setup, Foundational
+  and Polish. **US8 was added after the rest**, so its task ids (T059+) sit above
+  US6's and US7's while its priority (P6) sits below theirs — ids are
+  identifiers, the dependency graph is the order
 
 ## Path Conventions
 
@@ -237,12 +239,18 @@ Phase 1 (Setup) ──► Phase 2 (Foundational) ── blocks everything
                           ├─► Phase 4  US2 (P2)  honest state     ── independent
                           ├─► Phase 5  US3 (P3)  enablement ──► Phase 8 US6 (page)
                           ├─► Phase 6  US4 (P4)  containment     ── independent
-                          ├─► Phase 7  US5 (P5)  reset           ── independent
-                          └─► Phase 9  US7 (P7)  lab scoping     ── independent
+                          ├─► Phase 7  US5 (P5)  reset ──┐
+                          ├─► Phase 11 US8 (P6)  reset observed from ESPN
+                          │        (reuses US5's reset(); run Phase 7 first)
+                          └─► Phase 9  US8→US7 (P8) lab scoping ── independent
                                                    └─► Phase 10 (Polish)
 ```
 
 - **US2, US4, US5 and US7 depend on nothing but Phase 2.** None needs fan-out.
+- **US8 depends on US5**, and only on it: T061 reuses `reset()` rather than
+  adding a second reset path. It does not need fan-out either — though T062 has
+  more sessions to void once fan-out lands, which is why it names the audience
+  rather than assuming one.
 - **US6 depends on US3** — the page cannot describe a setup that does not exist.
 - **US1 is the only story that touches the delivery path**, which is why a bug
   there is the only one that could affect every manager at once.
@@ -269,8 +277,11 @@ sequential.
 **MVP is Phase 1 → Phase 2 → Phase 3.** That is the story that changes whether
 the product works for anyone who cannot run a userscript — most managers.
 
-**If time is short, do Phases 4, 6 and 7 first** (US2, US4, US5). They are the
-three sharp-edged bugs, each small, and **none depends on fan-out**. US1 is both
+**If time is short, do Phases 4, 6, 7 and 11 first** (US2, US4, US5, US8). They
+are the sharp-edged bugs plus the automatic recovery for them, each small, and
+**none depends on fan-out**. US8 is the one that would have spared the whole
+2026-08-06 evening: the draft was reset in ESPN, so no app action was ever going
+to fire. US1 is both
 the largest value and the largest change; taking it carefully beats taking it
 first.
 
@@ -304,3 +315,31 @@ first.
 5. **A state that asserts health.** "Relaying" without a last-relayed time is a
    claim, not evidence — and an unevidenced claim is what made a working tap look
    broken and got a valid credential revoked twice under time pressure. T020.
+
+---
+
+## Phase 11: User Story 8 — Notice when ESPN says the draft was reset (P6)
+
+**Executed before Phases 8–9 despite the higher task numbers.** Task ids are
+identifiers, not an execution order — the dependency graph governs, and this
+story outranks the page and the lab.
+
+**Goal**: a draft reset in ESPN is noticed at the next sync, and the next draft
+is captured cleanly without the owner doing anything.
+
+**Independent test**: complete a draft, reset it in ESPN, sync, and confirm the
+next draft is captured with none of the previous one's picks.
+
+**Verified before writing these tasks**: the sync already *sees* it —
+`refreshConnection` requests `mDraftDetail` and `parseDraft` maps
+`draftDetail.drafted → completed` into the stored snapshot — and nothing acts on
+it. Both status transitions in `src/db/draft.ts` are guarded
+`WHERE completed_at IS NULL`, so once a draft completes **no route moves it
+back**.
+
+- [ ] T059 [US8] Write the detection tests FIRST in `tests/draft/reset-observed.test.ts`: a sync observing a previously completed draft no longer reported as completed voids the session; a session **currently receiving picks** is never voided; an unavailable or ambiguous report voids nothing
+- [ ] T060 [US8] Compare stored against freshly parsed draft completion in `src/sync/refresh.ts` — the snapshot already carries it, so this is a comparison that does not exist rather than data that is missing
+- [ ] T061 [US8] Void the session on a confirmed reset in `src/db/draft.ts`, clearing `completed_at` so the latch releases, and reuse US5's `reset()` on the Durable Object so there is one reset path rather than two (FR-031a)
+- [ ] T062 [US8] Void **every** manager's session for that league and season, not only the one whose sync observed it (FR-031b) — under fan-out there is more than one
+- [ ] T063 [US8] Assert retained frames and any archived record of the reset draft **survive** the void (FR-031c). A draft that really happened stays history, and 008's corpus may already depend on it
+- [ ] T064 [US8] Record the reason and the triggering observation on every void (FR-031e), and prove in test that a live draft cannot be voided by any sync result (FR-031d, SC-009b)
