@@ -1,16 +1,17 @@
 // 005 T025 — the draft session's read surface.
 //
 // Session-authenticated (mounted AFTER the `/api/*` middleware, unlike the
-// tap-facing routes which carry their own bearer credential). Everything here
-// is a read: the session is written only by the tap's ingest.
+// tap-facing routes which carry their own bearer credential). Every route here
+// is a read except the reset added by 011 — the session's CONTENT is still
+// written only by the tap's ingest; reset discards it, it does not author it.
 
 import { Hono } from "hono";
 import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { getConnectionById } from "../db/leagues";
-import { getSession } from "../db/draft";
+import { getSession, latestLeagueHeartbeat, resetSession } from "../db/draft";
 import { sessionStub } from "../draft/session";
-import { heartbeatLapsed, withholdReason, type TapReportedState } from "../draft/liveness";
+import { heartbeatLapsed, isLiveDraft, withholdReason, type TapReportedState } from "../draft/liveness";
 import { now } from "../env";
 
 export function draftRoutes() {
@@ -49,10 +50,29 @@ export function draftRoutes() {
       tapState: (row.tap_state as TapReportedState | null) ?? null,
     });
 
+    // 011 T012 — LEAGUE-wide relay liveness, alongside (never instead of) the
+    // per-connection tap block below. The room asks "is anyone relaying?"; the
+    // tap page asks "is MY tap alive?". Merging them is how the two surfaces
+    // drift, and telling them apart is the whole argument of observableState.
+    const leagueBeat = await latestLeagueHeartbeat(
+      c.env.DB,
+      connection.id,
+      connection.espn_league_id,
+      connection.season,
+    );
+    const relayActive =
+      leagueBeat !== null &&
+      !heartbeatLapsed({ lastHeartbeatAt: Date.parse(leagueBeat.lastHeartbeatAt), hidden: leagueBeat.hidden, now: at });
+
     return Response.json({
       armed: true,
       status: row.status,
       season: row.season,
+      // Whether SOMEONE is relaying, and when they last did. Deliberately not
+      // who, and not their `hidden` flag — that is a fact about another
+      // manager's browser tab, and FR-003 keeps a relayer's identity out of a
+      // delivered view. The flag is used to derive `active`, not published.
+      relay: { active: relayActive, lastRelayedAt: leagueBeat?.lastHeartbeatAt ?? null },
       tap: {
         state: row.tap_state,
         version: row.tap_version,
@@ -78,6 +98,54 @@ export function draftRoutes() {
     const snap = await sessionStub(c.env, connection.id, season).snapshot();
     if (!snap) return jsonError(409, "not_armed", "No draft session yet. It arms when the tap connects.");
     return Response.json(snap);
+  });
+
+  /**
+   * 011 T044 — start over (FR-030).
+   *
+   * The first write on this router, which is why the header comment above says
+   * everything here is a read. It is an OWNER action: `getConnectionById` is
+   * account-scoped, so a manager can only reset their own session. Under
+   * fan-out every session in a league sees the same frames, but they remain
+   * separate objects — resetting yours leaves a leaguemate mid-draft untouched.
+   *
+   * Refused during a live draft unless explicitly confirmed. Not a
+   * confirm-dialog reflex: this is the one action that discards a draft in
+   * progress, and the request that reaches here during one is far more likely
+   * to be a stale tab than an intention.
+   */
+  app.post("/:id/draft/reset", async (c) => {
+    const accountId = c.get("accountId");
+    const connection = await getConnectionById(c.env.DB, accountId, c.req.param("id"));
+    if (!connection) return jsonError(404, "not_found", "That league is not connected to this account.");
+
+    const row = await getSession(c.env.DB, connection.id);
+    if (!row) return jsonError(409, "not_armed", "There is no draft session to reset.");
+
+    const confirmed = c.req.query("confirm") === "true";
+    const at = now(c.env);
+    const live = isLiveDraft({
+      status: row.status,
+      completedAt: row.completed_at,
+      lastHeartbeatAt: row.last_heartbeat_at ? Date.parse(row.last_heartbeat_at) : null,
+      hidden: row.heartbeat_hidden === 1,
+      now: at.getTime(),
+    });
+    if (live && !confirmed) {
+      return jsonError(
+        409,
+        "draft_is_live",
+        "This draft looks like it is running right now. Resetting discards every pick captured so far. Confirm to reset anyway.",
+      );
+    }
+
+    // The object first: if the row were cleared first and this failed, the
+    // session would report idle while still holding the previous draft — the
+    // 2026-08-06 shape exactly.
+    await sessionStub(c.env, connection.id, row.season).reset();
+    await resetSession(c.env.DB, connection.id, at);
+
+    return Response.json({ reset: true, wasLive: live });
   });
 
   /**

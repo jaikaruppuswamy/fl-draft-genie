@@ -18,6 +18,7 @@ Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
  └─→ 010 draft-tap ✅ ─→ 005 draft-monitor ✅ ─┘                  ├─→ 007 draft-room-ui ✅
                                    └──────────────────────────────┴─→ 008 draft-replay-lab ✅
 009 deployment-ops (exercised continuously since 001; hardening at the end)
+011 shared-draft-sessions (found 2026-08-06 in live use; fixes 005/007/008/010)
 ```
 
 **010 is numbered after 009 but sequenced before 005** — inserting it as 006
@@ -549,6 +550,93 @@ app's session (plan-level).
 **Governance**: introduces a browser artifact the constitution's Technical
 Constraints do not contemplate ("responsive web app … No native app").
 Requires an explicit `/speckit-constitution` amendment before implementation.
+
+## 011 — shared-draft-sessions
+
+**Added 2026-08-06**, from five defects found in one evening while preparing a
+mock draft — none of them by a test — **plus the owner's request to simplify tap
+setup, absorbed the same day when 012 was cancelled into it** (see 012 below).
+
+**The organising insight came from a question the owner asked, not from the
+code**: *"If a draft is tapped by one manager in a league, why can't everyone
+else receive those tap events?"* The answer is that **nobody decided they
+shouldn't**. Delivery is account-scoped because a session is addressed by
+connection and season, and that is where the owner's team id happens to live.
+No requirement anywhere forbids frames crossing accounts, and the
+constitution's isolation rule enumerates *"leagues, credentials, preferred
+lists"* — not the picks in a draft everyone in the room is watching.
+
+**The rule the feature turns on:**
+
+> **A draft's frames are LEAGUE-SHARED. A manager's perspective — team, league
+> settings, preferred list — is PER-ACCOUNT.**
+
+All five defects are the system conflating those two:
+
+1. **Live delivery is account-scoped.** Measured: a leaguemate relayed **71
+   batches** while the owner relayed 1, in the same league, and the owner
+   received nothing. This also matters beyond convenience — live monitoring
+   needs desktop Chrome (010's permanent limitation), so a leaguemate's tap is
+   the only route for anyone drafting from an iPad or the ESPN app.
+2. **"Cannot reach Draft Genie" is shown when no session is armed** — alarming,
+   wrong, and it fired seven minutes before a draft.
+3. **A completed draft room's ledger loads into a fresh session**, marking ~72
+   available players as gone. Worse than a blank screen: it looks like it works.
+4. **No way to reset a session.** The only workaround disconnects the league,
+   which mints a new connection and destroyed a preferred player.
+5. **Retained frames are scoped by connection, not account**, so a reconnect
+   orphans capture history from 008's lab. The correct fix is narrower than the
+   one shipped: exclude a leaguemate's *perspective*, not their frames.
+
+**Absorbed from the cancelled 012** — the other half of the same sentence:
+
+6. **Tap setup makes the user handle a credential by hand.** The only such step
+   in the product, and it broke under time pressure: on draft night a *working*
+   pairing was revoked and replaced twice in fourteen minutes, because nobody
+   could tell from the outside whether pairing was the problem. Setup becomes
+   install-the-script plus one acknowledgement; the Draft Tap page loses its
+   pairing instructions.
+
+**The credential itself stays, and that is a deliberate refusal.** Removing it
+would make the ingest an **unauthenticated public write endpoint** — anyone who
+learned a league identifier could inject fabricated picks into a live draft, and
+the engine would advise against a corrupted board while everything looked normal.
+010 sized its blast radius precisely *because* the credential names an account.
+The user stops handling it; it does not stop existing. The rejected alternative
+is written into the spec's Assumptions verbatim so it can be chosen deliberately
+rather than arrived at by simplifying a page.
+
+**So the feature turns on two rules:**
+
+> **1. A draft's frames are LEAGUE-SHARED; a manager's perspective is PER-ACCOUNT.**
+> **2. A relay must prove which account it acts for — and the user must never be
+> the one holding the proof.**
+
+Rule 1 governs who may receive, rule 2 who may send. Together they are the whole
+answer to *nobody should have to pair anything*, which is why 012 was folded in
+rather than specified beside it.
+
+**Not in 009.** 009 changes how the product is operated and observed; this
+changes what it does. Alerting that a session died is 009's; deciding what a
+session *is* is this feature's.
+
+## 012 — tap-onboarding ❌ CANCELLED (2026-08-06, same day)
+
+Specified separately by mistake and **folded into 011 within the hour**. The
+number is retired rather than reused, so a reference to "012" resolves to the
+cancellation note (`specs/012-tap-onboarding/spec.md`) instead of silently
+pointing at something else.
+
+It covered simplifying tap setup — install, acknowledge once, strip the pairing
+instructions. 011 covered who may *receive* frames. Those are one sentence,
+**nobody should have to pair anything**, split down the middle: 011 removes
+pairing for receiving, 012 removed the user-visible part of relaying. Apart, the
+two would have argued about the same boundary from opposite sides. Their
+state-legibility stories were also literally the same requirement seen from two
+screens — merging them took eight user stories to seven.
+
+Nothing was dropped. No code, plan or tasks existed; the branch was deleted
+unmerged and unpushed.
 
 ## 009 — deployment-ops
 

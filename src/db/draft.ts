@@ -59,7 +59,22 @@ export async function upsertSession(
          (connection_id, account_id, season, status, armed_at, scheduled_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (connection_id) DO UPDATE SET
-         status = excluded.status,
+         -- 011 T041: a COMPLETED session keeps its status when re-armed.
+         --
+         -- This used to write excluded.status unconditionally, which produced
+         -- a session marked armed while still holding completed_at, observed
+         -- live 2026-08-06. That session can NEVER reach live, because both
+         -- status transitions below are guarded on completed_at IS NULL. It
+         -- accepts frames and never reports a running draft.
+         --
+         -- Leaving it complete is the honest resolution: re-arming is not a
+         -- decision to un-complete a draft. The only ways out are an explicit
+         -- reset (US5) or an ESPN reset observed at sync (US8), and both clear
+         -- the stamp and the status together.
+         status = CASE
+           WHEN draft_sessions.completed_at IS NOT NULL THEN draft_sessions.status
+           ELSE excluded.status
+         END,
          scheduled_at = COALESCE(excluded.scheduled_at, draft_sessions.scheduled_at),
          armed_at = COALESCE(draft_sessions.armed_at, excluded.armed_at),
          updated_at = excluded.updated_at`,
@@ -329,4 +344,83 @@ export async function getArchiveKeepers(
   // Scoped to the account in the query, like every other read in this file —
   // one owner's draft must never be able to shape another's recommendations.
   return new Map((rows.results ?? []).map((r) => [r.player_id, r.team_id]));
+}
+
+
+/**
+ * 011 T041/T042 — return a session to un-started, in place.
+ *
+ * Clears the completion stamp AND the status together. Clearing only one leaves
+ * the split state this feature exists to remove: a session that looks fine and
+ * can never reach `live`, because that transition requires
+ * `completed_at IS NULL`.
+ *
+ * Deliberately does NOT touch the connection, its snapshot, its preferred list,
+ * retained frames or any archive (FR-028, FR-029). The workaround this replaces
+ * — disconnect and reconnect — destroyed a preferred player on 2026-08-06, and
+ * capture history must survive a reset because 008's corpus may depend on it.
+ *
+ * The caller is responsible for refusing this during a live draft (FR-030);
+ * that guard is shared with the sync-observed void (FR-031d2) rather than
+ * duplicated here, because two copies of a live-draft guard will diverge and
+ * the one that diverges is the one that fires at the wrong moment.
+ */
+export async function resetSession(db: D1Database, connectionId: string, now: Date): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE draft_sessions
+          SET status = 'idle', completed_at = NULL, archived_at = NULL, updated_at = ?
+        WHERE connection_id = ?`,
+    )
+    .bind(now.toISOString(), connectionId)
+    .run();
+}
+
+/**
+ * 011 T012 — is ANYONE in this league relaying right now?
+ *
+ * A different question from "is my tap alive", and the room has to ask this one.
+ * Under fan-out a manager who runs no tap still has an armed session, but
+ * `recordHeartbeat` only ever touches the RELAYER's row — so their own
+ * `last_heartbeat_at` stays NULL forever. `heartbeatLapsed` reads a null
+ * heartbeat as "not lapsed" by design (there is nothing to be stale about), so
+ * asking the viewer's own row reported a healthy relay to a manager in a league
+ * where nobody was relaying at all. The room would say **Live** with no feed
+ * behind it — the precise failure this whole feature exists to stop.
+ *
+ * Entitlement is the same predicate the frame read uses, and for the same
+ * reason: a manager who may not see the league's frames must not be told a relay
+ * is running that they will never receive. That is worse than saying nothing.
+ *
+ * Returns the most recent heartbeat the asker is entitled to see, with the
+ * `hidden` flag that decides which lapse threshold applies. The flag is used to
+ * DERIVE liveness and is not itself for publishing — it is a fact about someone
+ * else's browser tab.
+ */
+export async function latestLeagueHeartbeat(
+  db: D1Database,
+  readerConnectionId: string,
+  espnLeagueId: string,
+  season: number,
+): Promise<{ lastHeartbeatAt: string; hidden: boolean } | null> {
+  const row = await db
+    .prepare(
+      `SELECT s.last_heartbeat_at, s.heartbeat_hidden
+         FROM draft_sessions s
+         JOIN league_connections c ON c.id = s.connection_id
+        WHERE c.espn_league_id = ? AND c.season = ?
+          AND s.last_heartbeat_at IS NOT NULL
+          AND EXISTS (
+                SELECT 1 FROM league_connections r
+                 WHERE r.id = ?
+                   AND r.espn_league_id = c.espn_league_id
+                   AND r.season = c.season
+                   AND (r.team_match_source = 'auto' OR r.account_id = c.account_id)
+              )
+        ORDER BY s.last_heartbeat_at DESC
+        LIMIT 1`,
+    )
+    .bind(espnLeagueId, season, readerConnectionId)
+    .first<{ last_heartbeat_at: string; heartbeat_hidden: number }>();
+  return row ? { lastHeartbeatAt: row.last_heartbeat_at, hidden: row.heartbeat_hidden === 1 } : null;
 }

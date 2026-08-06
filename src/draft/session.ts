@@ -26,7 +26,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env";
-import { readBatchesAfter, type FeedCursorRow } from "../db/tap";
+import { latestBatchCursor, readBatchesAfter, type FeedCursorRow } from "../db/tap";
 import { markSessionStatus } from "../db/draft";
 import { foldBatches, type FeedBatch, type RelayMessage } from "./feed";
 import { initialState, reconcile, trust, frontier, type DraftEvent, type DraftState } from "./reconcile";
@@ -39,15 +39,81 @@ export const SAFETY_ALARM_MS = 5_000;
 /** One read cannot pull an unbounded draft into memory. */
 export const READ_LIMIT = 200;
 
-export interface SessionScope {
-  accountId: string;
-  connectionId: string;
+/**
+ * 011 T004 — the two halves of a session's scope, named apart.
+ *
+ * One shape used to carry both, and that conflation is the root of every defect
+ * 011 fixes. The fields are unchanged; what changes is that the compiler now
+ * knows which half each belongs to, so a value taken from the wrong manager is a
+ * type error rather than a silent perspective bleed.
+ *
+ * THE RULE, in one line:
+ *
+ *   Frames are LEAGUE-SHARED. Perspective is PER-ACCOUNT.
+ *
+ * `DraftFacts` describes the draft itself — the same for every manager watching
+ * it, because they are all watching the same ESPN room.
+ */
+export interface DraftFacts {
   espnLeagueId: string;
   season: number;
-  myTeamId: number | null;
+  /** Round-1 pick order. Derived from the picks; see 008's finding on this. */
   order: number[];
+  /**
+   * 011 T011 (FR-005) — the league's managers do not agree on the draft's
+   * length. SURFACED, never resolved.
+   *
+   * Optional because most leagues agree and because it belongs to the league
+   * rather than to any manager — every session in a disagreeing league carries
+   * the same value, which is what makes it a `DraftFacts` field.
+   *
+   * Resolving it is the tempting move and the wrong one. There is no way to
+   * tell which manager's sync is the stale one: on 2026-08-06 two managers in
+   * one league recorded 11 and 12 rounds for the same draft, and picking a
+   * winner would silently reshape somebody's board. Each session keeps using
+   * its OWN `totalPicks` — that stays on `ManagerView` — and the disagreement
+   * is reported so a human can decide.
+   */
+  disagreement?: SettingsDisagreement | null;
+}
+
+/**
+ * Counts and values, never identities (FR-003). Which managers disagree is not
+ * the reader's business and naming them would put a leaguemate's configuration
+ * into someone else's view.
+ */
+export interface SettingsDisagreement {
+  /** Every distinct total-pick count across the league, ascending. */
+  totals: number[];
+}
+
+/**
+ * `ManagerView` is one manager's own context. **Never taken from a relayer.**
+ *
+ * `totalPicks` sits here rather than in `DraftFacts` deliberately, and it is the
+ * field most likely to be moved by someone tidying up. Two managers in one
+ * league recorded 11 and 12 rounds for the SAME draft on 2026-08-06 — one
+ * snapshot was stale. Each session must use its own, and the disagreement is
+ * surfaced (FR-005) rather than one manager's stale sync silently reshaping
+ * another's board.
+ */
+export interface ManagerView {
+  accountId: string;
+  connectionId: string;
+  myTeamId: number | null;
   totalPicks: number;
 }
+
+/**
+ * What a session is armed with: the shared draft, plus exactly one manager's
+ * view of it.
+ *
+ * Kept as a flat intersection so every existing call site and stored record
+ * still reads `scope.myTeamId` — this is a naming change, not a migration. The
+ * Durable Object keeps its address (`connectionId:season`); delivery becomes
+ * league-wide by FANNING OUT to each manager's session, never by re-keying.
+ */
+export type SessionScope = DraftFacts & ManagerView;
 
 /** Last 500 events, backing `?since=` resume (contracts/api.md rule 2). */
 export const EVENT_WINDOW = 500;
@@ -85,6 +151,23 @@ interface Stored {
   closed: boolean;
 }
 
+/** How to arm. See `arm()` — the only option is where a NEW session starts. */
+export interface ArmOptions {
+  /**
+   * Start at the log's high-water mark instead of its beginning.
+   *
+   * Set when this connection has never had a session, so a manager joining
+   * mid-season does not ingest every draft the league has ever relayed. Left
+   * unset for recovery, where re-reading the log is the entire point.
+   */
+  floorToLogTip?: boolean;
+  /**
+   * Instant the arming frame arrived. The floor is taken strictly before it, so
+   * the pick that armed this session is not the one it skips.
+   */
+  floorBefore?: string;
+}
+
 export interface SessionSnapshot {
   status: "idle" | "live" | "complete";
   revision: number;
@@ -95,6 +178,8 @@ export interface SessionSnapshot {
   orderTrust: ReturnType<typeof trust>;
   totalPicks: number;
   complete: boolean;
+  /** FR-005. Null when the league agrees, which is the ordinary case. */
+  disagreement: SettingsDisagreement | null;
 }
 
 export class DraftSession extends DurableObject<Env> {
@@ -105,7 +190,7 @@ export class DraftSession extends DurableObject<Env> {
    * scope is refreshed because pre-draft data (order, team count) can arrive
    * after the first frame.
    */
-  async arm(scope: SessionScope): Promise<void> {
+  async arm(scope: SessionScope, opts: ArmOptions = {}): Promise<void> {
     const s = await this.load();
     if (s.closed) return; // disconnected: an explicit decision, not a belief
     // An abort is about a draft that never started. If it is being armed
@@ -118,6 +203,31 @@ export class DraftSession extends DurableObject<Env> {
         "state",
         initialState({ order: scope.order, myTeamId: scope.myTeamId, totalPicks: scope.totalPicks }),
       );
+      // 011 Phase 3 — where a manager JOINING starts reading.
+      //
+      // The log is league-wide now and nothing prunes it, so a session that
+      // starts at `cursor: null` reads the OLDEST rows in the league: last
+      // week's mock, the practice draft, all of it. That is US1's exact
+      // persona — the manager who arrives with no tap and no history — and it
+      // would hand them a board full of a draft that already finished.
+      //
+      // Deliberately NOT applied to every first arm. Total storage loss also
+      // leaves `s.scope` empty, and there the whole point is to re-read the log
+      // and reconstruct the draft. The caller distinguishes them, because D1
+      // knows: a session that has run before has a `draft_sessions` row, and
+      // that row survives the object being evicted.
+      if (opts.floorToLogTip) {
+        const floor = await latestBatchCursor(
+          this.env.DB,
+          {
+            readerConnectionId: scope.connectionId,
+            espnLeagueId: scope.espnLeagueId,
+            season: scope.season,
+          },
+          opts.floorBefore,
+        );
+        if (floor) await this.ctx.storage.put({ cursor: floor, logFloor: floor });
+      }
     } else {
       // Refresh the parts the draft's structure depends on; keep the picks.
       const totalPicks = scope.totalPicks || s.state.totalPicks;
@@ -194,7 +304,12 @@ export class DraftSession extends DurableObject<Env> {
       deliverySeq: 0,
       eventWindow: [],
     });
-    await this.ctx.storage.delete("cursor");
+    // Rewind to the START OF THIS DRAFT, not the start of the log. After a
+    // reset the log still holds the previous draft (FR-029), and a rebuild that
+    // rewound past the floor would restore exactly what the reset discarded.
+    const floor = await this.ctx.storage.get<FeedCursorRow>("logFloor");
+    if (floor) await this.ctx.storage.put("cursor", floor);
+    else await this.ctx.storage.delete("cursor");
 
     // Drain the whole log, not just the first page: a full draft is more than
     // one READ_LIMIT window, and stopping early would rebuild a partial draft
@@ -206,7 +321,7 @@ export class DraftSession extends DurableObject<Env> {
       const after = await this.load();
       const more = await readBatchesAfter(
         this.env.DB,
-        { accountId: after.scope!.accountId, espnLeagueId: after.scope!.espnLeagueId, season: after.scope!.season },
+        { readerConnectionId: after.scope!.connectionId, espnLeagueId: after.scope!.espnLeagueId, season: after.scope!.season },
         after.cursor,
         1,
       );
@@ -233,6 +348,55 @@ export class DraftSession extends DurableObject<Env> {
     const s = await this.load();
     await this.ctx.storage.put("state", { ...s.state, complete: false });
     await this.ctx.storage.put("aborted", true);
+  }
+
+  /**
+   * 011 T042 — clear the draft, keep the session (FR-027).
+   *
+   * The distinction from `shutdown()` is the entire point, and it is one flag:
+   * shutdown sets `closed`, and `arm()` returns early on `closed`. That makes
+   * shutdown PERMANENT — which is why, before this existed, the only way to run
+   * a second mock draft was to disconnect the league and reconnect it. That
+   * mints a new connection id and took a preferred player with it on
+   * 2026-08-06.
+   *
+   * So this deletes the draft's own keys by name rather than calling
+   * `deleteAll()`. Naming them is deliberate: a future key that ought to
+   * survive a reset (an enablement, a retained frame index) would be destroyed
+   * silently by a blanket wipe, and nothing here would fail.
+   *
+   * THE CURSOR IS MOVED FORWARD, NOT CLEARED, and that is the subtle half.
+   * Clearing it rewinds the session to the start of a log that deliberately
+   * OUTLIVES the reset (FR-029) — so the very next pump would faithfully
+   * re-import the draft just discarded. The floor is recorded so `rebuild()`,
+   * which legitimately rewinds to recover from storage loss, rewinds only to
+   * the start of THIS draft rather than into the previous one.
+   */
+  async reset(): Promise<void> {
+    const s = await this.load();
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.delete([
+      "state",
+      "cursor",
+      "epoch",
+      "deliverySeq",
+      "eventWindow",
+      "aborted",
+    ]);
+
+    const floor = s.scope
+      ? await latestBatchCursor(this.env.DB, {
+          readerConnectionId: s.scope.connectionId,
+          espnLeagueId: s.scope.espnLeagueId,
+          season: s.scope.season,
+        })
+      : null;
+    if (floor) await this.ctx.storage.put({ cursor: floor, logFloor: floor });
+    else await this.ctx.storage.delete("logFloor");
+
+    // `scope` stays: it is the league, the season and this manager's team, none
+    // of which the reset is about. `closed` is never set — that is the flag
+    // that would make this permanent.
   }
 
   /** Stop everything and forget. Called when a league is disconnected. */
@@ -295,7 +459,7 @@ export class DraftSession extends DurableObject<Env> {
 
     const rows = await readBatchesAfter(
       this.env.DB,
-      { accountId: s.scope.accountId, espnLeagueId: s.scope.espnLeagueId, season: s.scope.season },
+      { readerConnectionId: s.scope.connectionId, espnLeagueId: s.scope.espnLeagueId, season: s.scope.season },
       s.cursor,
       READ_LIMIT,
     );
@@ -304,8 +468,6 @@ export class DraftSession extends DurableObject<Env> {
     const batches: FeedBatch[] = rows.map((r) => ({
       id: r.id,
       receivedAt: r.receivedAt,
-      installId: r.installId,
-      sessionId: r.sessionId,
       firstSeq: r.firstSeq,
       lastSeq: r.lastSeq,
       messages: r.messages as RelayMessage[],
@@ -496,6 +658,10 @@ export class DraftSession extends DurableObject<Env> {
             }),
       orderTrust: trust(s.state),
       totalPicks: s.state.totalPicks,
+      // From the scope, not from `state`: it is a fact about the league that
+      // arming establishes, and `stateFingerprint` must not see it or FR-014's
+      // rebuild equality would depend on who else happens to be connected.
+      disagreement: s.scope?.disagreement ?? null,
       complete: s.state.complete,
     };
   }

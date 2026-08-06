@@ -1,0 +1,22 @@
+-- 011 Phase 3 — an index for the LEAGUE-scoped frame read.
+--
+-- Until now a session read its frames with `WHERE account_id = ? AND
+-- espn_league_id = ? AND season = ?`, served by `idx_tap_batches_league`, whose
+-- leading column is `account_id`.
+--
+-- Fan-out changes the question. A manager who runs no tap must see the draft a
+-- leaguemate is relaying, and those rows carry the RELAYER's `account_id`. So
+-- the read drops that predicate (constitution: a league's draft picks are shared
+-- among that league's managers, ratified 2026-08-06) and asks for the league and
+-- season instead.
+--
+-- `account_id` leading means the old index cannot SEEK for that query — SQLite
+-- would fall back to scanning it, on every pump, of every session, in every
+-- league, for the whole of a live draft. This index restores the seek. It also
+-- covers the ORDER BY, so the keyset read no longer builds a temporary B-tree —
+-- strictly better than what the account-scoped query pays today.
+--
+-- `idx_tap_batches_league` is KEPT: `summariseBatches` still asks "what has THIS
+-- account relayed", where `account_id` is genuinely the leading column.
+CREATE INDEX idx_tap_batches_league_all
+  ON tap_batches (espn_league_id, season, received_at, id);

@@ -76,6 +76,17 @@ beforeEach(async () => {
   await testEnv.DB.prepare(`INSERT OR IGNORE INTO accounts (id, email, created_at) VALUES (?, ?, ?)`)
     .bind(ACCOUNT, "rebuild@test.co", "2026-08-01T00:00:00.000Z")
     .run();
+  // 011 Phase 3: the frame read is league-scoped and gated on VERIFIED
+  // membership, so a session only sees frames if its connection exists and its
+  // team was matched by SWID (`team_match_source = 'auto'`). Seeding the account
+  // alone used to be enough; it no longer is.
+  await testEnv.DB.prepare(
+    `INSERT OR IGNORE INTO league_connections
+       (id, account_id, espn_league_id, season, my_team_id, team_match_source, created_at, last_sync_status)
+     VALUES (?, ?, ?, ?, 1, 'auto', ?, 'ok')`,
+  )
+    .bind(CONNECTION, ACCOUNT, LEAGUE, SEASON, "2026-08-01T00:00:00.000Z")
+    .run();
   await runInDurableObject(stub(), async (_i: DraftSession, state: DurableObjectState) => {
     await state.storage.deleteAll();
     await state.storage.deleteAlarm();

@@ -101,3 +101,45 @@ export function withholdReason(i: WithholdInput): WithholdReason | null {
 export function isWithholding(i: WithholdInput): boolean {
   return withholdReason(i) !== null;
 }
+
+/**
+ * 011 T043 — is this draft LIVE, for the purpose of refusing to wipe it?
+ *
+ * ONE implementation, two callers (FR-031d2):
+ *   * the owner asking to reset a session      (FR-030)
+ *   * a sync observing an ESPN reset            (FR-031d)
+ *
+ * They differ only in trigger. Two copies of a live-draft guard will diverge,
+ * and the one that diverges is the one that fires at the wrong moment.
+ *
+ * IT IS DELIBERATELY NOT ABOUT PICK RECENCY, and that is the whole point. 005
+ * measured inter-pick gaps from ~1 s under autodraft to **90 s+ between human
+ * picks**, and concluded that liveness comes from the heartbeat rather than
+ * from pick silence. A "picks in the last N seconds" test would wipe a live
+ * draft while a manager deliberates over a pick — turning a guard into the
+ * thing it was meant to prevent.
+ *
+ * So: armed, not finished, and the tap still breathing. `heartbeatLapsed`
+ * already applies the right threshold for a hidden tab (150 s) versus a visible
+ * one (45 s), because a backgrounded tab throttles its timers to about one a
+ * minute and the ratified design expects that tab to be backgrounded.
+ */
+export interface LiveDraftInput extends LivenessInput {
+  /** The session's recorded status. */
+  status: string;
+  /** Set once the draft has completed. Non-null ⇒ nothing live to protect. */
+  completedAt: string | null;
+}
+
+export function isLiveDraft(i: LiveDraftInput): boolean {
+  // A finished draft is not live. This is what makes reset possible at all —
+  // the ordinary case is resetting something that has completed.
+  if (i.completedAt !== null) return false;
+  // Never armed, aborted, or unsupported: nothing in flight to protect.
+  if (!["armed", "live", "not_receiving", "degraded"].includes(i.status)) return false;
+  // A session that has never heard from a tap is not live — `heartbeatLapsed`
+  // returns false for a null heartbeat because there is nothing to be stale
+  // about, so that case is excluded explicitly rather than by accident.
+  if (i.lastHeartbeatAt === null) return false;
+  return !heartbeatLapsed(i);
+}

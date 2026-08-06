@@ -18,7 +18,11 @@ import type { Env } from "../../src/env";
 
 const ACCOUNT = "acct-order";
 const CONNECTION = "conn-order";
-const LEAGUE = "9999999999";
+// 011 Phase 3: this id must be UNIQUE across the draft suites. The frame read
+// is league-scoped now, and these suites share one database with
+// `isolatedStorage: false` while tearing down by account — so two suites
+// sharing a league id read each other's rows.
+const LEAGUE = "9199919991";
 const SEASON = 2026;
 const ORDER = [5, 2, 1, 3, 6, 4];
 
@@ -66,6 +70,17 @@ beforeEach(async () => {
   await testEnv.DB.prepare(`DELETE FROM tap_batches WHERE account_id = ?`).bind(ACCOUNT).run();
   await testEnv.DB.prepare(`INSERT OR IGNORE INTO accounts (id, email, created_at) VALUES (?, ?, ?)`)
     .bind(ACCOUNT, "order@test.co", "2026-08-01T00:00:00.000Z")
+    .run();
+  // 011 Phase 3: the frame read is league-scoped and gated on VERIFIED
+  // membership, so a session only sees frames if its connection exists and its
+  // team was matched by SWID (`team_match_source = 'auto'`). Seeding the account
+  // alone used to be enough; it no longer is.
+  await testEnv.DB.prepare(
+    `INSERT OR IGNORE INTO league_connections
+       (id, account_id, espn_league_id, season, my_team_id, team_match_source, created_at, last_sync_status)
+     VALUES (?, ?, ?, ?, 1, 'auto', ?, 'ok')`,
+  )
+    .bind(CONNECTION, ACCOUNT, LEAGUE, SEASON, "2026-08-01T00:00:00.000Z")
     .run();
   // Reset the object between tests: this project runs with isolatedStorage
   // off, because WebSockets in DOs are unsupported with per-file isolation.

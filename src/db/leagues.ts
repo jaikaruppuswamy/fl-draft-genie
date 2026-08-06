@@ -39,6 +39,47 @@ export async function findConnection(
     .first<ConnectionRow>();
 }
 
+/**
+ * 011 T002 — every connection to one league and season, ACROSS ACCOUNTS.
+ *
+ * THE ONLY QUERY IN THIS MODULE THAT DELIBERATELY CROSSES ACCOUNTS, and the
+ * reason is worth stating where someone will read it.
+ *
+ * A draft's picks are a league-shared event: every manager in that ESPN room is
+ * already watching them. So when one manager's tap relays, the frames belong to
+ * the DRAFT, not to the relayer — and this is the audience they go to. Before
+ * this, delivery was scoped to whoever happened to be relaying, which was never
+ * a decision anybody made: the session is addressed by connection because that
+ * is where the owner's team id lives. Measured cost on 2026-08-05: a leaguemate
+ * relayed 71 batches while the owner relayed 1, and the owner saw nothing.
+ *
+ * WHAT THIS DOES NOT DO, and must never do: hand one manager another's
+ * PERSPECTIVE. It returns connections so each one's own session can be armed
+ * with its own scope — own team, own settings, own preferred list. The
+ * constitution's isolation rule covers "another user's leagues, credentials, or
+ * preferred lists"; none of those cross here, and the caller must keep it that
+ * way (`tests/draft/scope.test.ts`).
+ *
+ * Callers must also not disclose WHICH manager relayed (011 FR-003): that a
+ * particular person uses Draft Genie is the only genuinely private fact in the
+ * exchange.
+ */
+export async function listConnectionsForLeague(
+  db: D1Database,
+  leagueId: string,
+  season: number,
+): Promise<ConnectionRow[]> {
+  const res = await db
+    .prepare(
+      "SELECT * FROM league_connections WHERE espn_league_id = ? AND season = ? ORDER BY id",
+    )
+    .bind(leagueId, season)
+    .all<ConnectionRow>();
+  // Ordered by id so a fan-out arms in a stable sequence — a test that asserts
+  // on the audience should not depend on insertion order.
+  return res.results;
+}
+
 export async function getConnectionById(
   db: D1Database,
   accountId: string,

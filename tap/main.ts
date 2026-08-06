@@ -317,13 +317,20 @@ function enqueue(kind: "pick" | "ledger" | "status", payload: unknown, transport
 
 // --- frame handling ------------------------------------------------------
 
+/** The transport that carried the most recent frame; see the announce port. */
+let lastTransport: Transport = "ws";
+
 // FR-004: relay draft-state messages in order, identifying the league.
 // FR-005a: the stable identity is the player id (SELECTED carries no ordinal).
 function onFrame(raw: string, transport: Transport): void {
+  lastTransport = transport;
   const c = classify(raw);
   // FR-024: a completed draft emits nothing we should forward. Status frames
-  // still go out — stopping the relay must not also stop saying why.
-  if (!draftEnd.shouldRelay(c.kind === "unrecognised" ? "status" : c.kind)) return;
+  // still go out — stopping the relay must not also stop saying why. Both of
+  // the non-draft kinds are asked about as "status" for that reason: neither is
+  // relayed as draft data, and neither should be silenced by the draft ending.
+  const relayKind = c.kind === "pick" || c.kind === "ledger" ? c.kind : "status";
+  if (!draftEnd.shouldRelay(relayKind)) return;
   switch (c.kind) {
     case "pick": {
       const payload = filterPickFields(c.fields);
@@ -366,6 +373,10 @@ function onFrame(raw: string, transport: Transport): void {
 // tap/draftEnd.ts, where they can be tested; this is only the wiring.
 const draftEnd = new DraftEnd({
   render: (state, detail) => render(state, detail),
+  // 011 T038. `lastTransport` rather than a fixed value: completion is detected
+  // inside frame handling, so the transport that carried the last frame is the
+  // one that carried the evidence.
+  announce: (completion) => enqueue("status", { state: "draft-finished", ...completion }, lastTransport),
   flush: () => flush(),
   currentState: () => status.state,
   setTimer: (fn, ms) => setTimeout(fn, ms),

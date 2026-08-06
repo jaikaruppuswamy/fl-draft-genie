@@ -259,9 +259,30 @@ function isCorrection(before: Pick[], after: Pick[]): boolean {
   return d !== null && d <= before.length;
 }
 
+/** A ledger refused as belonging to a different draft (011 FR-025). */
+export interface RejectedLedger {
+  /**
+   * Which rule refused it. `tap_reported_finished_draft` is the tap saying what
+   * the room SHOWS; `complete_ledger_at_unstarted_session` is this module
+   * concluding it from shape. Kept apart because when one of them is ever wrong,
+   * the first question is which one fired.
+   */
+  reason: "complete_ledger_at_unstarted_session" | "tap_reported_finished_draft";
+  rows: number;
+  totalPicks: number;
+}
+
 export interface ReduceResult {
   state: DraftState;
   events: DraftEvent[];
+  /**
+   * Set when a ledger was refused as belonging to a different draft.
+   *
+   * Surfaced on the result rather than logged inside, so the caller decides how
+   * loudly to record it — and so a test can assert the refusal happened rather
+   * than only that picks are absent.
+   */
+  rejectedLedger?: RejectedLedger;
 }
 
 /**
@@ -271,16 +292,87 @@ export interface ReduceResult {
  * so the caller can gate its transaction on `events.length` and avoid
  * committing on every no-op sweep (research §7).
  */
+/**
+ * 011 T035 — may this ledger become the session's baseline?
+ *
+ * A ledger frame carries NOTHING identifying its draft: the payload is
+ * `{teamId, playerId, slot3, overallPickNumber}`, and the wrapper adds only when
+ * the tap saw it. The tap session does not help either — one session emitted
+ * ledgers for two different drafts across a league reconnect on 2026-08-06.
+ *
+ * So the binding is behavioural, and there is a usable signature:
+ *
+ *   A LIVE draft's ledger arrives early and PARTIAL, and the incremental stream
+ *   fills it in — 010 measured 69 of 72 picks arriving incrementally, 3 only by
+ *   ledger. A COMPLETED draft's ledger is complete on arrival.
+ *
+ * Therefore: a ledger accounting for a whole draft, reaching a session that has
+ * never observed an incremental pick, is describing a DIFFERENT draft.
+ *
+ * WHAT THIS MUST NOT DO is break recovery, which is the entire purpose of
+ * ledgers. A session that has seen picks always accepts — that is the reload
+ * case — and a partial ledger at a fresh session is a live draft starting,
+ * which is normal.
+ *
+ * Residual risk, stated: a finished draft re-ingested from scratch is refused.
+ * That draft has already happened; refusing to re-ingest costs nothing, and the
+ * refusal is recorded rather than silent (FR-025).
+ */
+function ledgerDescribesAnotherDraft(
+  s: DraftState,
+  ledger: PickObservation[],
+  statuses: Observation["statuses"],
+): boolean {
+  // A session that has observed anything is on its own draft's timeline. This
+  // precedes the tap's own report deliberately: the reload case is a session
+  // WITH picks receiving a ledger for a draft the tap has correctly called
+  // finished, and treating that as contamination would break recovery at the
+  // exact moment a draft ends.
+  if (s.picks.length > 0) return false;
+
+  // 011 T038 — the DIRECT signal, where present. The tap is attached to the
+  // room; it does not have to infer what the room is showing. Authoritative
+  // when it arrives, and it does not need `totalPicks` — which matters, because
+  // a freshly reconnected session often has no pre-draft data yet, and that is
+  // precisely when a stale tab's ledger lands.
+  if (statuses.some((st) => st.state === "draft-finished")) return true;
+
+  // ...and NEVER depended on alone (research §2): taps update on their own
+  // schedule, so this inference must stand up for every tap still running an
+  // older build. `totalPicks === 0` means the draft's length is not
+  // established, so "complete" cannot be judged — claiming it could would be
+  // the same mistake as 006 reading an unknown total as a real one.
+  if (s.totalPicks <= 0) return false;
+
+  let covered = 0;
+  for (const o of ledger) covered = Math.max(covered, o.overallPickNumber ?? 0);
+  return covered >= s.totalPicks;
+}
+
 export function reconcile(state: DraftState, obs: Observation): ReduceResult {
   // Ledger FIRST: it is authoritative, and applying it before the stream means
   // an incremental frame for a pick the ledger already placed is recognised as
   // a duplicate rather than appended a second time.
   let confirmed = state.confirmed;
   let pending = state.pending;
+  let rejectedLedger: RejectedLedger | null = null;
   if (obs.ledger) {
-    const merged = applyLedger(state, obs.ledger);
-    confirmed = merged.confirmed;
-    pending = merged.pending;
+    if (ledgerDescribesAnotherDraft(state, obs.ledger, obs.statuses)) {
+      // RECORDED, never silent (FR-025): a genuine recovery must never be
+      // mistaken for contamination, and the only way to tell them apart later
+      // is to have said which this was.
+      rejectedLedger = {
+        reason: obs.statuses.some((st) => st.state === "draft-finished")
+          ? "tap_reported_finished_draft"
+          : "complete_ledger_at_unstarted_session",
+        rows: obs.ledger.length,
+        totalPicks: state.totalPicks,
+      };
+    } else {
+      const merged = applyLedger(state, obs.ledger);
+      confirmed = merged.confirmed;
+      pending = merged.pending;
+    }
   }
   if (obs.picks.length) {
     pending = applyIncremental({ ...state, confirmed, pending }, obs.picks);
@@ -293,7 +385,7 @@ export function reconcile(state: DraftState, obs: Observation): ReduceResult {
     // here means the pick list is byte-identical: a replayed batch, or a
     // safety-alarm sweep finding the cursor already current. Return the SAME
     // state object so the caller's `events.length` gate skips the commit.
-    return { state, events: [] };
+    return { state, events: [], ...(rejectedLedger ? { rejectedLedger } : {}) };
   }
   const divergedAt: number = diverged;
 
@@ -336,7 +428,11 @@ export function reconcile(state: DraftState, obs: Observation): ReduceResult {
     events.push({ kind: "draft_complete", revision, totalPicks: next.totalPicks });
   }
 
-  return { state: { ...next, seq: state.seq + events.length }, events };
+  return {
+    state: { ...next, seq: state.seq + events.length },
+    events,
+    ...(rejectedLedger ? { rejectedLedger } : {}),
+  };
 }
 
 /**

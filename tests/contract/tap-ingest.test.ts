@@ -283,3 +283,58 @@ describe("POST /api/tap/status — heartbeat (005 FR-007e)", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("the league is taken from the VERIFIED connection, never from the body", () => {
+  // Found while stressing 011's fan-out. `getConnectionById` validates id +
+  // account — it does NOT check that `body.league` describes that connection.
+  // So a paired user could send their own connectionId alongside SOMEONE ELSE'S
+  // league id, and the batch was stored stamped with the foreign league.
+  //
+  // Inert while frame reads are account-scoped: only the author could ever read
+  // the forged row. 011's league-scoped read is what would arm it, turning this
+  // into frame injection into another league's live draft board. Closing it is
+  // a precondition of that change, not a follow-up.
+  //
+  // `tap_batches.espn_league_id` is plain TEXT with no foreign key, so nothing
+  // downstream would have objected.
+
+  const FOREIGN = "1234512345";
+
+  it("REFUSES a batch whose body names a league the connection is not for", async () => {
+    const res = await post(batch({ league: { espnLeagueId: FOREIGN, season: 2026 } }));
+    expect(res.status).toBe(403);
+  });
+
+  it("stores NOTHING under the foreign league — asserted against the store", async () => {
+    // The handler's status code is not the security property. What matters is
+    // that no row exists carrying that league id.
+    await post(batch({ league: { espnLeagueId: FOREIGN, season: 2026 } }));
+
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM tap_batches WHERE espn_league_id = ?")
+      .bind(FOREIGN)
+      .first<{ n: number }>();
+    expect(row?.n).toBe(0);
+  });
+
+  it("refuses a mismatched SEASON too", async () => {
+    // The same hole, one field over. A season is as much a part of the key as
+    // the league id, and 011 fans out on the pair.
+    const res = await post(batch({ league: { espnLeagueId: "9999999999", season: 2025 } }));
+    expect(res.status).toBe(403);
+  });
+
+  it("stores the batch under the CONNECTION's league, not the body's", async () => {
+    // The positive half. Without it, "refuses a mismatch" passes against a
+    // handler that refuses everything.
+    const res = await post(batch());
+    expect(res.status).toBe(202);
+
+    const row = await env.DB.prepare(
+      "SELECT espn_league_id, season FROM tap_batches WHERE connection_id = ?",
+    )
+      .bind(connectionId)
+      .first<{ espn_league_id: string; season: number }>();
+    expect(row?.espn_league_id).toBe("9999999999");
+    expect(row?.season).toBe(2026);
+  });
+});

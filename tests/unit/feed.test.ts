@@ -31,8 +31,6 @@ const msg = (over: Partial<RelayMessage> = {}): RelayMessage => ({
 const batch = (over: Partial<FeedBatch> = {}): FeedBatch => ({
   id: "b1",
   receivedAt: "2026-08-30T23:14:07.000Z",
-  installId: "i",
-  sessionId: "s",
   firstSeq: 1,
   lastSeq: 1,
   messages: [msg()],
