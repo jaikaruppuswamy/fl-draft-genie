@@ -368,3 +368,9 @@ Informed defaults where the roadmap left the question open. Each is a decision
   separately by the owner.
 - **Closing 005's open items** (draft-end detection, keeper reconciliation).
   They are 005's, and alerting on their silence is what this feature adds.
+- **The draft session's scope and lifecycle** — who a session serves, resetting
+  one, and how a stale ledger can load a finished draft into a fresh session.
+  Found live on 2026-08-06 while preparing a mock draft, and moved to **011**
+  rather than absorbed here: 011 changes product behaviour, and 009 changes only
+  how the product is operated and observed. Alerting on a session that has died
+  stays here; deciding what a session *is* does not.
