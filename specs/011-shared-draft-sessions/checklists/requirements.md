@@ -82,21 +82,43 @@ the ingest credential — is kept, and the spec says so at length.
   into a fresh session.
 - **1 preferred player** destroyed by the only available reset workaround.
 
-### Carried forward to `/speckit-clarify`
+### Resolved in `/speckit-clarify` (Session 2026-08-06)
 
-1. **Keep the ingest credential, or remove it?** The central decision. The
-   rejected option is stated in Assumptions in full rather than omitted, because
-   arriving at an unauthenticated write endpoint by simplifying a page would be
-   the worst possible route to it.
-2. **Consent to relay.** Consent to *receive* is unnecessary — the picks are
-   already visible to everyone in the room. Consent for one's tap to *serve*
-   others is the sharper question and the assumption most likely to be
-   overturned.
-3. **What binds a ledger to its draft.** FR-024 rules out coverage-alone;
-   choosing the replacement is a design question for planning.
-4. **Does enablement survive sign-out?** Assumed yes — a draft outlasts a
-   session — but it is a real trade.
-5. **Signed in as one account, drafting a league connected under another.**
+Five questions, all answered. Four of the five carried-forward items are settled;
+the fifth was deferred deliberately.
+
+1. **Keep the ingest credential** — ratified with the alternatives explicitly on
+   the table. Removing it, and narrowing it to live-draft windows, were both
+   rejected. FR-022, and the new **FR-022a** forbids inferring attribution from
+   context in place of a credential — the constraint an armed-session or
+   live-draft check would rely on is weakest exactly when a draft is live.
+2. **Sharing is automatic** — no setting on either side, relayer neither asked
+   nor identified (**FR-003a**). The reasoning that decided it: a control that
+   must be found will not be found by the managers who need this most, the ones
+   who cannot relay at all.
+3. **A relay stopping mid-draft** gets one message for everyone, naming the
+   remedy (**FR-006a**). The owner chose uniformity over a tailored message, and
+   the defence is sound: *"someone needs a draft room open in Chrome"* is
+   actionable from an iPad — socially rather than technically.
+4. **Enablement survives sign-out**, revocable from the tap page (**FR-020a**).
+   Asymmetric failure modes decided it: a stale enablement leaks nothing, while a
+   relay dying mid-draft now takes a whole league's feed with it.
+5. **Several relays are all accepted and deduplicated** (**FR-007a/b**) rather
+   than electing a primary. This question was not on the original list — it was
+   added during clarify because US1 *increases* the chance of it: today two
+   relays feed two separate sessions, afterwards they feed one league. Failover
+   was rejected as a path that would never run until the night it mattered.
+   **FR-007b** guards the subtle half: duplicate suppression must not become
+   first-writer-wins on a corrected fact.
+
+### Still deferred
+
+- **What binds a ledger to its draft.** FR-024 rules out coverage-alone;
+  choosing the replacement needs to know what the frames actually carry, which is
+  research for planning rather than a decision the owner can make.
+- **Signed in as one account, drafting a league connected under another.**
+  Remains an edge case. Low likelihood with one operator; worth resolving in
+  planning rather than spending a clarify question on.
 
 ### Outstanding
 

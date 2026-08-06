@@ -63,8 +63,10 @@ signed-in acknowledgement hands the browser what it needs. Install, click, done 
 no codes, nothing copied, nothing to curate. Exactly the requested experience;
 only the handling moves.
 
-**The rejected alternative is recorded in Assumptions verbatim**, so it can be
-chosen deliberately rather than arrived at by simplifying a page.
+**This was put to the owner directly and ratified** (see Clarifications), with
+removing the credential and narrowing it to live-draft windows both on the table
+and both rejected. It is a decision, not a default arrived at by simplifying a
+page.
 
 ### The defects
 
@@ -79,6 +81,16 @@ chosen deliberately rather than arrived at by simplifying a page.
 
 Draft Genie stays **read-only against ESPN** (Constitution VI) — the tap remains
 strictly passive — and no recommendation rule changes (Principle IV).
+
+## Clarifications
+
+### Session 2026-08-06
+
+- Q: Should the ingest keep requiring a credential that proves which account a relay acts for, or accept relayed picks without one? → A: **Keep it; the user stops handling it.** A signed-in acknowledgement hands the browser what it needs, so setup is install-click-done with nothing shown, copied or curated — but the ingest still rejects anything it cannot attribute to an account. The blast radius stays as 010 sized it: append draft messages for that account's own leagues, never read league data, never reach ESPN. **Removing the credential is rejected**, and so is narrowing it to live-draft windows only — that constraint is weakest exactly when a draft is live, which is when fabricated picks would do the damage.
+- Q: When one manager's tap is relaying a draft, should their leaguemates automatically receive it, or should that manager have to agree to serve them? → A: **Automatic.** Every manager who has connected the league receives what is relayed, with no setting to find on either side and no coordination between them. The relaying manager is not asked and is not identified. Rationale: the picks were never private — they are on every manager's screen in ESPN already — the relay costs the volunteer nothing they were not already doing, and an opt-in nobody finds means the feature silently does not exist for the managers who most need it, the ones on an iPad who cannot relay at all.
+- Q: When the manager who is relaying closes their laptop mid-draft, what should the other managers who were depending on that relay see? → A: **Say the feed has stopped, and say what would restore it — the same message to everyone.** One message rather than one per audience: "someone in this league needs a draft room open in desktop Chrome" is actionable by anyone, including a manager on an iPad who can act socially rather than technically. The requirement is that a stopped feed is never indistinguishable from a draft that has not started.
+- Q: If the owner signs out of Draft Genie, should the tap in that browser keep relaying? → A: **Keep relaying; revocable from the tap page.** Enablement is a property of the browser, not the session, so it survives sign-out and session expiry and still expires on its own schedule. The failure modes are asymmetric: a stale enablement leaks nothing — the tap can only append picks for that account's own leagues and can never read — whereas a relay dying mid-draft now breaks the feed for that manager's **whole league**, at the moment it matters most.
+- Q: When two managers in the same league are both relaying the same draft, should the system accept both streams or elect one? → A: **Accept all relays and treat duplicates as the same pick.** A second relay is free resilience against exactly the single point of failure US1 creates, and electing a primary would require failover that detects a dead relay and promotes a replacement mid-draft — a path that would never be exercised until the night it mattered. Duplicates must converge on one pick rather than being counted twice, and a later frame that *corrects* an earlier one must not be discarded merely for arriving second.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -322,13 +334,28 @@ reconnect.
 - **FR-002**: Each manager's view MUST be rendered from **their own**
   perspective — team, league settings, roster needs, preferred list.
 - **FR-003**: The system MUST NOT disclose which manager relayed the frames.
+- **FR-003a**: Sharing MUST require no setting, consent step or coordination on
+  either side. The relaying manager is not asked, and no manager needs to enable
+  receiving. A control that must be found is a control that will not be found by
+  the managers who need this most — the ones who cannot relay at all.
 - **FR-004**: A manager who has not connected a league MUST receive nothing for
   it.
 - **FR-005**: Where managers' recorded league settings disagree about the draft's
   shape, the disagreement MUST be surfaced, not silently resolved.
 - **FR-006**: A manager in a league with no active relay MUST be told so, and
   told what would change it.
+- **FR-006a**: A relay that **stops mid-draft** MUST be reported to every manager
+  depending on it, and MUST NOT be presentable as a draft that has not started.
+  The message MUST be the same for all of them and MUST name the remedy — a
+  manager who cannot relay can still act on it by asking one who can.
 - **FR-007**: Delivery MUST remain within the latency budget 005 ratified.
+- **FR-007a**: Frames from **several relays** for one draft MUST all be accepted,
+  and duplicates describing the same pick MUST converge on one pick rather than
+  being counted twice. A second relay is resilience against the single point of
+  failure shared delivery creates, so it is never rejected.
+- **FR-007b**: A later frame that **corrects** an earlier one MUST NOT be
+  discarded merely for arriving second. Duplicate suppression must not become
+  first-writer-wins on a changed fact.
 
 **Honest state (US2)**
 
@@ -359,10 +386,19 @@ reconnect.
   act only for that account.
 - **FR-020**: Re-acknowledging MUST be safe and MUST NOT interrupt a relay in
   progress.
+- **FR-020a**: Relay enablement MUST survive sign-out and session expiry, and
+  MUST remain revocable from the tap page. It is a property of the browser, not
+  of a signed-in session — a draft outlasts a session, and under league-shared
+  delivery a relay that dies mid-draft takes the whole league's feed with it.
 - **FR-021**: A failure to enable MUST state why and leave any working state
   intact.
 - **FR-022**: The ingest MUST continue to reject unattributable frames. This
   feature changes **who handles** the credential, never **whether one exists**.
+- **FR-022a**: Attribution MUST NOT be inferred from context in place of a
+  credential — not from a league having an armed session, not from a draft being
+  in progress, not from the league identifier alone. Those constraints are
+  weakest precisely while a draft is live, which is when injected picks would do
+  the damage.
 
 **Ledger containment (US4)**
 
@@ -466,19 +502,12 @@ reconnect.
 Informed defaults. Each is a decision `/speckit-clarify` should ratify or
 overturn — the first especially.
 
-- **The credential remains; the user stops handling it.** The userscript already
-  runs on ESPN's origin and can also recognise Draft Genie's own page, so a
-  signed-in acknowledgement hands the browser what it needs.
-  - **The alternative, stated so it can be chosen deliberately**: no credential
-    at all, making the ingest an unauthenticated public write endpoint. Anyone
-    who learned a league identifier could inject fabricated picks into a live
-    draft, and the engine would advise against a corrupted board. This spec does
-    not do that. If it is wanted anyway, it should be an explicit recorded
-    decision — not a consequence of simplifying a page.
-- **Sharing is automatic within a league, not opt-in.** The picks are visible to
-  every manager in the room already, so consent to *receive* is not required.
-  Whether a manager consents to their tap *serving* others is the sharper
-  question, and the one most likely to be overturned.
+- ~~The credential remains; the user stops handling it.~~ **RATIFIED** in
+  Clarifications, deliberately and with the alternatives on the table. No longer
+  an assumption: see FR-022 and FR-022a.
+- ~~Sharing is automatic within a league, not opt-in.~~ **RATIFIED** in
+  Clarifications — no setting on either side, and the relayer is neither asked
+  nor identified. See FR-003a.
 - **The relayer stays anonymous.** Managers learn a relay exists, never whose —
   which avoids disclosing that a particular person uses the product, the only
   genuinely private fact in the exchange.
@@ -486,9 +515,8 @@ overturn — the first especially.
   their own view**, and the disagreement is reported.
 - **A ledger is bound to the draft it belongs to** by something stronger than
   size. Exactly what is a design question for planning.
-- **Enablement is per browser** and **outlives a sign-out**, remaining revocable
-  — a draft can run longer than a session, and a relay dying mid-draft is worse
-  than a stale enablement.
+- ~~Enablement is per browser and outlives a sign-out.~~ **RATIFIED** in
+  Clarifications. See FR-020a.
 - **A credential lifetime is retained** (010 FR-014a), renewed silently where the
   owner is signed in.
 - **Reset is an owner action in the app**, not automatic recovery.
@@ -518,8 +546,9 @@ overturn — the first especially.
 - **Making the tap unnecessary.** Gate 0 stands: no ESPN read API sees a live
   draft. This shares one tap; it does not remove the need for one.
 - **Relaying from platforms other than desktop Chrome.**
-- **Multiple simultaneous relays as a resilience feature.** Duplicates must not
-  corrupt anything (an edge case), but coordinated failover is not built.
+- **Coordinated relay failover.** Several simultaneous relays are accepted and
+  deduplicated (FR-007a) — which *is* the resilience — but electing a primary and
+  promoting a replacement mid-draft is deliberately not built.
 - **Any change to what the tap relays.** The frame contract is 010's.
 - **Automatic enablement without user action.** The acknowledgement is the
   security property, not a UX nicety.
