@@ -19,7 +19,7 @@ import { jsonError } from "./app";
 import { now } from "../env";
 import { logError, logInfo } from "./logging";
 import { issuePairing, listPairings, retainBatch, revokePairing, summariseBatches, touchPairing, verifyPairing } from "../db/tap";
-import { findConnection, getConnectionById } from "../db/leagues";
+import { findConnection, getConnectionById, listConnectionsForLeague } from "../db/leagues";
 import { sessionStub } from "../draft/session";
 import { armingScope } from "../draft/arming";
 import { getSnapshot } from "../db/leagues";
@@ -98,50 +98,97 @@ function corsHeaders(origin: string | undefined): Record<string, string> {
  * Idempotent and cheap: it reads the snapshot 001 already maintains rather
  * than calling ESPN, so a 15-second heartbeat cannot breach FR-008's bound.
  */
-async function armSession(
+async function armOne(
   env: Env,
-  connection: { id: string; my_team_id: number },
-  accountId: string,
+  row: { id: string; account_id: string; my_team_id: number },
   espnLeagueId: string,
   season: number,
   at: Date,
-  ctx: WaitUntil | null,
-): Promise<void> {
-  const snapshot = await getSnapshot(env.DB, connection.id);
+): Promise<ReturnType<typeof armingScope> | null> {
+  // Each manager's OWN snapshot. Reusing the relayer's to save N reads would
+  // import one manager's stale sync into everyone's board, and would destroy
+  // FR-005 by leaving no disagreement to surface — two managers in one league
+  // recorded 11 and 12 rounds for the same draft on 2026-08-06.
+  const snapshot = await getSnapshot(env.DB, row.id);
   const armed = armingScope({
-    accountId,
-    connectionId: connection.id,
+    accountId: row.account_id,
+    connectionId: row.id,
     espnLeagueId,
     season,
-    myTeamId: connection.my_team_id,
+    myTeamId: row.my_team_id,
     snapshot,
   });
   await upsertSession(
     env.DB,
     {
-      connectionId: connection.id,
-      accountId,
+      connectionId: row.id,
+      accountId: row.account_id,
       season,
       status: armed.supported ? "armed" : "unsupported",
       scheduledAt: armed.scheduledAt,
     },
     at,
   );
-  // The D1 row above is written SYNCHRONOUSLY — the diagnostic surface and the
-  // liveness check read it, and a heartbeat that did not record itself would be
-  // worse than none.
-  //
-  // Arming the Durable Object is deliberately NOT awaited here. FR-007h's whole
-  // argument is that a DO round-trip must not sit on the tap's request path: a
-  // restarting or migrating object would otherwise slow every heartbeat and
-  // every batch. It is scheduled after the response, exactly like the nudge,
-  // and the session arms on the next frame if this one is lost.
-  if (!armed.supported) return;
+  return armed.supported ? armed : null;
+}
+
+/**
+ * 011 T008/T009 — arm and nudge EVERY manager of this league (FR-001, FR-004).
+ *
+ * The change that makes Draft Genie work for someone who cannot run a
+ * userscript. Sessions used to arm from their own tap's first frame, so a
+ * manager without a tap had no session at all — not an empty draft, nothing to
+ * attach to.
+ *
+ * FAN OUT, DO NOT RE-KEY. Each manager keeps their own Durable Object at
+ * `connectionId:season`. Addressing one object by league would force perspective
+ * back out of it and in per viewer, which is the layer whose absence caused the
+ * perspective bleed this feature exists to fix.
+ *
+ * Three things here are load-bearing:
+ *
+ *  * THE RELAYER'S ROW IS WRITTEN SYNCHRONOUSLY, everyone else's after the
+ *    response. The diagnostic surface and the liveness check read that row, and
+ *    a heartbeat that did not record itself is worse than none. But this also
+ *    runs from the 15-second `/status` heartbeat, so awaiting the whole audience
+ *    would turn 2 D1 statements into 2N every 15 seconds per relaying tap —
+ *    against the very rate bound the arming design exists to respect.
+ *
+ *  * ARM THEN NUDGE, CHAINED PER CONNECTION. As two independent `waitUntil`
+ *    promises the nudge can land first, hit a session with no scope, return
+ *    silently and set no alarm — `nudge()` only calls `ensureAlarm` when it
+ *    throws, and nothing threw. The first pick would then wait out the 5 s
+ *    safety alarm. Correct, and far outside the latency budget.
+ *
+ *  * ONE MANAGER'S FAILURE IS THEIR OWN. Each is wrapped separately: an early
+ *    return on the first unsupported or broken manager would unarm the whole
+ *    league, silently, for a reason that has nothing to do with them.
+ */
+async function armLeague(
+  env: Env,
+  relayer: { id: string; account_id: string; my_team_id: number },
+  espnLeagueId: string,
+  season: number,
+  at: Date,
+  ctx: WaitUntil | null,
+  nudge: boolean,
+): Promise<void> {
+  const relayerArmed = await armOne(env, relayer, espnLeagueId, season, at);
+
   const run = async () => {
-    try {
-      await sessionStub(env, connection.id, season).arm(armed.scope);
-    } catch {
-      /* the next frame, or the cron sweep, will arm it */
+    // The relayer is already in this list — it is a connection of this league.
+    // Adding it separately would double its writes per frame.
+    const audience = await listConnectionsForLeague(env.DB, espnLeagueId, season);
+    for (const row of audience) {
+      try {
+        const armed = row.id === relayer.id ? relayerArmed : await armOne(env, row, espnLeagueId, season, at);
+        if (!armed) continue; // unsupported for THIS manager; the rest still arm
+        const stub = sessionStub(env, row.id, season);
+        await stub.arm(armed.scope);
+        if (nudge) await stub.nudge();
+      } catch {
+        /* the next frame, or the cron sweep, will arm this one */
+      }
     }
   };
   if (ctx) ctx.waitUntil(run());
@@ -311,31 +358,23 @@ export function tapRoutes() {
     // dropped nudge therefore costs latency, never a pick, and the session's
     // 5 s safety alarm bounds that latency inside SC-001's 10 s ceiling.
     // FR-007g: any frame arms. Cheap and idempotent (reads 001's snapshot).
-    await armSession(c.env, connection, verified.accountId, connection.espn_league_id, connection.season, at, execCtx(c));
-
-    if (body.messages.length > 0) {
-      // Accessing `executionCtx` THROWS when the app is invoked without one.
-      // Guarded rather than assumed, because the nudge is an optimisation and
-      // must never be able to fail a relay whose frames are already durable —
-      // the worst case here is the session collecting them on its next alarm.
-      let scheduled = false;
-      try {
-        const ctx = c.executionCtx;
-        ctx.waitUntil(
-          (async () => {
-            try {
-              await sessionStub(c.env, connection.id, connection.season).nudge();
-            } catch (e) {
-              logError("tap nudge failed; the session will catch up on its alarm", e as Error);
-            }
-          })(),
-        );
-        scheduled = true;
-      } catch {
-        scheduled = false;
-      }
-      if (!scheduled) logInfo("tap batch stored without a nudge; the session's alarm will collect it");
-    }
+    //
+    // 011: the nudge used to be scheduled separately, right here. It is now
+    // chained behind each connection's own arm inside `armLeague`, because
+    // ordering became load-bearing the moment sessions other than the relayer's
+    // had to be armed — an unarmed session swallows a nudge silently and sets no
+    // alarm. Whether to nudge at all is still "did this frame carry anything".
+    const ctx = execCtx(c);
+    await armLeague(
+      c.env,
+      connection,
+      connection.espn_league_id,
+      connection.season,
+      at,
+      ctx,
+      body.messages.length > 0,
+    );
+    if (!ctx) logInfo("tap batch stored without a nudge; the session's alarm will collect it");
 
     return withCors(
       Response.json({ accepted_through: acceptedThrough, session_known: true, server_time: at.toISOString() }, { status: 202 }),
@@ -381,7 +420,8 @@ export function tapRoutes() {
         body.league.season,
       );
       if (connection) {
-        await armSession(c.env, connection, verified.accountId, connection.espn_league_id, connection.season, at, execCtx(c));
+        // A heartbeat carries no frames, so there is nothing to nudge for.
+        await armLeague(c.env, connection, connection.espn_league_id, connection.season, at, execCtx(c), false);
         // `hidden` decides WHICH lapse threshold applies: a background tab's
         // timers throttle to ~1/minute, and one threshold would declare a
         // healthy backgrounded tap dead.

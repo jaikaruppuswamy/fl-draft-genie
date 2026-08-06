@@ -15,6 +15,10 @@ let env: Env;
 
 const ACCOUNT = "acct-feed";
 const OTHER = "someone-else";
+// A third account: `league_connections` is UNIQUE on
+// (account_id, espn_league_id, season), so each manager of one league must be a
+// distinct account or the fixture is silently dropped by INSERT OR IGNORE.
+const MANUAL_ACCT = "manual-matcher";
 const LEAGUE = "9999999999";
 const SEASON = 2026;
 
@@ -71,11 +75,15 @@ beforeEach(async () => {
   // This suite shares a database with others, so the teardown above is scoped by
   // account — and now a leaguemate relays too, so their rows need clearing as
   // well or they leak into the next test.
+  await env.DB.prepare(`INSERT OR IGNORE INTO accounts (id, email, created_at) VALUES (?, ?, ?)`)
+    .bind(MANUAL_ACCT, "manual@test.co", "2026-08-01T00:00:00.000Z")
+    .run();
   await env.DB.prepare(`DELETE FROM tap_batches WHERE account_id = ?`).bind(OTHER).run();
+  await env.DB.prepare(`DELETE FROM tap_batches WHERE account_id = ?`).bind(MANUAL_ACCT).run();
 
   await connection(CONN, ACCOUNT, LEAGUE, "auto");
   await connection(CONN_MATE, OTHER, LEAGUE, "auto");
-  await connection(CONN_MANUAL, OTHER, LEAGUE, "manual");
+  await connection(CONN_MANUAL, MANUAL_ACCT, LEAGUE, "manual");
   await connection(CONN_ELSEWHERE, OTHER, "1111111111", "auto");
 });
 
@@ -134,6 +142,16 @@ describe("readBatchesAfter", () => {
     await insert("tf-mate", "2026-08-30T23:00:01.000Z", [], 1, OTHER);
     const rows = await readBatchesAfter(env.DB, scope, null);
     expect(rows.map((r) => r.id)).toEqual(["tf-mate"]);
+  });
+
+  it("still gives a manually-matched manager their OWN frames — no regression", async () => {
+    // Before fan-out every read was account-scoped, so this manager saw their
+    // own tap's frames. The automatic match fails for real members often enough
+    // that refusing here would have broken working setups, silently, at the one
+    // moment they are used.
+    await insert("tf-manual-own", "2026-08-30T23:00:01.000Z", [], 1, MANUAL_ACCT);
+    const rows = await readBatchesAfter(env.DB, { ...scope, readerConnectionId: CONN_MANUAL }, null);
+    expect(rows.map((r) => r.id)).toEqual(["tf-manual-own"]);
   });
 
   it("REFUSES a reader whose team was chosen manually, not matched by SWID", async () => {

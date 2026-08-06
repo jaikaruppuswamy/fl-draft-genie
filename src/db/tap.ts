@@ -236,13 +236,21 @@ export interface FeedBatchRow {
  * frames?* Two conditions, and both must hold:
  *
  *   1. the asking connection is FOR this league and season; and
- *   2. its team was matched automatically — ESPN's own owner list contained the
- *      account's SWID (`identifyMyTeam`, 001 FR-014).
+ *   2. EITHER its team was matched automatically — ESPN's own owner list
+ *      contained the account's SWID (`identifyMyTeam`, 001 FR-014) — OR the row
+ *      belongs to the asker's own account.
  *
- * (2) is the one that matters. A league id is guessable and connecting proves
- * nothing, so "holds a connection row" is not membership. `'manual'` means the
- * user picked a team from a list after the automatic match failed; that is a
- * usable answer for one's own league and NOT evidence of belonging to it.
+ * The first branch of (2) is what fan-out rests on. A league id is guessable and
+ * connecting proves nothing, so "holds a connection row" is not membership.
+ * `'manual'` means the automatic match failed and the user picked a team from a
+ * list; that is a usable answer for one's own league and NOT evidence of
+ * belonging to it, so it does not entitle anyone to a leaguemate's frames.
+ *
+ * The second branch is why this is not a regression. Before fan-out, every read
+ * was account-scoped, so a manually-matched manager saw their OWN tap's frames.
+ * Without this clause they would silently see nothing — the automatic match
+ * fails for real members often enough that this would have broken working
+ * setups, and it would have broken them at the only moment they are used.
  *
  * It is a subquery rather than a check in TypeScript on purpose. This is the
  * same argument the ingest makes about ownership: a boundary enforced by the
@@ -255,7 +263,7 @@ const ENTITLED = `EXISTS (
          WHERE c.id = ?
            AND c.espn_league_id = tap_batches.espn_league_id
            AND c.season = tap_batches.season
-           AND c.team_match_source = 'auto'
+           AND (c.team_match_source = 'auto' OR c.account_id = tap_batches.account_id)
       )`;
 
 /** Who is asking. Not the owner of the rows — the owner of the QUESTION. */
