@@ -359,9 +359,34 @@ noise. Measured on 18 picks / 24 players; a real draft is ~110× the engine work
 still three orders of magnitude inside the five-minute bar. **An extrapolation,
 not a measurement**, to be redone when a real entry exists.
 
-**The evidential corpus is empty**, exactly as the spec said it would be. The one
-committed entry is synthetic and classed `test`; `lab:run` exits non-zero and
-says so rather than comparing over it.
+**The evidential corpus is empty**, exactly as the spec said it would be. Three
+real drafts are committed (one 2024, two 2025), all `pick_sequence_only`; the
+only replayable entry is synthetic and classed `test`. `lab:run` exits non-zero
+and names each exclusion rather than comparing over them.
+
+> ⚠️ **FR-020c is unsatisfiable for past seasons — found on first real data
+> (2026-08-05), structural rather than a defect.** A past-season pick sequence
+> has no contemporaneous ADP for exactly the reason it has no board: the
+> pipeline never covered that season and ESPN serves preseason projections for
+> the current season only. Measuring 2025 picks against 2026 ADP measures a year
+> of player aging, not how that room drafted, so it is **refused rather than
+> caveated**.
+>
+> **This narrows what pick-sequence-only entries are for.** They cannot ground
+> the opponent model's noise; what they still carry is ADP-free structure
+> (positional runs, when K/DST go). Until a covered-season draft is admitted the
+> model runs `grounded: false`. The resolution is benign — a covered-season
+> draft is *also* replayable, so one admission serves both.
+>
+> **Two defects the same run exposed**, both now fixed: the synthetic fixture
+> used `-16000 - i` for its defences, which is *exactly* ESPN's D/ST id scheme,
+> so every synthetic defence was a real one and a genuine import "matched" two
+> of them; and `observeAdpBehaviour` had no minimum-sample floor, so those two
+> accidental collisions produced a standard deviation of 27 presented as the
+> opponent model's noise parameter. Synthetic ids now live at ±900,000,000 where
+> real ESPN ids cannot reach, and a sample below 30 picks or 25% coverage is
+> refused outright. **This is the exact failure the feature was built to
+> prevent, and it took real data to surface it.**
 
 ### Original scope (008)
 

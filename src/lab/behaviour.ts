@@ -21,6 +21,18 @@ export interface AdpObservation {
   overall: number;
 }
 
+/**
+ * Below this many usable picks, no spread is reported at all.
+ *
+ * The first real run of this function produced a confident `noiseSd` of 27 from
+ * TWO samples out of 140 — and both were accidental id collisions. A number
+ * with an arrow pointing at it is worse than no number, because it gets used.
+ */
+export const MIN_SAMPLE = 30;
+
+/** And below this fraction of the picks, the sample is not representative. */
+export const MIN_COVERAGE = 0.25;
+
 export interface AdpBehaviour {
   sampleSize: number;
   /** Mean signed deviation. Near zero means the room drafts close to ADP. */
@@ -31,6 +43,14 @@ export interface AdpBehaviour {
   /** Picks whose player had no usable ADP, so contributed nothing. */
   skippedNoAdp: number;
   entriesUsed: string[];
+  /**
+   * Non-null when NO measurement is reported, saying why.
+   *
+   * Every numeric field above is null whenever this is set. The alternative —
+   * reporting a spread and letting the caller notice the sample was tiny or the
+   * seasons did not match — is how a garbage parameter reaches a model.
+   */
+  refusal: string | null;
 }
 
 /**
@@ -46,7 +66,38 @@ export function observeAdpBehaviour(
   entries: readonly CorpusEntry[],
   adpOf: AdpLookup,
   adpFloor: number | null,
+  /**
+   * The season the ADP values come from. REQUIRED, and checked.
+   *
+   * Measuring a 2025 draft against 2026 ADP does not measure how that room
+   * drafted — it measures a year of player aging, injury and depth-chart
+   * change, with drafter behaviour somewhere underneath. And by exactly the
+   * reasoning that makes a past season unreplayable (no projection set was ever
+   * captured), there is no contemporaneous ADP for it either.
+   *
+   * So this is a hard refusal rather than a caveat. A caveat printed beside a
+   * number is not a defence: the number still gets used.
+   */
+  adpSeason: number,
 ): AdpBehaviour {
+  const empty = (refusal: string): AdpBehaviour => ({
+    sampleSize: 0,
+    mean: null,
+    standardDeviation: null,
+    median: null,
+    skippedNoAdp: 0,
+    entriesUsed: [],
+    refusal,
+  });
+
+  const mismatched = entries.filter((e) => e.season !== adpSeason).map((e) => e.id);
+  if (mismatched.length > 0) {
+    return empty(
+      `ADP is from ${adpSeason}; ${mismatched.length} entr(y|ies) are from another season (${mismatched.slice(0, 3).join(", ")}). ` +
+        `Cross-season ADP measures player value change, not drafter behaviour.`,
+    );
+  }
+
   const deltas: number[] = [];
   const used: string[] = [];
   let skipped = 0;
@@ -70,14 +121,17 @@ export function observeAdpBehaviour(
     if (contributed) used.push(entry.id);
   }
 
-  if (deltas.length === 0) {
+  const totalPicks = entries.reduce((n, e) => n + e.picks.length, 0);
+  const coverage = totalPicks === 0 ? 0 : deltas.length / totalPicks;
+
+  if (deltas.length < MIN_SAMPLE || coverage < MIN_COVERAGE) {
     return {
-      sampleSize: 0,
-      mean: null,
-      standardDeviation: null,
-      median: null,
+      ...empty(
+        `only ${deltas.length} of ${totalPicks} picks had a usable ADP ` +
+          `(need ${MIN_SAMPLE}+ and ${Math.round(MIN_COVERAGE * 100)}% coverage). ` +
+          `A spread from a sample this thin is noise wearing a parameter's clothes.`,
+      ),
       skippedNoAdp: skipped,
-      entriesUsed: [],
     };
   }
 
@@ -94,6 +148,7 @@ export function observeAdpBehaviour(
     median: round4(median(deltas)),
     skippedNoAdp: skipped,
     entriesUsed: used.sort(),
+    refusal: null,
   };
 }
 

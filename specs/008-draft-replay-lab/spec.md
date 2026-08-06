@@ -437,7 +437,27 @@ different seeds and confirm the variation is bounded and reported.
   NOT include it in a scorecard used to compare rule sets.
 - **FR-020c**: The lab MUST be able to characterise, from pick-sequence-only
   entries, how real drafters behaved relative to ADP — the empirical grounding
-  for the opponent model (FR-028).
+  for the opponent model (FR-028). The ADP used MUST be contemporaneous with the
+  draft being measured, and where it is not, the lab MUST refuse to report a
+  measurement rather than qualify one.
+
+  > ⚠️ **Found unsatisfiable for past seasons on first real data (2026-08-05),
+  > and the reason is structural rather than a defect.** A past-season pick
+  > sequence has no contemporaneous ADP for exactly the reason it has no board:
+  > the projections pipeline never covered that season, and ESPN serves preseason
+  > projections for the current season only. Measuring a 2025 draft against 2026
+  > ADP measures a year of player aging, injury and depth-chart change, with
+  > drafter behaviour somewhere underneath.
+  >
+  > **This narrows what pick-sequence-only entries are for.** They cannot ground
+  > the opponent model's noise. What they still carry is ADP-free structure —
+  > positional run patterns, when kickers and defences go, how roster shape
+  > drives late rounds — which is real but is not the parameter FR-028 needed.
+  > Until a draft is admitted from a covered season, the opponent model runs with
+  > `grounded: false` and says so in every result (FR-031).
+  >
+  > Note the resolution is benign: a draft from a covered season is *also*
+  > replayable, so one admission serves both purposes.
 - **FR-021**: Import MUST discard manager names, member identifiers and free
   text at the boundary, before anything is stored or written to a file. Only
   numeric identifiers and league shape may be retained.

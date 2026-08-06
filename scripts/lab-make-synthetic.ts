@@ -46,10 +46,17 @@ function board(): BoardEntry[] {
     const pos = POSITIONS[i % POSITIONS.length]!;
     const isDst = pos === "DST";
     out.push({
-      // D/ST ids are legitimately negative in ESPN's data, near −16000. One is
-      // included so every consumer meets the case that made 010's capture
-      // script report 66 of 72 picks.
-      espn_player_id: isDst ? -16000 - i : 2000 + i,
+      // A NAMESPACE REAL ESPN IDS CANNOT REACH. The first version used
+      // `2000 + i` and `-16000 - i` — and `-16000 - i` is *exactly* ESPN's
+      // D/ST scheme, so every synthetic defence was a real defence. A genuine
+      // 2025 import then "matched" two of them, and `lab-behaviour.ts` reported
+      // a standard deviation of 27 from those two accidental collisions, with
+      // an arrow labelling it the opponent model's noise parameter.
+      //
+      // Real ids observed: positive 8,439 – 5,081,397; D/ST at −16,000 − teamId.
+      // 900,000,000+ is unreachable from both. The negative id is KEPT (just
+      // moved) because "never filter on sign" needs a negative case to test.
+      espn_player_id: isDst ? -900_000_000 - i : 900_000_000 + i,
       name: isDst ? `${TEAM_ABBR[i % TEAM_ABBR.length]} D/ST` : `Synthetic Player ${i + 1}`,
       position: pos,
       eligible_positions: [pos],
@@ -109,7 +116,7 @@ function bundle(players: BoardEntry[]): EngineBundle {
       bench_slots: 1,
     },
     teamCount: TEAMS,
-    preferred: new Set<number>([2003]),
+    preferred: new Set<number>([900_000_002]),
     adpFloor: null,
     freshness: { fetchedAt: "2026-08-04T13:00:00.000Z", stale: false },
     signalFreshness: new Map([
@@ -136,7 +143,7 @@ function picks(players: BoardEntry[]): CorpusPick[] {
       // lands on someone else's turn never reaches `TurnObservation`, so the
       // path FR-005 exists for would go untested. An earlier version of this
       // generator used overall 17, which belongs to team 6.
-      overall === OWNER_OFF_BOARD_TURN ? 999_999 : players[overall - 1]!.espn_player_id;
+      overall === OWNER_OFF_BOARD_TURN ? 999_999_999 : players[overall - 1]!.espn_player_id;
     out.push({
       overall,
       round,

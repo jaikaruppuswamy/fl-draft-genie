@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { simulateDraft, type OpponentModel } from "../../src/lab/simulate";
 import { observeAdpBehaviour } from "../../src/lab/behaviour";
-import { bundle, entry } from "./helpers";
+import { bundle, entry, pick } from "./helpers";
 
 const model = (over: Partial<OpponentModel> = {}): OpponentModel => ({
   kind: "adp_noise",
@@ -100,38 +100,69 @@ describe("it can never be mistaken for measured evidence (FR-031)", () => {
 });
 
 describe("grounding the noise (FR-020c)", () => {
-  it("measures the spread of real picks around ADP", () => {
-    const e = entry({ useClass: "pick_sequence_only", unreplayableReason: "no board" });
-    const adp = (playerId: number): number | null => playerId - 1000;
-    const observed = observeAdpBehaviour([e], adp, null);
+  /** 40 picks, so the MIN_SAMPLE floor is cleared by real cases. */
+  const bigEntry = (over: Parameters<typeof entry>[0] = {}) =>
+    entry({
+      totalPicks: 40,
+      picks: Array.from({ length: 40 }, (_, i) => pick({ overall: i + 1 })),
+      useClass: "pick_sequence_only",
+      unreplayableReason: "no board",
+      ...over,
+    });
+
+  it("measures the spread of real picks around contemporaneous ADP", () => {
+    const e = bigEntry();
+    const observed = observeAdpBehaviour([e], (playerId) => playerId - 1000, null, e.season);
+    expect(observed.refusal).toBeNull();
     expect(observed.sampleSize).toBe(e.picks.length);
-    expect(observed.standardDeviation).not.toBeNull();
     // Every pick here is exactly at its ADP, so the spread is zero.
     expect(observed.standardDeviation).toBe(0);
+  });
+
+  it("REFUSES cross-season ADP outright", () => {
+    // The finding from the first real run. Measuring a 2025 draft against 2026
+    // ADP measures a year of player aging with drafter behaviour somewhere
+    // underneath — and a caveat printed beside a number is not a defence,
+    // because the number still gets used.
+    const e = bigEntry({ season: 2025 });
+    const observed = observeAdpBehaviour([e], (id) => id - 1000, null, 2026);
+    expect(observed.refusal).toMatch(/another season/);
+    expect(observed.standardDeviation).toBeNull();
+    expect(observed.mean).toBeNull();
+  });
+
+  it("REFUSES a sample too thin to mean anything", () => {
+    // The exact shape of the first real run: 2 usable picks out of 140 produced
+    // a standard deviation of 27 with an arrow labelling it the model's noise.
+    const e = bigEntry();
+    const onlyTwo = (id: number): number | null => (id <= 1002 ? id - 1000 : null);
+    const observed = observeAdpBehaviour([e], onlyTwo, null, e.season);
+    expect(observed.refusal).toMatch(/usable ADP/);
+    expect(observed.standardDeviation).toBeNull();
+    expect(observed.sampleSize).toBe(0);
   });
 
   it("treats a saturated ADP as ABSENT rather than as a real number", () => {
     // ESPN's ADP saturates — 325 of 522 players share a floor near 169.9. A
     // floor value means "no meaningful ADP", and counting it as one would
-    // manufacture an enormous fictional spread, corrupting the very parameter
-    // this measurement exists to set.
-    const e = entry();
-    const observed = observeAdpBehaviour([e], () => 169.9, 169.9);
-    expect(observed.sampleSize).toBe(0);
+    // manufacture an enormous fictional spread.
+    const e = bigEntry();
+    const observed = observeAdpBehaviour([e], () => 169.9, 169.9, e.season);
     expect(observed.skippedNoAdp).toBe(e.picks.length);
     expect(observed.standardDeviation).toBeNull();
+    expect(observed.refusal).toMatch(/usable ADP/);
   });
 
   it("reports nulls rather than zeros when there is nothing to measure", () => {
-    const observed = observeAdpBehaviour([], () => null, null);
+    const observed = observeAdpBehaviour([], () => null, null, 2026);
     expect(observed.mean).toBeNull();
     expect(observed.standardDeviation).toBeNull();
     expect(observed.entriesUsed).toEqual([]);
   });
 
   it("names the entries it drew on", () => {
-    const e = entry({ id: "past-2024" });
-    const observed = observeAdpBehaviour([e], (id) => id - 1000, null);
-    expect(observed.entriesUsed).toEqual(["past-2024"]);
+    const e = bigEntry({ id: "past-2026" });
+    const observed = observeAdpBehaviour([e], (id) => id - 1000, null, e.season);
+    expect(observed.entriesUsed).toEqual(["past-2026"]);
   });
 });
