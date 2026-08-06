@@ -80,8 +80,9 @@ Do **not** rebuild these. Each was verified during planning.
 ## Phase 1: Setup
 
 - [ ] T001 **GATE — does ESPN's completion flag flip back?** Reset a completed draft in ESPN, sync, and record in this file whether `draftDetail.drafted` returns to **false**. **US8 rests entirely on it** and nobody has checked; what *is* verified is only that mocks never appear in ESPN's league record at all, which is a different fact. **This is a constitution MUST** (an unverified external premise is verified first, in the cheapest possible experiment) and it is the third time this project has needed it — 005 Gate 0 and 008 Gate 0 both changed a feature's shape. **If the flag does not flip**: Phase 8 has no signal, US8 collapses, and US5 becomes the only reset path — record that here and in [spec.md](spec.md) rather than building against a signal that never arrives
-- [ ] T002 Add a league-scoped connection lookup to `src/db/leagues.ts` — every connection for one `(espn_league_id, season)`, across accounts — since fan-out needs the audience before it can deliver to it
-- [ ] T003 [P] Measure and record here (not in [research.md](research.md), which is the Phase 0 record and must not be rewritten mid-build) the current delivery latency for the relaying manager, so SC-001's "unchanged" is a comparison rather than an assertion
+- [X] T002 Add a league-scoped connection lookup to `src/db/leagues.ts` — every connection for one `(espn_league_id, season)`, across accounts — since fan-out needs the audience before it can deliver to it
+- [X] T003 [P] Measure and record here (not in [research.md](research.md), which is the Phase 0 record and must not be rewritten mid-build) the current delivery latency for the relaying manager, so SC-001's "unchanged" is a comparison rather than an assertion
+  - **Baseline recorded 2026-08-06**: the only measured figure this project has is 005's — **p95 0.223 s across a 72-pick draft**, against a ratified budget of p95 ≤ 2 s / 100% ≤ 10 s. A *fresh* pre-change measurement needs a live draft, which is not available on demand; 005's figure is therefore the comparison point, and T067 must re-measure under the same conditions (a real draft) rather than a synthetic one, or the comparison is between different things.
 
 ---
 
@@ -90,9 +91,9 @@ Do **not** rebuild these. Each was verified during planning.
 **Purpose**: the vocabulary every story needs. **No user story starts until this
 phase is done.**
 
-- [ ] T004 Split `SessionScope` in `src/draft/session.ts` into its shared half (`espnLeagueId`, `season`, `order`) and per-manager half (`accountId`, `connectionId`, `myTeamId`, `totalPicks`) per [data-model.md](data-model.md) — types only, no behaviour change yet, so the compiler finds every site that conflates them
-- [ ] T005 Write the scope-split guard in `tests/draft/scope.test.ts`: a session's per-manager fields MUST come from its own connection and never from a relaying account. **`totalPicks` is per-manager** — two managers recorded 11 and 12 rounds for the same draft on 2026-08-06
-- [ ] T006 [P] Define the three draft-room states and four tap states in one place per [data-model.md](data-model.md) §4, each carrying a remedy, so the two surfaces cannot drift into different vocabularies
+- [X] T004 Split `SessionScope` in `src/draft/session.ts` into its shared half (`espnLeagueId`, `season`, `order`) and per-manager half (`accountId`, `connectionId`, `myTeamId`, `totalPicks`) per [data-model.md](data-model.md) — types only, no behaviour change yet, so the compiler finds every site that conflates them
+- [X] T005 Write the scope-split guard in `tests/draft/scope.test.ts`: a session's per-manager fields MUST come from its own connection and never from a relaying account. **`totalPicks` is per-manager** — two managers recorded 11 and 12 rounds for the same draft on 2026-08-06
+- [X] T006 [P] Define the three draft-room states and four tap states in one place per [data-model.md](data-model.md) §4, each carrying a remedy, so the two surfaces cannot drift into different vocabularies
 
 **Checkpoint**: `npm test` green; the conflation sites are visible in the type
 errors T004 produces.

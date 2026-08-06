@@ -39,15 +39,55 @@ export const SAFETY_ALARM_MS = 5_000;
 /** One read cannot pull an unbounded draft into memory. */
 export const READ_LIMIT = 200;
 
-export interface SessionScope {
-  accountId: string;
-  connectionId: string;
+/**
+ * 011 T004 — the two halves of a session's scope, named apart.
+ *
+ * One shape used to carry both, and that conflation is the root of every defect
+ * 011 fixes. The fields are unchanged; what changes is that the compiler now
+ * knows which half each belongs to, so a value taken from the wrong manager is a
+ * type error rather than a silent perspective bleed.
+ *
+ * THE RULE, in one line:
+ *
+ *   Frames are LEAGUE-SHARED. Perspective is PER-ACCOUNT.
+ *
+ * `DraftFacts` describes the draft itself — the same for every manager watching
+ * it, because they are all watching the same ESPN room.
+ */
+export interface DraftFacts {
   espnLeagueId: string;
   season: number;
-  myTeamId: number | null;
+  /** Round-1 pick order. Derived from the picks; see 008's finding on this. */
   order: number[];
+}
+
+/**
+ * `ManagerView` is one manager's own context. **Never taken from a relayer.**
+ *
+ * `totalPicks` sits here rather than in `DraftFacts` deliberately, and it is the
+ * field most likely to be moved by someone tidying up. Two managers in one
+ * league recorded 11 and 12 rounds for the SAME draft on 2026-08-06 — one
+ * snapshot was stale. Each session must use its own, and the disagreement is
+ * surfaced (FR-005) rather than one manager's stale sync silently reshaping
+ * another's board.
+ */
+export interface ManagerView {
+  accountId: string;
+  connectionId: string;
+  myTeamId: number | null;
   totalPicks: number;
 }
+
+/**
+ * What a session is armed with: the shared draft, plus exactly one manager's
+ * view of it.
+ *
+ * Kept as a flat intersection so every existing call site and stored record
+ * still reads `scope.myTeamId` — this is a naming change, not a migration. The
+ * Durable Object keeps its address (`connectionId:season`); delivery becomes
+ * league-wide by FANNING OUT to each manager's session, never by re-keying.
+ */
+export type SessionScope = DraftFacts & ManagerView;
 
 /** Last 500 events, backing `?since=` resume (contracts/api.md rule 2). */
 export const EVENT_WINDOW = 500;
