@@ -34,6 +34,18 @@ export default defineConfig({
           include: ["tests/tap/**/*.test.ts", "tests/room/**/*.test.ts"],
         },
       },
+      // 008's replay lab. Its own project rather than a third entry in `tap`'s
+      // include, so a failure names `lab` and not a suite it has nothing to do
+      // with. Node, because the core reads committed fixtures through Vite's
+      // build-time `?raw` transform and calls the engine directly — there is no
+      // D1, no binding and no Worker runtime anywhere in it.
+      {
+        test: {
+          name: "lab",
+          environment: "node",
+          include: ["tests/lab/**/*.test.ts"],
+        },
+      },
     ],
   },
 });

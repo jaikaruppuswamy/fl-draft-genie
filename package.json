@@ -18,7 +18,14 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tap.json --noEmit",
     "privacy": "npx tsx scripts/privacy-sweep.ts",
     "tail:tap": "node scripts/tail-tap.mjs",
-    "export:corpus": "tsx scripts/export-tap-corpus.ts"
+    "export:corpus": "tsx scripts/export-tap-corpus.ts",
+    "lab:gate0": "tsx scripts/lab-gate0.ts",
+    "lab:admit": "tsx scripts/lab-admit.ts",
+    "lab:import": "tsx scripts/lab-import.ts",
+    "lab:run": "tsx scripts/lab-run.ts",
+    "lab:behaviour": "tsx scripts/lab-behaviour.ts",
+    "lab:simulate": "tsx scripts/lab-simulate.ts",
+    "lab:sweep": "vitest run --project lab tests/lab/sweep.test.ts"
   },
   "dependencies": {
     "hono": "^4.6.0",
