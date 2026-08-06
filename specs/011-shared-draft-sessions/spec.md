@@ -79,6 +79,7 @@ page.
 | 5 | No way to reset a session | Workaround mints a new connection and destroyed a preferred player |
 | 6 | Retained frames scoped by connection, not account | A reconnect orphans capture history |
 | 7 | A draft reset **in ESPN** is seen by sync and acted on by nothing | The stale session swallows the next draft; both status transitions are latched on `completed_at IS NULL` |
+| 8 | A session can hold `completed_at` while its status says `armed` | Observed live 2026-08-06. Arming writes status directly and bypasses the latch, leaving a session that can never transition to `live` — because that transition requires `completed_at IS NULL` |
 
 Draft Genie stays **read-only against ESPN** (Constitution VI) — the tap remains
 strictly passive — and no recommendation rule changes (Principle IV).
@@ -234,6 +235,16 @@ season, and a second one currently requires disconnecting the league — which
 destroys the preferred list and mints a new connection. A workaround exists; it
 has a cost the owner pays silently.
 
+**Why this is not made redundant by US8** (asked directly, 2026-08-06):
+**ESPN's league record never reflects a mock draft.** Measured that day:
+`started=0, completed=0, scheduled_at=null` for a league in which two 72-pick
+drafts had been captured. US8 keys on a change in ESPN's report, so for a mock
+there is nothing to observe and syncing cleans up nothing. The two stories cover
+**disjoint** cases — US8 handles real drafts reset in ESPN, US5 handles
+everything ESPN cannot see, which is every mock. They share one `reset()`
+implementation (T061) so there is one behaviour reached two ways, not two
+behaviours.
+
 **Independent Test**: reset a session, run a second mock, and confirm the new
 draft is captured cleanly with the preferred list intact.
 
@@ -367,6 +378,10 @@ reconnect.
 - **Every manager in a league is on an iPad**, so nobody can relay at all.
 - **A manager leaves the league** but their connection lingers.
 - **A reset is requested while a draft is live.**
+- **A mock draft is captured.** ESPN's league record never reflects it, so no
+  sync-based cleanup can ever apply — this is why US5 exists alongside US8.
+- **A real draft finishes.** The tap knows within seconds; ESPN's flush lands
+  later. Nothing may void the session during that window.
 - **ESPN reports a draft as not-completed transiently**, or the field is missing
   from a partial response — this must never void a live draft.
 - **A draft is reset in ESPN after it was archived.** The archive is history and
@@ -470,12 +485,27 @@ reconnect.
 - **FR-030**: A reset during a live draft MUST be refused or explicitly
   confirmed.
 - **FR-031**: A reset MUST leave the session able to arm again.
+- **FR-031g**: A session MUST NOT be able to hold a completion stamp while
+  reporting a pre-completion status. Observed live 2026-08-06: arming writes
+  status directly and bypasses the completion latch, leaving a session marked
+  `armed` while carrying `completed_at` — which can never transition to `live`,
+  because that transition requires `completed_at IS NULL`. Reset MUST clear both
+  together, and arming MUST NOT produce the split state.
 
 **Reset observed from ESPN (US8)**
 
-- **FR-031a**: A sync that observes ESPN no longer reporting a previously
-  completed draft as completed MUST void the corresponding session so it can arm
-  again for a new draft.
+- **FR-031a**: A sync that observes ESPN reporting a draft as **no longer
+  completed, having previously reported it completed**, MUST void the
+  corresponding session so it can arm again.
+- **FR-031a1**: The trigger MUST be a change in **ESPN's own** report, never a
+  disagreement between Draft Genie's session and ESPN. Two verified reasons:
+  **(a)** mock drafts never appear in ESPN's league draft record at all —
+  measured 2026-08-06, `started=0, completed=0` for a league in which two 72-pick
+  drafts had been captured — so a disagreement rule would fire endlessly for
+  them; and **(b)** the tap observes a real draft finishing seconds after the
+  last pick while ESPN's post-completion flush lands later, so a disagreement
+  rule would void a genuinely finished draft during that window, before it is
+  archived.
 - **FR-031b**: Voiding MUST apply to **every** manager's session for that league
   and season, not only the one whose sync observed it.
 - **FR-031c**: Voiding a session MUST NOT destroy retained frames or any
