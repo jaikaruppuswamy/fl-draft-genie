@@ -259,9 +259,24 @@ function isCorrection(before: Pick[], after: Pick[]): boolean {
   return d !== null && d <= before.length;
 }
 
+/** A ledger refused as belonging to a different draft (011 FR-025). */
+export interface RejectedLedger {
+  reason: "complete_ledger_at_unstarted_session";
+  rows: number;
+  totalPicks: number;
+}
+
 export interface ReduceResult {
   state: DraftState;
   events: DraftEvent[];
+  /**
+   * Set when a ledger was refused as belonging to a different draft.
+   *
+   * Surfaced on the result rather than logged inside, so the caller decides how
+   * loudly to record it — and so a test can assert the refusal happened rather
+   * than only that picks are absent.
+   */
+  rejectedLedger?: RejectedLedger;
 }
 
 /**
@@ -271,16 +286,67 @@ export interface ReduceResult {
  * so the caller can gate its transaction on `events.length` and avoid
  * committing on every no-op sweep (research §7).
  */
+/**
+ * 011 T035 — may this ledger become the session's baseline?
+ *
+ * A ledger frame carries NOTHING identifying its draft: the payload is
+ * `{teamId, playerId, slot3, overallPickNumber}`, and the wrapper adds only when
+ * the tap saw it. The tap session does not help either — one session emitted
+ * ledgers for two different drafts across a league reconnect on 2026-08-06.
+ *
+ * So the binding is behavioural, and there is a usable signature:
+ *
+ *   A LIVE draft's ledger arrives early and PARTIAL, and the incremental stream
+ *   fills it in — 010 measured 69 of 72 picks arriving incrementally, 3 only by
+ *   ledger. A COMPLETED draft's ledger is complete on arrival.
+ *
+ * Therefore: a ledger accounting for a whole draft, reaching a session that has
+ * never observed an incremental pick, is describing a DIFFERENT draft.
+ *
+ * WHAT THIS MUST NOT DO is break recovery, which is the entire purpose of
+ * ledgers. A session that has seen picks always accepts — that is the reload
+ * case — and a partial ledger at a fresh session is a live draft starting,
+ * which is normal.
+ *
+ * Residual risk, stated: a finished draft re-ingested from scratch is refused.
+ * That draft has already happened; refusing to re-ingest costs nothing, and the
+ * refusal is recorded rather than silent (FR-025).
+ */
+function ledgerDescribesAnotherDraft(s: DraftState, ledger: PickObservation[]): boolean {
+  // A session that has observed anything is on its own draft's timeline.
+  if (s.picks.length > 0) return false;
+  // `totalPicks === 0` means the draft's length is not established, so
+  // "complete" cannot be judged — and claiming it could would be the same
+  // mistake as 006 reading an unknown total as a real one.
+  if (s.totalPicks <= 0) return false;
+
+  let covered = 0;
+  for (const o of ledger) covered = Math.max(covered, o.overallPickNumber ?? 0);
+  return covered >= s.totalPicks;
+}
+
 export function reconcile(state: DraftState, obs: Observation): ReduceResult {
   // Ledger FIRST: it is authoritative, and applying it before the stream means
   // an incremental frame for a pick the ledger already placed is recognised as
   // a duplicate rather than appended a second time.
   let confirmed = state.confirmed;
   let pending = state.pending;
+  let rejectedLedger: RejectedLedger | null = null;
   if (obs.ledger) {
-    const merged = applyLedger(state, obs.ledger);
-    confirmed = merged.confirmed;
-    pending = merged.pending;
+    if (ledgerDescribesAnotherDraft(state, obs.ledger)) {
+      // RECORDED, never silent (FR-025): a genuine recovery must never be
+      // mistaken for contamination, and the only way to tell them apart later
+      // is to have said which this was.
+      rejectedLedger = {
+        reason: "complete_ledger_at_unstarted_session",
+        rows: obs.ledger.length,
+        totalPicks: state.totalPicks,
+      };
+    } else {
+      const merged = applyLedger(state, obs.ledger);
+      confirmed = merged.confirmed;
+      pending = merged.pending;
+    }
   }
   if (obs.picks.length) {
     pending = applyIncremental({ ...state, confirmed, pending }, obs.picks);
@@ -293,7 +359,7 @@ export function reconcile(state: DraftState, obs: Observation): ReduceResult {
     // here means the pick list is byte-identical: a replayed batch, or a
     // safety-alarm sweep finding the cursor already current. Return the SAME
     // state object so the caller's `events.length` gate skips the commit.
-    return { state, events: [] };
+    return { state, events: [], ...(rejectedLedger ? { rejectedLedger } : {}) };
   }
   const divergedAt: number = diverged;
 
@@ -336,7 +402,11 @@ export function reconcile(state: DraftState, obs: Observation): ReduceResult {
     events.push({ kind: "draft_complete", revision, totalPicks: next.totalPicks });
   }
 
-  return { state: { ...next, seq: state.seq + events.length }, events };
+  return {
+    state: { ...next, seq: state.seq + events.length },
+    events,
+    ...(rejectedLedger ? { rejectedLedger } : {}),
+  };
 }
 
 /**

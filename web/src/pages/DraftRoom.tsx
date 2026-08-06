@@ -38,6 +38,7 @@ import { initialState, reduce, type Effect, type RoomInput, type RoomState } fro
 import { railEntries, type PlayerLookup } from "../lib/draftRoomSelectors";
 import RecommendationPanel from "../components/RecommendationPanel";
 import LeagueNav from "../components/LeagueNav";
+import { roomStateOf } from "../lib/observableState";
 
 /** The design's position tints — same tokens, same mapping. */
 const TINT: Record<string, string> = {
@@ -102,6 +103,20 @@ const card: CSSProperties = {
   padding: "var(--space-3) var(--space-4)",
   display: "grid",
   gap: "var(--space-2)",
+};
+
+/**
+ * Short labels for the nav indicator. The vocabulary and its remedies live in
+ * `lib/observableState.ts`; only the abbreviation belongs here, because it is
+ * the one thing that is purely presentational.
+ */
+const ROOM_LABEL: Record<string, string> = {
+  waiting_for_draft: "Waiting",
+  cannot_reach: "Offline",
+  not_receiving: "No feed",
+  relay_stopped: "Feed stopped",
+  connected: "Live",
+  unknown: "Unknown",
 };
 
 const WITHHOLD_COPY: Record<string, string> = {
@@ -244,6 +259,22 @@ export default function DraftRoom() {
 
   const withheld = rec?.withheld ?? null;
   const tapWithholding = status?.withholding ?? null;
+
+  // 011 T018 — the indicator's state is DECIDED in a pure module and merely
+  // rendered here. It used to be a ternary on `reachability` alone, which is
+  // how the room came to say "cannot reach Draft Genie" seven minutes before a
+  // draft when the only thing true was that no session had armed yet.
+  //
+  // `receiving` is deliberately conservative: connected transport AND 005 not
+  // withholding. A withheld feed is not a delivering one, whatever the socket
+  // says.
+  const room = roomStateOf({
+    sessionArmed: status?.armed ?? false,
+    reachability: state.reachability,
+    hasSeenPicks: state.picks.length > 0,
+    receiving: state.reachability === "connected" && tapWithholding === null,
+  });
+  const roomOk = room.state === "connected" || room.state === "waiting_for_draft";
   const turn = state.myTurnState;
   const best = rail[0];
   const gridCols = `28px repeat(${teamCount},minmax(0,1fr))`;
@@ -268,7 +299,7 @@ export default function DraftRoom() {
             marginLeft: "auto",
             fontSize: 13,
             fontWeight: 700,
-            color: state.reachability === "connected" ? "var(--color-accent-2-700)" : "var(--color-accent-700)",
+            color: roomOk ? "var(--color-accent-2-700)" : "var(--color-accent-700)",
           }}
         >
           <span
@@ -276,15 +307,10 @@ export default function DraftRoom() {
               width: 8,
               height: 8,
               borderRadius: 999,
-              background:
-                state.reachability === "connected" ? "var(--color-accent-2-600)" : "var(--color-accent-600)",
+              background: roomOk ? "var(--color-accent-2-600)" : "var(--color-accent-600)",
             }}
           />
-          {state.reachability === "connected"
-            ? "Live"
-            : state.reachability === "polling"
-              ? "Polling"
-              : "Reconnecting"}
+          {ROOM_LABEL[room.state]}
         </span>
       </LeagueNav>
 
@@ -307,6 +333,8 @@ export default function DraftRoom() {
       {state.phase === "pre_draft" && (
         <div className="banner info">
           {status?.armed ? "Waiting for the first pick." : "The draft hasn't started."}{" "}
+          {/* Every state names what to DO, not only what is true (FR-013). */}
+          {room.remedy}{" "}
           {state.order === null && "ESPN hasn't published the draft order yet."}
         </div>
       )}

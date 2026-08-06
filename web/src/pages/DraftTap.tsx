@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { tapStateOf } from "../lib/observableState";
 import { apiClient, type TapPairing } from "../api";
 
 // 010 T037/T038/T039 — install, pair, revoke, and verify without a draft.
@@ -8,6 +9,14 @@ import { apiClient, type TapPairing } from "../api";
 
 const TAP_URL = "/draft-tap.user.js";
 
+const TAP_LABEL: Record<string, string> = {
+  not_installed: "Not installed",
+  installed_not_enabled: "Installed, not enabled",
+  enabled_idle: "Enabled, idle",
+  relaying: "Relaying",
+  unknown: "Can't tell",
+};
+
 export default function DraftTap() {
   const [pairings, setPairings] = useState<TapPairing[]>([]);
   const [fresh, setFresh] = useState<string | null>(null);
@@ -15,6 +24,17 @@ export default function DraftTap() {
   const [health, setHealth] = useState<"unknown" | "ok" | "failed">("unknown");
 
   const load = () => apiClient.listTapPairings().then((r) => setPairings(r.pairings));
+
+  // Decided in a pure module, merely rendered here — same discipline as the
+  // draft room. `scriptDetected: null` is honest: until the userscript matches
+  // this origin (011 T027) the page cannot tell "not installed" from "installed
+  // but never enabled", and guessing between them is what sends someone to
+  // re-do setup that was already working.
+  const tapState = tapStateOf({
+    scriptDetected: null,
+    enablements: pairings.map((p) => ({ lastUsedAt: p.last_used_at, revoked: p.revoked })),
+    nowMs: Date.now(),
+  });
   useEffect(() => {
     void load();
   }, []);
@@ -108,17 +128,32 @@ export default function DraftTap() {
       </div>
 
       <div className="card">
-        <h2>3. Check it works</h2>
+        <h2>3. Is it working?</h2>
+        {/* 011 T020–T023 — the four states, each naming its remedy. This card
+            used to offer only a reachability probe, which answered a question
+            nobody was asking: on 2026-08-05 the tap was RELAYING and the page
+            could not say so, so a working credential was revoked and replaced
+            twice under time pressure. A state without evidence is a guess, and
+            guesses under time pressure break things that were fine. */}
+        <p>
+          <strong>{TAP_LABEL[tapState.state]}</strong>
+        </p>
+        <p className="muted small">{tapState.remedy}</p>
+        {tapState.evidence && (
+          /* Evidence, not an assertion of health (FR-009). */
+          <p className="muted small">
+            Last relayed {new Date(tapState.evidence.lastRelayedAt).toLocaleString()}.
+          </p>
+        )}
         <button onClick={checkHealth} disabled={busy}>
           Test connection
         </button>{" "}
         {health === "ok" && <span>Draft Genie is reachable.</span>}
         {health === "failed" && <span>Could not reach Draft Genie.</span>}
         <p className="muted small">
-          This confirms the ingest is up. To confirm the tap itself is attached, open your ESPN draft room and
-          look for the Draft Genie badge in the corner. If ESPN changes something mid-season, the{" "}
-          <a href="/draft-tap/self-test">self-test</a> replays a saved capture through the tap&apos;s own decode
-          and privacy filter without needing a draft.
+          The connection test only proves the ingest is up — not that this browser is relaying. If ESPN
+          changes something mid-season, the <a href="/draft-tap/self-test">self-test</a> replays a saved
+          capture through the tap&apos;s own decode and privacy filter without needing a draft.
         </p>
       </div>
 

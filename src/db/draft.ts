@@ -59,7 +59,22 @@ export async function upsertSession(
          (connection_id, account_id, season, status, armed_at, scheduled_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (connection_id) DO UPDATE SET
-         status = excluded.status,
+         -- 011 T041: a COMPLETED session keeps its status when re-armed.
+         --
+         -- This used to write excluded.status unconditionally, which produced
+         -- a session marked armed while still holding completed_at, observed
+         -- live 2026-08-06. That session can NEVER reach live, because both
+         -- status transitions below are guarded on completed_at IS NULL. It
+         -- accepts frames and never reports a running draft.
+         --
+         -- Leaving it complete is the honest resolution: re-arming is not a
+         -- decision to un-complete a draft. The only ways out are an explicit
+         -- reset (US5) or an ESPN reset observed at sync (US8), and both clear
+         -- the stamp and the status together.
+         status = CASE
+           WHEN draft_sessions.completed_at IS NOT NULL THEN draft_sessions.status
+           ELSE excluded.status
+         END,
          scheduled_at = COALESCE(excluded.scheduled_at, draft_sessions.scheduled_at),
          armed_at = COALESCE(draft_sessions.armed_at, excluded.armed_at),
          updated_at = excluded.updated_at`,
@@ -329,4 +344,34 @@ export async function getArchiveKeepers(
   // Scoped to the account in the query, like every other read in this file —
   // one owner's draft must never be able to shape another's recommendations.
   return new Map((rows.results ?? []).map((r) => [r.player_id, r.team_id]));
+}
+
+
+/**
+ * 011 T041/T042 — return a session to un-started, in place.
+ *
+ * Clears the completion stamp AND the status together. Clearing only one leaves
+ * the split state this feature exists to remove: a session that looks fine and
+ * can never reach `live`, because that transition requires
+ * `completed_at IS NULL`.
+ *
+ * Deliberately does NOT touch the connection, its snapshot, its preferred list,
+ * retained frames or any archive (FR-028, FR-029). The workaround this replaces
+ * — disconnect and reconnect — destroyed a preferred player on 2026-08-06, and
+ * capture history must survive a reset because 008's corpus may depend on it.
+ *
+ * The caller is responsible for refusing this during a live draft (FR-030);
+ * that guard is shared with the sync-observed void (FR-031d2) rather than
+ * duplicated here, because two copies of a live-draft guard will diverge and
+ * the one that diverges is the one that fires at the wrong moment.
+ */
+export async function resetSession(db: D1Database, connectionId: string, now: Date): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE draft_sessions
+          SET status = 'idle', completed_at = NULL, archived_at = NULL, updated_at = ?
+        WHERE connection_id = ?`,
+    )
+    .bind(now.toISOString(), connectionId)
+    .run();
 }

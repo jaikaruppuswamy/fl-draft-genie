@@ -2,6 +2,12 @@
 //
 // PURE. No platform imports, no clock: this is vocabulary, not behaviour.
 //
+// It lives in `web/src/lib/` rather than `src/draft/` because BOTH consumers are
+// pages — the draft room and the tap page — and `web/src` deliberately imports
+// nothing from the Worker tree. 007 established that boundary and it is worth
+// keeping: the room's judgement lives in pure browser-side modules, which is
+// what let SC-005 be measured offline with no jsdom and no new dependency.
+//
 // It lives in one file because the two surfaces describe the same system and
 // drifted apart once already. On 2026-08-05, seven minutes before a draft, the
 // draft room said Draft Genie could not be reached while nothing was wrong —
@@ -124,4 +130,101 @@ export function tapReport(state: TapState, evidence?: RelayEvidence): StateRepor
 
 export function roomReport(state: RoomState): StateReport<RoomState> {
   return { state, remedy: ROOM_REMEDY[state] };
+}
+
+/**
+ * 011 T017/T018 — the room's state, decided here rather than in the component.
+ *
+ * `DraftRoom.tsx` is a RENDERING SHELL (007). Putting this ternary in the
+ * component is how it became untestable, and untestable is how it came to say
+ * "cannot reach Draft Genie" seven minutes before a draft when the only thing
+ * true was that no session had armed yet.
+ *
+ * THE DISTINCTION THAT MATTERS: `waiting_for_draft` is not a failure. It is the
+ * normal state of a league whose draft has not started, and it must never be
+ * reported as a reachability problem.
+ */
+export interface RoomInputs {
+  /** Has a session ever armed for this league? False ⇒ nothing is wrong. */
+  sessionArmed: boolean;
+  /** The socket's own view. `reconnecting` is expected, not yet a failure. */
+  reachability: "connected" | "reconnecting" | "polling";
+  /** Has this session observed at least one pick? Drives `relay_stopped`. */
+  hasSeenPicks: boolean;
+  /** Is a relay currently delivering? */
+  receiving: boolean;
+}
+
+export function roomStateOf(i: RoomInputs): StateReport<RoomState> {
+  // Ordered by what the reader most needs to know, and the first branch is the
+  // bug: no session means the draft has not started, whatever the socket says.
+  if (!i.sessionArmed) return roomReport("waiting_for_draft");
+
+  // A reconnect that is still expected to succeed is not a failure (FR-014).
+  // Only a fallback to polling means the transport has actually given up.
+  if (i.reachability === "polling") return roomReport("cannot_reach");
+
+  if (i.receiving) return roomReport("connected");
+
+  // Frames arrived and stopped is a DIFFERENT fact from frames never arriving,
+  // and the remedy is the same but the reassurance is not: one says something
+  // broke, the other says nobody has started relaying.
+  return roomReport(i.hasSeenPicks ? "relay_stopped" : "not_receiving");
+}
+
+/**
+ * 011 T020/T021/T022 — the tap page's state, decided rather than guessed.
+ *
+ * NO CLOCK: `nowMs` is a parameter. This module is pure, which is what lets the
+ * whole state matrix be tested without a browser (SC-005).
+ */
+export interface TapInputs {
+  /**
+   * Has the userscript announced itself on this page?
+   *
+   * **`null` means we could not tell**, and it is a real answer. Until the
+   * script matches Draft Genie's own origin (T027) the server cannot
+   * distinguish "not installed" from "installed but never enabled" — and
+   * guessing between them is what sends someone to re-do setup that was fine.
+   */
+  scriptDetected: boolean | null;
+  /** Live enablements for this account, newest first. */
+  enablements: { lastUsedAt: string | null; revoked: boolean }[];
+  nowMs: number;
+}
+
+/**
+ * How recently a relay must have been seen to count as active.
+ *
+ * 150 s, matching 005's hidden-tab heartbeat lapse. A backgrounded tab's timers
+ * throttle to roughly one a minute, and 005 already learned that a single
+ * tighter threshold declares a healthy backgrounded tap dead — which is the
+ * error this whole story exists to stop making.
+ */
+export const RELAY_FRESH_MS = 150_000;
+
+export function tapStateOf(i: TapInputs): StateReport<TapState> {
+  const live = i.enablements.filter((e) => !e.revoked);
+
+  if (live.length === 0) {
+    // No enablement. Whether the script is present decides which of the two
+    // "not set up" states this is — and if we cannot tell, we say so.
+    if (i.scriptDetected === false) return tapReport("not_installed");
+    if (i.scriptDetected === true) return tapReport("installed_not_enabled");
+    return tapReport("unknown");
+  }
+
+  const lastUsed = live
+    .map((e) => (e.lastUsedAt ? Date.parse(e.lastUsedAt) : null))
+    .filter((t): t is number => t !== null && Number.isFinite(t))
+    .sort((a, b) => b - a)[0];
+
+  // Enabled but never used: the credential exists and no draft room has been
+  // opened with it. Distinct from "stopped", which is why `lastUsed` is checked
+  // for existence before recency (FR-010).
+  if (lastUsed === undefined) return tapReport("enabled_idle");
+
+  return i.nowMs - lastUsed <= RELAY_FRESH_MS
+    ? tapReport("relaying", { lastRelayedAt: new Date(lastUsed).toISOString() })
+    : tapReport("enabled_idle");
 }
