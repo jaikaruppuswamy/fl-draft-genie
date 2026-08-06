@@ -96,4 +96,30 @@ recording, since none was visible from the roadmap:
 - **The evidential corpus is empty.** Not a spec defect — the spec states it and
   requires the lab to say so rather than compare over test entries (FR-027d,
   SC-010) — but it does mean SC-001's ten-draft target is a scaling goal, and
-  the first real evidence arrives with the first real 2026 league draft.
+  the first real evidence arrives with the first real 2026 league draft. Tasks
+  T061 now requires the corpus size and per-draft cost be reported alongside the
+  figure, so the ten-draft number is stated as the extrapolation it is.
+
+### Resolved in `/speckit-analyze` (2026-08-05)
+
+15 findings, all fixed. Coverage went 59/63 → 63/63. The four that mattered:
+
+1. **CRITICAL — an unverified external premise with no gate.** Phase 5 assumed
+   ESPN still serves *past-season* completed drafts; nobody had checked, and the
+   constitution makes verify-first a MUST. Now Gate 0 (tasks T001), with research
+   §12 recording exactly what shrinks if the answer is no. US1 and US2 are
+   unaffected either way.
+2. **HIGH ×3 — three tasks that could not have succeeded as written**: a vitest
+   project added without the matching exclude (the workers pool would have
+   double-collected every lab test, the failure its own config comments already
+   document); an SC-008 check that built the SPA rather than the Worker bundle;
+   and an engine content hash placed in the pure core, where neither `node:fs`
+   nor `import.meta.glob` is available.
+3. **MEDIUM ×6 — properties the spec argued for that nothing asserted**: FR-019
+   (provenance-agnostic replay), FR-019c (snapshotting must not touch live
+   tables — the guarantee that keeps the design additive), FR-033 (Constitution
+   VI passivity), FR-036 (the run script, not just the replay core), FR-007 (the
+   shadow property) and FR-003 (warnings).
+4. **MEDIUM ×2 ambiguity** — the comparison threshold now has fixed defaults
+   (rank 3, 0.1 rounds) exported from one constant, rather than each run choosing
+   its own and producing incomparable reports.

@@ -208,7 +208,7 @@ above is descriptive rather than evaluative.
 | Field | Type | Notes |
 |---|---|---|
 | `baseline` / `candidate` | `RuleSetIdentity` | |
-| `threshold` | `{ rankMovement, valueInRounds }` | **Stated in the output**, so an unchanged turn is distinguishable from one that moved below the bar. |
+| `threshold` | `{ rankMovement, valueInRounds }` | **Defaults are fixed, not per-run**: `rankMovement: 3` positions, `valueInRounds: 0.1`. Exported as one named constant from `src/lab/compare.ts` and **stated in every comparison's output**, so an unchanged turn is distinguishable from one that moved below the bar — and so two reports are comparable. A threshold each run picks for itself makes them silently not. |
 | `headChanges` | `{ entryId, overall, from, to, deltaInRounds }[]` | |
 | `movements` | `{ entryId, overall, maxRankDelta, valueDeltaInRounds }[]` | Only beyond threshold. |
 | `aggregateDeltas` | partial `behavioural` | |

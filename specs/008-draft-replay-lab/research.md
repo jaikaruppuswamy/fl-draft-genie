@@ -299,6 +299,43 @@ claim.
 
 ---
 
+---
+
+## §12 — The one premise nobody has verified (Gate 0)
+
+Added after `/speckit-analyze`, which caught it as a constitution violation.
+
+**The claim §5 rests on**: that ESPN still serves `draftDetail.picks` for a
+**past** season when asked with an earlier `seasonId`. Gate 0 (005) established
+that ESPN writes the completed draft reliably — but it established that for the
+*current* season, on a draft that had just finished. Nothing has tested a
+two-year-old league.
+
+The constitution is explicit, and it is a MUST: *"A feature whose premise rests
+on an unverified external behavior MUST verify it first, in the cheapest possible
+experiment, before any dependent code is written. 005 Gate 0 established the
+pattern: one evening's capture disproved a data source that eight phases of work
+assumed."*
+
+**Decision**: one authenticated read, before Phase 5 exists — tasks T001.
+
+**What depends on the answer**, and nothing else does:
+
+| Depends | If past seasons are unavailable |
+|---|---|
+| `pick_sequence_only` entries (§5) | no source; the class stays defined but empty |
+| Opponent-model grounding (FR-020c) | no measured pick-vs-ADP distribution; `noiseSd` stays an assumption and must say so |
+| US3's scope | reduces to current-season import — still valuable, since it reaches leagues the tap never ran on |
+
+US1 and US2 are unaffected either way. That asymmetry is why the gate is cheap
+to run and cheap to fail: it costs one request and it cannot invalidate the MVP.
+
+**Alternatives considered**: *assume it works and find out during Phase 5.* This
+is exactly what 005 did before Gate 0, and it cost eight phases of design built
+on a data source that could not do the job.
+
+---
+
 ## Resolved unknowns
 
 | Unknown from Technical Context | Resolution |
@@ -311,3 +348,9 @@ claim.
 | How to keep replays deterministic | §7 — canonical codec, seeded PRNG, no clock |
 
 No unresolved NEEDS CLARIFICATION remain.
+
+**One unverified external premise remains, deliberately**: whether ESPN serves
+past-season completed drafts (§12). It is not a clarification — it is a fact
+about someone else's system, and the constitution says the answer is obtained by
+experiment rather than by decision. T001 runs that experiment before any
+dependent code is written, and §12 records what changes if the answer is no.

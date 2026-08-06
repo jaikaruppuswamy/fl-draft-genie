@@ -379,8 +379,9 @@ different seeds and confirm the variation is bounded and reported.
 - **FR-015**: Every run MUST declare, per engine input, whether that input was
   reconstructed as of the recorded draft or taken from the present day.
 - **FR-016**: The lab MUST refuse to present a run as a faithful reconstruction
-  when a required as-of input is unavailable. It MUST NOT substitute a
-  present-day value silently.
+  when a required as-of input is unavailable. (The corpus-side consequence — what
+  happens to an entry whose input cannot be captured — is FR-019d, which this
+  requirement deliberately does not restate.)
 - **FR-017**: The lab MUST NOT present any measure derived from projections as
   evidence that a rule change is an improvement. Comparison between rule sets
   MUST rest on behavioural measures: movement in the ordering expressed in

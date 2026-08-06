@@ -74,12 +74,12 @@ real 2026 league draft.
 
 | Principle | Assessment |
 |---|---|
-| **I. Spec-First** | ✅ spec + clarify complete (5 questions, `959f5ea`) before any code. |
+| **I. Spec-First** | ✅ spec + clarify complete (5 questions, `959f5ea`) before any code. **Verify-first also satisfied** — Phase 0 tests the one unverified external premise before dependent code exists (research §12); `/speckit-analyze` caught its absence as a MUST violation. |
 | **II. Any-League** | ✅ every league-specific value comes from the corpus entry and its snapshot. No league id, team id or credential in lab code; fixtures carry ids as *data*. |
 | **III. League Currency** | ✅ **inherited structurally.** The snapshot is an `EngineBundle`, whose board is already scored in the league's own rules — a replay cannot accidentally score in generic PPR. Cross-league comparison uses `gapInRounds`, denominated in `ROUND_VALUE`. |
 | **IV. Rules Are Code** | ✅ and actively defended. FR-018 forbids writing to constants; the sweep substitutes the *module* in-process (research §6) rather than introducing a config seam. Nothing the lab adds is reachable from an endpoint, column or page. |
 | **V. Draft Day Is Unforgiving** | ✅ the lab adds nothing to the live path, asserted by a structural import guard rather than promised. It also *serves* this principle: it is what lets a rule change be validated before draft day rather than discovered during one. |
-| **VI. Recommend, Never Act** | ✅ import is a read of ESPN's post-completion view. No draft-room connection, no `JOIN`, no write. |
+| **VI. Recommend, Never Act** | ✅ import is a read of ESPN's post-completion view. No draft-room connection, no `JOIN`, no write — now **guarded** rather than asserted, following `tests/tap/passivity.test.ts`. |
 | **VII. Explainable** | ✅ `TurnObservation` carries 006's full `Recommendation` with explanations; `decisiveRule` is derived from the engine's own output, not recomputed. |
 | **VIII. Simplicity** | ✅ no new dependency, no schema, no runtime surface, no third tsconfig. Reuses the reconciler, parser and engine as-is. See the note below on US4. |
 
@@ -192,15 +192,27 @@ Phases map to the spec's user-story priorities; each lands independently.
 
 | Phase | Delivers | Spec |
 |---|---|---|
-| **1 — Foundations** | corpus types, codec, invariants, `chooseSetAt`, boundary + determinism guards | FR-019a–d, FR-025–027d, FR-035 |
-| **2 — Replay (US1)** | `replay.ts`, turn observations, `lab-run.ts` single-entry mode | FR-001–009, SC-004 |
-| **3 — Admission** | `lab-admit.ts` (frames), screening, snapshot capture, SC-009 durability test | FR-019e–g, FR-021, SC-009 |
-| **4 — Scoring (US2)** | scorecard, comparison, baselines, sweep | FR-010–018, FR-038, SC-001/002 |
-| **5 — Import (US3)** | `lab-import.ts`, use classes, oracle divergence, behaviour report | FR-020–024, FR-020a–c, SC-005 |
-| **6 — Simulation (US4)** | seeded PRNG, opponent model, simulated draft | FR-028–031, SC-007 |
+| **0 — Gate** | verify ESPN serves past-season completed drafts (research §12) | gates FR-020b/FR-020c |
+| **1 — Foundations** | corpus types, codec, invariants, `chooseSetAt`, boundary + passivity guards | FR-019a–d, FR-025–027d, FR-033, FR-035, FR-036 |
+| **2 — Replay + admission (US1)** | `replay.ts`, turn observations, `lab-run.ts`, `lab-admit.ts`, snapshot capture, SC-009 durability | FR-001–009, FR-019e–g, FR-021, SC-004, SC-009 |
+| **3 — Scoring (US2)** | scorecard, comparison, baselines, sweep | FR-010–018, FR-038, SC-001/002 |
+| **4 — Import (US3)** | `lab-import.ts`, use classes, oracle divergence, behaviour report | FR-020–024, FR-020a–c, SC-005 |
+| **5 — Simulation (US4)** | seeded PRNG, opponent model, simulated draft | FR-028–031, SC-007 |
+
+**Two changes from the first draft of this table, both from `/speckit-analyze`:**
+
+- **Phase 0 is new and blocking for Phase 4.** The constitution requires an
+  unverified external premise be tested first, in the cheapest possible
+  experiment. Past-season draft availability was assumed here and had never been
+  checked — the same shape as 005's Gate 0. US1 and US2 are unaffected by the
+  answer, which is why the gate is cheap to run and cheap to fail.
+- **Admission is folded into US1 rather than standing alone.** US1's value is
+  explicitly over a *real* recorded draft, and admission is what produces one;
+  US1 on a synthetic fixture proves the code works, not the feature. `tasks.md`
+  is the executable artifact and carries the same structure.
 
 Phase 1 is genuinely foundational — replay, scoring and import all need the codec
-and the invariants. Phases 4, 5 and 6 are independent of each other.
+and the invariants. Phases 3, 4 and 5 are independent of each other.
 
 ## Post-Design Constitution Re-check
 
