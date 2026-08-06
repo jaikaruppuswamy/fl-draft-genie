@@ -148,14 +148,14 @@ a real draft — and, per the ratified decision, it does **not** wait for 005's
 archive path.
 
 - [X] T023 [US1] Implement `scripts/lab-admit.ts`: query `tap_batches` **scoped by `account_id` in the query itself** (FR-027), fold through `foldBatches()` → `reconcile()`, emit a `CorpusEntry`
-- [X] T024 [US1] Capture the input snapshot in `scripts/lab-admit.ts`: `chooseSetAt(sets, startedAt)`, assemble the `EngineBundle`, serialize via the codec, and record `sourceSetId` / `sourceSetFetchedAt`
+- [X] T024 [US1] Capture the input snapshot in `scripts/lab-admit.ts`: `chooseSetAt(sets, startedAt)`, assemble the `EngineBundle`, serialize via the codec, and record `sourceSetRef` / `sourceSetFetchedAt`
 - [X] T025 [US1] Assert in `tests/lab/boundary.test.ts` that the admitting scripts issue **only reads** against `projection_sets`, `player_projections` and `signal_entries` — no `INSERT`, `UPDATE`, `DELETE` or retention flag. **This is the guarantee that made snapshotting the right answer** over exempting seasons from the prune: the design is additive, and 002's and 004's shipped behaviour is untouched (FR-019c)
 - [X] T026 [US1] Emit the `Fidelity` declaration in `scripts/lab-admit.ts` — `signals: "present_day"` for any draft admitted after the fact, stated in the output rather than implied (FR-015)
 - [X] T027 [US1] Refuse to snapshot when no complete set predates the draft: mark the entry unreplayable with the reason, never substitute the nearest set (FR-019d, FR-016)
 - [X] T028 [US1] Detect missing overall numbers in `scripts/lab-admit.ts`, record them in `gaps`, and mark the entry unreplayable rather than presenting a shorter draft as complete (FR-019g)
 - [X] T029 [US1] Screen before writing in `scripts/lab-admit.ts` — GUID, URL and `memberNamesIn()` — and exit non-zero **without writing** on any hit (FR-021)
 - [X] T030 [US1] Make `--class real|test` **required with no default** in `scripts/lab-admit.ts`; misclassifying a mock as real poisons every later comparison invisibly (FR-027a)
-- [ ] T031 [US1] Re-admit the drafts captured to date with `--class test` and commit them as harness fixtures, retained rather than deleted (FR-027c)
+- [X] T031 [US1] Re-admit the drafts captured to date with `--class test` and commit them as harness fixtures, retained rather than deleted (FR-027c)
 
 **Checkpoint**: a real draft replays, turn by turn, from committed fixtures.
 

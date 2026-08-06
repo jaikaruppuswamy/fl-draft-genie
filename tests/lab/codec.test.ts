@@ -16,7 +16,7 @@ import {
 } from "../../src/lab/codec";
 import { boardEntry, bundle, signal } from "./helpers";
 
-const SOURCE = { entryId: "test-2026", sourceSetId: "set-1", sourceSetFetchedAt: "2026-08-04T12:00:00.000Z" };
+const SOURCE = { entryId: "test-2026", sourceSetRef: "set-1", sourceSetFetchedAt: "2026-08-04T12:00:00.000Z" };
 
 describe("bundleToSnapshot / snapshotToBundle", () => {
   it("round-trips, restoring Map and Set", () => {

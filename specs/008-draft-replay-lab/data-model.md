@@ -101,7 +101,7 @@ the in-place overwrite of `signal_entries`.**
 | `adpFloor` | `number \| null` | ESPN's saturation floor as detected then. |
 | `freshness` | `{ fetchedAt, stale }` | |
 | `signalFreshness` | `{ kind, computedAt, provenance }[]` | |
-| `sourceSetId` | `string` | Which `projection_sets` row this came from. |
+| `sourceSetRef` | `string` | Which `projection_sets` row this came from. |
 | `sourceSetFetchedAt` | `string` | What `chooseSetAt` matched. |
 
 ### Codec

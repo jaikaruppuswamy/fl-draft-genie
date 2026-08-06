@@ -38,14 +38,40 @@ export interface InputSnapshot {
   adpFloor: number | null;
   freshness: { fetchedAt: string; stale: boolean };
   signalFreshness: { kind: SignalKind; computedAt: string; provenance: string }[];
-  sourceSetId: string;
+  /**
+   * WHICH projection set this board came from — as a short reference, never the
+   * raw row id.
+   *
+   * `projection_sets.id` is a UUID, and a UUID in a committed fixture trips
+   * every GUID screen in this repo: the admission gate, and `privacy-sweep.ts`
+   * in `npm test`. Those screens exist to catch member GUIDs (SWIDs), and a
+   * projection-set id is our own internal record — but a checker that can tell
+   * "our UUID" from "a person's UUID" by shape does not exist, and inventing an
+   * exemption is how the real thing eventually slips through.
+   *
+   * So the reference is a digest. `sourceSetFetchedAt` already identifies the
+   * set in practice (one complete set per fetch time per season); this pins it
+   * exactly without carrying an identifier shape.
+   */
+  sourceSetRef: string;
   sourceSetFetchedAt: string;
 }
 
 export interface SnapshotSource {
   entryId: string;
-  sourceSetId: string;
+  /** Pass `shortRef(row.id)`, not the raw id — see `InputSnapshot.sourceSetRef`. */
+  sourceSetRef: string;
   sourceSetFetchedAt: string;
+}
+
+/**
+ * A short, stable, non-identifier-shaped reference to an internal row id.
+ *
+ * Deterministic, so the same set always yields the same reference and a
+ * regenerated fixture diffs cleanly.
+ */
+export function shortRef(rawId: string): string {
+  return `set-${canonicalHash(rawId).slice(0, 12)}`;
 }
 
 /**
@@ -88,7 +114,7 @@ export function bundleToSnapshot(bundle: EngineBundle, source: SnapshotSource): 
     adpFloor: bundle.adpFloor,
     freshness: bundle.freshness,
     signalFreshness: signalFreshness.sort((a, b) => a.kind.localeCompare(b.kind)),
-    sourceSetId: source.sourceSetId,
+    sourceSetRef: source.sourceSetRef,
     sourceSetFetchedAt: source.sourceSetFetchedAt,
   };
 }

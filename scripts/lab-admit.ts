@@ -28,7 +28,7 @@ import { foldBatches, type FeedBatch, type RelayMessage } from "../src/draft/fee
 import { initialState, reconcile, type DraftState } from "../src/draft/reconcile";
 import { buildLeagueBoard } from "../src/projections/scoring";
 import { detectAdpFloor } from "../src/projections/adpFloor";
-import { bundleToSnapshot, canonicalJson } from "../src/lab/codec";
+import { bundleToSnapshot, canonicalJson, shortRef } from "../src/lab/codec";
 import { chooseSetAt, type CandidateSet } from "../src/lab/setChoice";
 import { CORPUS_FORMAT_VERSION, validateEntry, type CorpusEntry, type CorpusPick } from "../src/lab/corpus";
 import { memberNamesIn } from "./sanitize-espn";
@@ -74,6 +74,55 @@ function main(): void {
   }
 
   // ---- 1. the frames -----------------------------------------------------
+  //
+  // ONE SESSION IS ONE DRAFT-ROOM SITTING, and a league can have several. The
+  // first real run of this script found three sessions for one league+season —
+  // 02:14, 16:17 and 19:55 on the same day — which is two mock drafts and a
+  // stray reconnect, not one draft observed three times.
+  //
+  // Folding them together (what this script originally did) produces a corpus
+  // entry that is a CHIMERA of two drafts, and it looks entirely plausible: a
+  // full-looking pick list and a complete ledger. Nothing downstream could
+  // detect it. So the selection is explicit, and ambiguity is refused rather
+  // than guessed.
+  const sessionRows = query<{ session_id: string; n: number; t0: string; t1: string; msgs: number }>(
+    `SELECT session_id, COUNT(*) AS n, MIN(received_at) AS t0, MAX(received_at) AS t1,
+            SUM(message_count) AS msgs
+     FROM tap_batches WHERE espn_league_id = ${q(league)} AND season = ${season}
+     GROUP BY session_id ORDER BY t0`,
+  );
+
+  if (sessionRows.length === 0) {
+    console.error(`no retained frames for league ${league}, season ${season}`);
+    process.exit(1);
+  }
+
+  const wanted = arg("session");
+  const mergeAll = process.argv.includes("--merge-sessions");
+  let sessions = sessionRows.map((s) => s.session_id);
+
+  if (wanted) {
+    sessions = sessionRows.filter((s) => s.session_id.startsWith(wanted)).map((s) => s.session_id);
+    if (sessions.length === 0) {
+      console.error(`no session matching ${wanted}`);
+      process.exit(1);
+    }
+  } else if (sessionRows.length > 1 && !mergeAll) {
+    console.error(`\n${sessionRows.length} sessions for league ${league}, season ${season}:\n`);
+    for (const s of sessionRows) {
+      console.error(
+        `  --session ${s.session_id.slice(0, 8)}   ${s.t0.slice(0, 19)} → ${s.t1.slice(0, 19)}   ${s.n} batches, ${s.msgs} messages`,
+      );
+    }
+    console.error(`\nEach session is one draft-room sitting. Sessions hours apart are almost`);
+    console.error(`certainly SEPARATE DRAFTS, and folding them together would build a corpus`);
+    console.error(`entry that is a chimera of both — full-looking, plausible, and wrong.`);
+    console.error(`\nPick one with --session <prefix>, or pass --merge-sessions if these really`);
+    console.error(`are one draft split by a reload.\n`);
+    process.exit(2);
+  }
+
+  const inSet = new Set(sessions);
   const batchRows = query<{
     id: string;
     account_id: string;
@@ -88,23 +137,52 @@ function main(): void {
     `SELECT id, account_id, connection_id, received_at, install_id, session_id, first_seq, last_seq, messages_json
      FROM tap_batches WHERE espn_league_id = ${q(league)} AND season = ${season}
      ORDER BY received_at, id`,
-  );
+  ).filter((b) => inSet.has(b.session_id));
 
   if (batchRows.length === 0) {
-    console.error(`no retained frames for league ${league}, season ${season}`);
+    console.error(`no retained frames for the selected session(s)`);
     process.exit(1);
   }
 
-  // Per-user isolation (FR-027) enforced by scoping every later query to the
-  // account these frames belong to, in the query itself rather than by a
-  // comparison at a call site someone can forget.
-  const accountId = batchRows[0]!.account_id;
-  const connectionId = batchRows[0]!.connection_id;
-  if (batchRows.some((b) => b.account_id !== accountId)) {
+  // ---- 1b. one entry belongs to exactly ONE account (FR-027) --------------
+  //
+  // A single session can span connections: the first real run found one whose
+  // 72 batches sat under TWO accounts and two connections — two managers in the
+  // same league both running the tap, or one league connected twice. Mixing
+  // them would put another account's view into this account's fixture.
+  //
+  // The unit of admission is therefore (session, connection), not session. The
+  // ambiguity is listed and refused rather than resolved by picking the biggest
+  // — a guess here is a privacy boundary crossed quietly.
+  const connections = [...new Set(batchRows.map((b) => b.connection_id))];
+  const wantedConn = arg("connection");
+  let scoped = batchRows;
+
+  if (wantedConn) {
+    scoped = batchRows.filter((b) => b.connection_id.startsWith(wantedConn));
+    if (scoped.length === 0) {
+      console.error(`no connection matching ${wantedConn} in the selected session(s)`);
+      process.exit(1);
+    }
+  } else if (connections.length > 1) {
+    console.error(`\nthe selected session spans ${connections.length} connections:\n`);
+    for (const c of connections) {
+      const n = batchRows.filter((b) => b.connection_id === c).length;
+      console.error(`  --connection ${c.slice(0, 8)}   ${n} batches`);
+    }
+    console.error(`\nOne corpus entry belongs to exactly one account (FR-027). Two managers in`);
+    console.error(`the same league both running the tap produce this, and merging their views`);
+    console.error(`would put another account's data in your fixture.\n`);
+    process.exit(2);
+  }
+
+  const accountId = scoped[0]!.account_id;
+  const connectionId = scoped[0]!.connection_id;
+  if (scoped.some((b) => b.account_id !== accountId)) {
     throw new Error("frames span more than one account — refusing to mix them");
   }
 
-  const batches: FeedBatch[] = batchRows.map((r) => ({
+  const batches: FeedBatch[] = scoped.map((r) => ({
     id: r.id,
     receivedAt: r.received_at,
     installId: r.install_id,
@@ -115,18 +193,36 @@ function main(): void {
   }));
 
   // ---- 2. league shape ---------------------------------------------------
-  const snapRow = query<{ scoring_json: string; roster_json: string; draft_json: string; teams_json: string; my_team_id: number | null }>(
-    `SELECT scoring_json, roster_json, draft_json, teams_json, my_team_id
-     FROM league_snapshots WHERE connection_id = ${q(connectionId)}`,
+  // `my_team_id` lives on `league_connections`, NOT on the snapshot — and
+  // `team_count` is a real snapshot column rather than something to derive by
+  // counting `teams_json`. Both were guessed wrong on the first run; the schema
+  // is in migrations/0001_init.sql and src/db/leagues.ts.
+  const snapRow = query<{
+    scoring_json: string;
+    roster_json: string;
+    draft_json: string;
+    team_count: number;
+    my_team_id: number | null;
+  }>(
+    `SELECT s.scoring_json, s.roster_json, s.draft_json, s.team_count, c.my_team_id
+     FROM league_snapshots s JOIN league_connections c ON c.id = s.connection_id
+     WHERE s.connection_id = ${q(connectionId)}`,
   )[0];
   if (!snapRow) throw new Error(`no league snapshot for connection ${connectionId}`);
 
   const scoring = JSON.parse(snapRow.scoring_json) as ScoringSnapshot;
   const roster = JSON.parse(snapRow.roster_json) as RosterSnapshot;
   const draft = JSON.parse(snapRow.draft_json) as { order: number[] | null; scheduled_at: string | null };
-  const teams = JSON.parse(snapRow.teams_json) as unknown[];
-  const teamCount = Array.isArray(teams) ? teams.length : 0;
-  const roundCount = roster.slots.reduce((n, s) => n + s.count, 0);
+  const teamCount = snapRow.team_count;
+  // DRAFTABLE slots only. Summing every slot counts IR — a roster spot that is
+  // never drafted — as a round, which manufactures a phantom missing round and
+  // demotes a complete draft to `pick_sequence_only`. The first real run hit
+  // exactly that: a 6×12 draft with 72 picks reported "6 picks missing" from a
+  // 13-slot roster (12 draftable + 1 IR).
+  //
+  // 001 already separates these on the snapshot, so the answer is read rather
+  // than re-derived.
+  const roundCount = roster.starting_slots + roster.bench_slots;
 
   // ---- 3. reconcile ------------------------------------------------------
   const observation = foldBatches(null, batches);
@@ -158,6 +254,15 @@ function main(): void {
         observedEpoch: p.epoch,
       };
     });
+
+  if (picks.length === 0) {
+    // A session that relayed only a status or a stray ledger is not a draft.
+    // Admitting it produces an entry that validates (every pick "missing" but
+    // declared in gaps) and contains nothing — clutter that a later reader has
+    // to work out is junk.
+    console.error("no picks in the selected session — this is not a draft, refusing to admit");
+    process.exit(1);
+  }
 
   const totalPicks = teamCount * roundCount;
   const seen = new Set(picks.map((p) => p.overall));
@@ -230,9 +335,17 @@ function main(): void {
   }
 
   // ---- 5. the entry ------------------------------------------------------
+  // A league+season can hold several drafts (see the session note above), so
+  // the id carries a session discriminator whenever more than one exists.
+  // Without it the second admission would overwrite the first, silently.
+  const entryId =
+    sessionRows.length > 1 && sessions.length === 1
+      ? `${league}-${season}-${sessions[0]!.slice(0, 8)}`
+      : `${league}-${season}`;
+
   const entry: CorpusEntry = {
     formatVersion: CORPUS_FORMAT_VERSION,
-    id: `${league}-${season}`,
+    id: entryId,
     season,
     espnLeagueId: league,
     provenance: "live_frames",
@@ -261,7 +374,7 @@ function main(): void {
     ? canonicalJson(
         bundleToSnapshot(bundle, {
           entryId: entry.id,
-          sourceSetId: chosen!.id,
+          sourceSetRef: shortRef(chosen!.id),
           sourceSetFetchedAt: chosen!.fetched_at,
         }),
       )
@@ -296,7 +409,7 @@ function main(): void {
 
   console.log(`\nadmitted ${entry.id} — ${picks.length} picks, class ${cls}, ${entry.useClass}`);
   if (unreplayable) console.log(`  unreplayable: ${unreplayable}`);
-  if (chosen) console.log(`  board from set ${chosen.id} (fetched ${chosen.fetched_at})`);
+  if (chosen) console.log(`  board from set ${shortRef(chosen.id)} (fetched ${chosen.fetched_at})`);
   // Stated, never implied: signals are overwritten in place and have no
   // history, so a draft admitted after the fact can never recover its own.
   console.log(`  fidelity: board as_of, signals present_day (signal_entries has no history)\n`);
