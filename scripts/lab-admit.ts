@@ -259,6 +259,11 @@ function main(): void {
 
   // ---- 3. reconcile ------------------------------------------------------
   const observation = foldBatches(null, batches);
+  // The published order seeds the reconciler only for event/ordinal projection;
+  // every SELECTED frame carries its own teamId, so the pick list does not
+  // depend on it. (Verified on the first real capture: the published order was
+  // wrong and the reconciled picks were still a clean snake.) The ENTRY's order
+  // is derived from those picks below.
   let state: DraftState = initialState({
     order: draft.order ?? [],
     myTeamId: snapRow.my_team_id,
@@ -295,6 +300,38 @@ function main(): void {
     // to work out is junk.
     console.error("no picks in the selected session — this is not a draft, refusing to admit");
     process.exit(1);
+  }
+
+  // ---- 3b. the order is what HAPPENED, not what was announced -------------
+  //
+  // `draft_json.order` is the order ESPN published for the league's scheduled
+  // draft. A MOCK draft randomises its own, so for a captured mock the two are
+  // simply different events — the first real admission found published
+  // [6,5,2,4,1,3] against an actual [5,1,4,6,3,2].
+  //
+  // The picks are the authority: they are what occurred. 005's own
+  // `replay-live.test.ts` already derives this corpus's order from the oracle
+  // for exactly this reason, and `lab-import.ts` derives it from round 1 too —
+  // this script was the inconsistent one.
+  //
+  // Disagreement is REPORTED, never silently dropped.
+  const observedOrder = picks
+    .filter((p) => p.round === 1)
+    .sort((a, b) => a.overall - b.overall)
+    .map((p) => p.teamId);
+  const publishedOrder = draft.order ?? [];
+  const order = observedOrder.length > 0 ? observedOrder : publishedOrder;
+
+  if (
+    observedOrder.length > 0 &&
+    publishedOrder.length > 0 &&
+    publishedOrder.join(",") !== observedOrder.join(",")
+  ) {
+    console.log(`\n  note: the published draft order disagrees with what was drafted.`);
+    console.log(`    published: [${publishedOrder.join(", ")}]`);
+    console.log(`    drafted:   [${observedOrder.join(", ")}]`);
+    console.log(`    Using what was drafted. A mock draft randomises its own order, so the`);
+    console.log(`    published one describes the league's scheduled draft, not this one.`);
   }
 
   const totalPicks = teamCount * roundCount;
@@ -389,7 +426,7 @@ function main(): void {
     roundCount,
     totalPicks,
     myTeamId: snapRow.my_team_id,
-    order: draft.order ?? [],
+    order,
     picks,
     keepers: [],
     startedAt,
