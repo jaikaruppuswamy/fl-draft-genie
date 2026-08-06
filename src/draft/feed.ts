@@ -25,12 +25,18 @@ export interface FeedCursor {
   id: string;
 }
 
-/** One row of `tap_batches`, as the session sees it. */
+/**
+ * One row of `tap_batches`, as the session sees it.
+ *
+ * Carries NO relayer identity — no account, no install id, no tap session id.
+ * Under 011's fan-out these frames cross from the relaying manager's tap into
+ * every other manager's session, and FR-003/SC-003 require that a delivered view
+ * never names who relayed it. The fields were here and unused; leaving them
+ * would have made that guarantee a matter of nobody having reached for them.
+ */
 export interface FeedBatch {
   id: string;
   receivedAt: string;
-  installId: string;
-  sessionId: string;
   firstSeq: number;
   lastSeq: number;
   messages: RelayMessage[];

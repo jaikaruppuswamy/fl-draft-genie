@@ -216,49 +216,111 @@ export interface FeedCursorRow {
 export interface FeedBatchRow {
   id: string;
   receivedAt: string;
-  installId: string;
-  sessionId: string;
+  /**
+   * NO `installId` / `sessionId`. They identify the relayer's DEVICE, nothing
+   * downstream reads them, and under fan-out they would be one manager's stable
+   * GUIDs crossing into another manager's session. Removing them is what makes
+   * "no relayer identity in a delivered view" (FR-003, SC-003) true by
+   * construction instead of by nobody having used them yet.
+   */
   firstSeq: number;
   lastSeq: number;
   messages: unknown[];
 }
 
 /**
- * Batches strictly after `cursor`, oldest first.
+ * 011 Phase 3 — the reader's entitlement, written into the query.
  *
- * Backed by `idx_tap_batches_league (account_id, espn_league_id, season,
- * received_at)`, so no migration was needed to make the session readable.
+ * Every league-scoped read of the frame log carries this. It answers one
+ * question in SQL: *may the connection asking actually have this league's
+ * frames?* Two conditions, and both must hold:
+ *
+ *   1. the asking connection is FOR this league and season; and
+ *   2. its team was matched automatically — ESPN's own owner list contained the
+ *      account's SWID (`identifyMyTeam`, 001 FR-014).
+ *
+ * (2) is the one that matters. A league id is guessable and connecting proves
+ * nothing, so "holds a connection row" is not membership. `'manual'` means the
+ * user picked a team from a list after the automatic match failed; that is a
+ * usable answer for one's own league and NOT evidence of belonging to it.
+ *
+ * It is a subquery rather than a check in TypeScript on purpose. This is the
+ * same argument the ingest makes about ownership: a boundary enforced by the
+ * query cannot be forgotten at a call site, and a caller who omits the reader
+ * gets a compile error rather than an open door. It is also why entitlement is
+ * never inferred from row counts — that mistake has been made here before.
+ */
+const ENTITLED = `EXISTS (
+        SELECT 1 FROM league_connections c
+         WHERE c.id = ?
+           AND c.espn_league_id = tap_batches.espn_league_id
+           AND c.season = tap_batches.season
+           AND c.team_match_source = 'auto'
+      )`;
+
+/** Who is asking. Not the owner of the rows — the owner of the QUESTION. */
+export interface FeedScope {
+  /** The asking manager's connection. Entitlement is checked against it. */
+  readerConnectionId: string;
+  espnLeagueId: string;
+  season: number;
+}
+
+/**
+ * Batches strictly after `cursor`, oldest first — for the whole LEAGUE.
+ *
+ * Deliberately crosses accounts, and is one of only two places that does (the
+ * other is `listConnectionsForLeague`). A league's draft picks are shared among
+ * that league's managers — ratified in the constitution on 2026-08-06 — because
+ * every manager is already watching the same ESPN draft room. What stays
+ * per-account is PERSPECTIVE: which team is mine, my settings, my preferred
+ * list. None of that is read here.
+ *
+ * The caller must never use a row's `account_id`, `install_id` or `session_id`
+ * to decide anything — those identify the relayer, and FR-003/SC-003 forbid a
+ * relayer's identity reaching a delivered view. They are not selected at all.
+ *
+ * Backed by `idx_tap_batches_league_all (espn_league_id, season, received_at,
+ * id)` — migration 0010, added for exactly this query. The older
+ * `idx_tap_batches_league` leads with `account_id` and cannot serve it.
  */
 export async function readBatchesAfter(
   db: D1Database,
-  scope: { accountId: string; espnLeagueId: string; season: number },
+  scope: FeedScope,
   cursor: FeedCursorRow | null,
   limit = 200,
 ): Promise<FeedBatchRow[]> {
+  // `install_id` and `session_id` are NOT selected. They are another manager's
+  // stable per-device identifiers, `foldBatches` never reads them, and not
+  // fetching them makes SC-003 structural rather than incidental.
   const sql = cursor
-    ? `SELECT id, received_at, install_id, session_id, first_seq, last_seq, messages_json
+    ? `SELECT id, received_at, first_seq, last_seq, messages_json
          FROM tap_batches
-        WHERE account_id = ? AND espn_league_id = ? AND season = ?
+        WHERE espn_league_id = ? AND season = ?
           AND (received_at > ? OR (received_at = ? AND id > ?))
+          AND ${ENTITLED}
         ORDER BY received_at ASC, id ASC
         LIMIT ?`
-    : `SELECT id, received_at, install_id, session_id, first_seq, last_seq, messages_json
+    : `SELECT id, received_at, first_seq, last_seq, messages_json
          FROM tap_batches
-        WHERE account_id = ? AND espn_league_id = ? AND season = ?
+        WHERE espn_league_id = ? AND season = ?
+          AND ${ENTITLED}
         ORDER BY received_at ASC, id ASC
         LIMIT ?`;
 
   const stmt = cursor
     ? db
         .prepare(sql)
-        .bind(scope.accountId, scope.espnLeagueId, scope.season, cursor.receivedAt, cursor.receivedAt, cursor.id, limit)
-    : db.prepare(sql).bind(scope.accountId, scope.espnLeagueId, scope.season, limit);
+        .bind(
+          scope.espnLeagueId, scope.season,
+          cursor.receivedAt, cursor.receivedAt, cursor.id,
+          scope.readerConnectionId, limit,
+        )
+    : db.prepare(sql).bind(scope.espnLeagueId, scope.season, scope.readerConnectionId, limit);
 
   const r = await stmt.all<{
     id: string;
     received_at: string;
-    install_id: string;
-    session_id: string;
     first_seq: number;
     last_seq: number;
     messages_json: string;
@@ -267,8 +329,6 @@ export async function readBatchesAfter(
   return (r.results ?? []).map((row) => ({
     id: row.id,
     receivedAt: row.received_at,
-    installId: row.install_id,
-    sessionId: row.session_id,
     firstSeq: row.first_seq,
     lastSeq: row.last_seq,
     messages: safeParseMessages(row.messages_json),
@@ -295,22 +355,25 @@ function safeParseMessages(json: string): unknown[] {
  * 2026-08-06 "room is loaded with a previous draft" failure, arriving from
  * inside instead of from a stale tab.
  *
- * Same keyset ordering as `readBatchesAfter`, because a floor read on a
- * different ordering than the reads it bounds is not a floor.
+ * Same keyset ordering AND the same league scope as `readBatchesAfter` — a
+ * floor computed over a narrower set than the reads it bounds is not a floor.
+ * Under fan-out that matters: a floor built from the viewer's own rows would sit
+ * below a leaguemate's earlier batches, and the next pump would import them.
  */
 export async function latestBatchCursor(
   db: D1Database,
-  scope: { accountId: string; espnLeagueId: string; season: number },
+  scope: FeedScope,
 ): Promise<FeedCursorRow | null> {
   const row = await db
     .prepare(
       `SELECT id, received_at
          FROM tap_batches
-        WHERE account_id = ? AND espn_league_id = ? AND season = ?
+        WHERE espn_league_id = ? AND season = ?
+          AND ${ENTITLED}
         ORDER BY received_at DESC, id DESC
         LIMIT 1`,
     )
-    .bind(scope.accountId, scope.espnLeagueId, scope.season)
+    .bind(scope.espnLeagueId, scope.season, scope.readerConnectionId)
     .first<{ id: string; received_at: string }>();
   return row ? { receivedAt: row.received_at, id: row.id } : null;
 }

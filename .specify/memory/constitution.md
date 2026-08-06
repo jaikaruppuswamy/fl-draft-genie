@@ -98,6 +98,18 @@ complexity), one hosting platform, no speculative configurability (YAGNI).
   cookies (with clear in-app instructions for retrieving them).
 - Per-user data isolation: one user can never see another user's leagues,
   credentials, or preferred lists.
+- **A league's draft picks are shared among that league's managers** (ratified
+  2026-08-06, during 011). Every manager in a draft is already watching the same
+  ESPN room; the picks are the shared event, not one manager's private data. So
+  relayed draft frames may be read across accounts within one league and season,
+  while **perspective stays per-account** — a manager's own team, settings and
+  preferred list are never taken from anyone else.
+  - Entitlement to another manager's frames requires **verified membership**:
+    the account's SWID appearing in that team's ESPN owner list
+    (`team_match_source = 'auto'`). Merely holding a connection row is not
+    enough — a league id is guessable, and connecting does not prove membership.
+  - Both halves MUST be enforced **in the query**, not by a comparison a call
+    site could forget. Never infer entitlement from row counts or volume.
 
 ## Technical Constraints
 

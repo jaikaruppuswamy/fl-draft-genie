@@ -251,7 +251,7 @@ export class DraftSession extends DurableObject<Env> {
       const after = await this.load();
       const more = await readBatchesAfter(
         this.env.DB,
-        { accountId: after.scope!.accountId, espnLeagueId: after.scope!.espnLeagueId, season: after.scope!.season },
+        { readerConnectionId: after.scope!.connectionId, espnLeagueId: after.scope!.espnLeagueId, season: after.scope!.season },
         after.cursor,
         1,
       );
@@ -316,7 +316,7 @@ export class DraftSession extends DurableObject<Env> {
 
     const floor = s.scope
       ? await latestBatchCursor(this.env.DB, {
-          accountId: s.scope.accountId,
+          readerConnectionId: s.scope.connectionId,
           espnLeagueId: s.scope.espnLeagueId,
           season: s.scope.season,
         })
@@ -389,7 +389,7 @@ export class DraftSession extends DurableObject<Env> {
 
     const rows = await readBatchesAfter(
       this.env.DB,
-      { accountId: s.scope.accountId, espnLeagueId: s.scope.espnLeagueId, season: s.scope.season },
+      { readerConnectionId: s.scope.connectionId, espnLeagueId: s.scope.espnLeagueId, season: s.scope.season },
       s.cursor,
       READ_LIMIT,
     );
@@ -398,8 +398,6 @@ export class DraftSession extends DurableObject<Env> {
     const batches: FeedBatch[] = rows.map((r) => ({
       id: r.id,
       receivedAt: r.receivedAt,
-      installId: r.installId,
-      sessionId: r.sessionId,
       firstSeq: r.firstSeq,
       lastSeq: r.lastSeq,
       messages: r.messages as RelayMessage[],
