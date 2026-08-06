@@ -45,33 +45,70 @@ human decides; the engine is never written to automatically.
 **Three uncomfortable facts shape everything below**, each verified against the
 code rather than assumed:
 
-1. **The archive is empty.** 005 built the recording path — `draft_archives`,
-   `draft_picks`, per-pick `observed_at`, oracle verification — and it has never
-   written a row in production. The one complete real draft this project holds
-   is 010's captured frame corpus. So the lab must be able to *manufacture* a
-   corpus, by importing completed drafts ESPN still serves, not merely consume
-   one that recording will eventually produce.
+1. **The archive is empty, but the raw material is not.** 005 built the
+   recording path — `draft_archives`, `draft_picks`, per-pick `observed_at`,
+   oracle verification — and it has never written a row in production; it is
+   gated on two unfinished items (draft-end detection, keeper pick-count
+   reconciliation). What *has* been running is 010's retention: `tap_batches`
+   holds every accepted frame from every draft the tap has seen, privacy-filtered
+   at the boundary, and `reconcile()` is pure — no database, no clock, no live
+   session. So the lab builds its corpus by reconciling retained frames offline
+   and by importing completed drafts ESPN still serves, and depends on the
+   archive path for neither.
 
-2. **Some inputs cannot be reconstructed as they were.** Projection sets are
-   immutable and retained per season, so a 2026 draft-day board can be rebuilt
-   exactly. Team signals cannot: `signal_entries` is keyed `(kind, pro_team_id)`
-   and overwritten in place — no history, no season column — so a past draft's
-   offence/SoS/O-line values are simply gone. The preferred-player list has no
-   history either. **Every replay is therefore a mixture of as-of-then and
-   as-of-now inputs, and a lab that hides that mixture produces numbers that
-   look authoritative and are not.**
+   **What has been captured so far is the owner's own test runs.** That is
+   enough to prove the reconciler and the replay path work against real relay
+   frames, and it is not evidence about anything: a mock room does not draft the
+   way a real one does. So the *evidential* corpus is empty today, and its first
+   entries arrive with the first real 2026 league draft.
+
+2. **The engine's inputs decay, and two of them decay to nothing.** Team signals
+   are keyed `(kind, pro_team_id)` and overwritten in place — no history, no
+   season column — so a past draft's offence/SoS/O-line values are simply gone,
+   and they are recomputed in lockstep with every projection refresh. Projection
+   sets look durable but are not: the maintenance cron runs `DELETE FROM
+   projection_sets WHERE season < ?` unconditionally, so the 2026 sets vanish
+   when the clock rolls to 2027, taking their per-player rows with them by
+   cascade. The preferred-player list has no history either. **Left alone, a
+   recorded draft is replayable only during its own season, and only partially
+   even then.**
+
+   Resolved by snapshotting the inputs into the corpus entry when the draft is
+   recorded (see Clarifications). That makes an entry self-contained rather than
+   a set of pointers into tables that will be overwritten — but it can only
+   capture what exists at the time, which is why an imported past-season draft
+   can never become replayable.
 
 3. **Scoring the engine by projected points is circular.** The engine ranks by
    projected points; the entire rule layer exists *because* projections alone
    are insufficient. A metric built on projected points rewards any change that
    increases agreement with the input, which is the opposite of what tuning is
-   for. The only non-circular measure is what the players actually scored — and
-   that is unavailable until a season has been played.
+   for. The only non-circular measure is what the players actually scored.
+
+   Getting those actuals is cheap — ESPN serves them from the same view the
+   projections pipeline already reads, distinguished only by a source flag the
+   pipeline currently filters out. **The timing is the problem, and it does not
+   line up in either direction**: the 2026 draft can be replayed faithfully but
+   has no actuals until January 2027, while an imported 2024 draft has actuals
+   today but no contemporaneous projections, so the engine cannot be run on it
+   at all. *No draft in existence can currently be both replayed and scored on
+   outcomes.* This is why the lab's comparison measures are behavioural and its
+   outcome measures are a reserved, deliberately empty slot.
 
 Draft Genie remains **read-only against ESPN** (Constitution VI). Importing a
 completed draft is a read of data ESPN reliably writes once the draft finishes —
 the one view 005's Gate 0 proved dependable. Nothing here opens a draft-room
 connection, and nothing here runs on draft day.
+
+## Clarifications
+
+### Session 2026-08-05
+
+- Q: What should the lab treat as the measure of a good draft — the thing a rule change is judged to have improved or worsened? → A: **Behavioural now, outcome later.** Comparison between rule sets rests on structural measures — movement in the ordering in round-value units, changes of shortlist head, the size and direction of disagreement with the pick actually made, how often each rule was decisive. The scorecard reserves a defined place for outcome measures based on **actual season points**, left explicitly empty until the season has been played. **No projection-derived quality number may ever be reported as evidence that a rule change is an improvement** — it shares its source with the engine's own input, so it rewards agreement with projections, which is the thing the rule layer exists to correct.
+- Q: Should a corpus entry capture the engine inputs it will be replayed against, or keep reading the live tables at replay time? → A: **Snapshot the inputs into the corpus entry.** At the moment a draft is recorded or imported, the league-scored board and the signal values then in effect are captured and stored with it; a replay reads those, never the live tables. This is the only arrangement under which a recorded draft stays replayable — the maintenance cron deletes prior-season projection sets outright, and signals are overwritten in place with no history. It is deliberately **additive**: 002's and 004's shipped behaviour is unchanged, the lab simply stops depending on it. **Limitation accepted:** a snapshot can only be taken where inputs exist, so imported past-season drafts can never receive one, and an already-captured 2026 draft can recover its board (the sets survive) but not its signals (recomputed since).
+- Q: Now that a past-season import can never be replayed, what is the import capability actually for? → A: **Two different jobs, kept distinct.** Drafts in a season the projections pipeline covers are matched to the set that was serving at the draft's start time, snapshotted, and join the **replayable** corpus — which is what reaches 2026 leagues the tap never ran on. Drafts in seasons the pipeline never covered are imported as **pick-sequence-only**, permanently unreplayable, and used solely to characterise how real drafters behave relative to ADP, which is the one thing the opponent model has to be grounded in. The engine is never run against a pick-sequence-only entry.
+- Q: Where should a live-observed draft enter the corpus from — the archive path, or the retained tap frames it was built from? → A: **From the retained frames, offline.** The lab runs the existing pure reconciler over retained relay batches and snapshots the inputs, with no dependence on the archive path or on draft-end detection — for a finished draft every frame is already there. This unblocks 008 from a path that has written zero rows in production, and makes drafts that have *already* run recoverable today rather than lost. The archive path remains 005's to finish; when it does, entries may arrive that way too, and the two routes must agree.
+- Q: Where should the lab run from, and what should a run read — committed fixtures, or the live database? → A: **Repo harness; runs read committed fixtures only.** The lab adds no page, endpoint or code path to the deployed application. Admitting a draft is an explicit export step that snapshots its inputs, screens it, and writes a fixture; baseline scorecards are committed alongside, so a rule change is reviewable as a diff rather than a number someone reports. This is what makes "validated against replays before draft day" a gate instead of a habit. **Qualified by the owner in the same answer:** the drafts captured so far are *test runs*, and a mock room does not draft the way a real one does — so every entry records whether it is a real league draft or a test run, and test entries are **excluded from every scorecard used to compare rule sets**. They are kept rather than deleted, being the only proof the reconciler and replay path work against real frames. **Consequence stated plainly: the evidential corpus is empty today, and its first entries arrive with the first real 2026 league draft.**
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -160,8 +197,16 @@ quantifies the movement — and that changing nothing produces an empty diff.
 ### User Story 3 - Give me a corpus without waiting a year (Priority: P3)
 
 The maintainer points the lab at their ESPN account and imports the completed
-drafts ESPN still serves — previous seasons, other leagues — turning a corpus of
-one into a corpus of many.
+drafts ESPN still serves, turning a corpus of one into a corpus of many.
+
+**The imports do two different jobs and must not be confused.** A draft from a
+season the projections pipeline covers can be matched to the set that was
+serving at its start time, snapshotted, and replayed — this is what reaches the
+owner's other current-season leagues, which the tap was never running for. A
+draft from an earlier season can never be replayed, because no board for that
+season exists or can be fetched; it is imported as a **pick sequence only**, and
+its value is entirely in showing how real drafters behave relative to ADP —
+which is the only empirical grounding the opponent model in US4 will ever have.
 
 **Why this priority**: US1 and US2 are buildable and testable against the single
 complete draft this project already holds (010's captured 72-frame corpus, with
@@ -191,10 +236,14 @@ modification.
 4. **Given** a draft whose format is not snake, **Then** the import refuses it
    with a clear reason rather than importing it as though the order were a
    snake.
-5. **Given** a season for which no projection set exists, **Then** the record is
-   still imported and marked unreplayable-at-fidelity, so it is available for
-   pick-sequence analysis without ever being mistaken for a faithful replay.
-6. **Given** a draft with keepers, **Then** those players are recorded as
+5. **Given** a draft in a season the projections pipeline covers, **When** it is
+   imported, **Then** it is matched to the projection set that was serving at
+   the draft's start time, that board is snapshotted with it, and the entry
+   joins the replayable corpus.
+6. **Given** a draft in a season the pipeline never covered, **When** it is
+   imported, **Then** the entry is marked pick-sequence-only and permanently
+   unreplayable, and no attempt to run the engine against it is possible.
+7. **Given** a draft with keepers, **Then** those players are recorded as
    unavailable from pick one, on every team that held them — not only the
    owner's.
 
@@ -270,6 +319,11 @@ different seeds and confirm the variation is bounded and reported.
 - **A keeper league's pick count differs from teams × rounds.** 005 has this
   open; a corpus entry whose totals do not reconcile must be flagged rather than
   replayed against a wrong number of remaining picks.
+- **The retained frames have a gap.** A batch was lost, or the tap was installed
+  mid-draft. The entry must name the missing picks and refuse replay rather than
+  present a shorter draft as a complete one.
+- **A draft appears in both the retained frames and the archive.** The two must
+  agree pick for pick; disagreement is reported, not resolved.
 - **The corpus is empty.** Today it effectively is. The lab must behave sensibly
   with zero recorded drafts and say what is missing.
 
@@ -327,22 +381,62 @@ different seeds and confirm the variation is bounded and reported.
 - **FR-016**: The lab MUST refuse to present a run as a faithful reconstruction
   when a required as-of input is unavailable. It MUST NOT substitute a
   present-day value silently.
-- **FR-017**: The lab MUST state, wherever it reports a quality measure derived
-  from projections, that the measure shares its source with the engine's own
-  input and therefore cannot by itself establish that a rule change is an
-  improvement.
+- **FR-017**: The lab MUST NOT present any measure derived from projections as
+  evidence that a rule change is an improvement. Comparison between rule sets
+  MUST rest on behavioural measures: movement in the ordering expressed in
+  round-value units, changes of shortlist head, the size and direction of
+  disagreement with the pick actually made, and how often each rule was
+  decisive.
+- **FR-017a**: The scorecard MUST carry a defined place for outcome measures
+  based on **actual season points**, populated once the season a recorded draft
+  belongs to has been played, and left explicitly empty before then — never
+  defaulted, approximated, or substituted with a projection-derived figure.
 - **FR-018**: The lab MUST NOT write to the engine's tuning constants, or to any
   rule, under any circumstance. It reports; a human changes the code in a
   separate spec session (Principle IV).
 
 **Corpus (US3)**
 
-- **FR-019**: The lab MUST consume drafts recorded by the live monitor without
-  transformation — a live-recorded draft and an imported one MUST be replayable
-  by the same path.
+- **FR-019**: Every corpus entry MUST be replayable by the same path regardless
+  of how it was produced — reconciled from retained relay frames, imported from
+  ESPN, or supplied by the archive path once that works. The replay MUST NOT
+  behave differently according to which route produced an entry.
+- **FR-019a**: A corpus entry MUST carry the engine inputs a replay needs,
+  captured at the moment the draft is recorded: the league-scored board as it
+  then stood, and the signal values then in effect. A replay MUST read these from
+  the entry and MUST NOT read the live projection or signal tables.
+- **FR-019b**: A corpus entry MUST remain replayable after the live projection
+  sets and signal values it was drawn from have been changed or deleted. Its
+  replayability MUST NOT depend on when the replay is run.
+- **FR-019c**: Capturing a snapshot MUST NOT alter, delete, or preserve anything
+  in the live projection or signal tables. The lab reads them; the pipelines that
+  own them keep their existing behaviour unchanged.
+- **FR-019d**: Where an input cannot be snapshotted because it no longer exists,
+  the entry MUST record that fact and MUST be marked unreplayable rather than
+  snapshotted with a present-day substitute.
+- **FR-019e**: The lab MUST be able to build a corpus entry for a live-observed
+  draft directly from the retained relay frames, reusing the existing
+  reconciler, without depending on the archive path or on draft-end detection.
+- **FR-019f**: Where a draft is available both from retained frames and from the
+  archive, the two MUST yield the same picks. Any disagreement MUST be reported,
+  never silently resolved in favour of either route.
+- **FR-019g**: Where the retained frames for a draft are incomplete, the entry
+  MUST record which picks are missing and MUST be marked unreplayable rather
+  than replayed as though it were a shorter draft.
 - **FR-020**: The lab MUST import a completed draft from the owner's ESPN
   account, capturing every pick with its round, pick number, team, player, and
   keeper and autodraft flags.
+- **FR-020a**: For a draft in a season the projections pipeline covers, import
+  MUST match it to the projection set that was serving at the draft's start
+  time, snapshot that board with the entry (FR-019a), and admit the entry to the
+  replayable corpus.
+- **FR-020b**: For a draft in a season the pipeline never covered, import MUST
+  mark the entry **pick-sequence-only** and permanently unreplayable. The lab
+  MUST NOT run the engine against such an entry under any circumstance, and MUST
+  NOT include it in a scorecard used to compare rule sets.
+- **FR-020c**: The lab MUST be able to characterise, from pick-sequence-only
+  entries, how real drafters behaved relative to ADP — the empirical grounding
+  for the opponent model (FR-028).
 - **FR-021**: Import MUST discard manager names, member identifiers and free
   text at the boundary, before anything is stored or written to a file. Only
   numeric identifiers and league shape may be retained.
@@ -359,6 +453,17 @@ different seeds and confirm the variation is bounded and reported.
 - **FR-026**: The lab MUST never filter players on the sign of their identifier.
 - **FR-027**: Every corpus entry MUST be attributable to exactly one account and
   MUST never be readable across accounts (Constitution, per-user isolation).
+- **FR-027a**: Every corpus entry MUST record whether it derives from a **real
+  league draft** or a **test run** (a mock or rehearsal draft).
+- **FR-027b**: A test-run entry MUST NOT contribute to any scorecard used to
+  compare rule sets, and MUST NOT be cited as evidence for a rule change. It
+  remains available as a harness fixture for proving the replay path works.
+- **FR-027c**: The drafts captured to date MUST be classified as test runs. They
+  MUST be retained, not deleted — they are the only evidence the reconciler and
+  the replay path behave correctly against real relay frames.
+- **FR-027d**: Where the evidential corpus is empty or too small to support a
+  comparison, the lab MUST say so rather than reporting a comparison over test
+  entries.
 
 **Simulation (US4)**
 
@@ -383,6 +488,18 @@ different seeds and confirm the variation is bounded and reported.
 - **FR-034**: Any corpus committed to the repository MUST contain no ESPN
   credential, member identifier, manager name, or free text.
 
+**Delivery**
+
+- **FR-035**: The lab MUST run from the repository. It MUST NOT add a page, an
+  endpoint, or any code path to the deployed application.
+- **FR-036**: A run MUST read only committed corpus fixtures, and MUST NOT
+  require access to production data or credentials.
+- **FR-037**: Admitting a draft to the corpus MUST be an explicit step that
+  exports it, snapshots its inputs, screens it for the prohibited fields, and
+  writes it as a fixture — never an implicit consequence of running the lab.
+- **FR-038**: Baseline scorecards MUST be storable in the repository, so that a
+  rule change and its effect on the corpus are reviewable together as a diff.
+
 ### Key Entities
 
 - **Recorded draft**: one completed draft available for replay — league shape
@@ -390,6 +507,11 @@ different seeds and confirm the variation is bounded and reported.
   timing, keepers, the season it belongs to, and its provenance (observed live
   by the monitor, or imported from ESPN). Carries whether it is replayable and,
   if not, why.
+- **Input snapshot**: the engine inputs captured with a recorded draft — the
+  league-scored board and the signal values in effect at the time. What makes an
+  entry self-contained, and therefore what makes it survive the annual prune and
+  the in-place overwrite of signals. Absent for imported past-season drafts,
+  which is precisely why those are not replayable.
 - **Rule-set identity**: what the engine was, for a given run — its tuning
   constants and its version. Without this a scorecard is a number with no
   referent.
@@ -403,7 +525,16 @@ different seeds and confirm the variation is bounded and reported.
 - **Baseline**: a scorecard retained as the point of comparison for subsequent
   runs.
 - **Opponent model**: the rule by which non-owner teams pick in a simulation,
-  with its own identity and seed. Simulation only.
+  with its own identity and seed, characterised against the ADP-relative
+  behaviour observed in pick-sequence-only entries. Simulation only.
+- **Use class**: whether a corpus entry is *replayable* (carries an input
+  snapshot) or *pick-sequence-only* (no board ever existed; usable for
+  drafter-behaviour analysis and nothing else). A permanent property of the
+  entry, not a runtime judgement.
+- **Provenance class**: whether an entry came from a *real league draft* or a
+  *test run*. Orthogonal to use class — a test draft can be perfectly replayable
+  and still inadmissible, because a mock room's behaviour is not a real room's.
+  Only entries that are both replayable and real are evidence.
 
 ## Success Criteria *(mandatory)*
 
@@ -432,27 +563,30 @@ different seeds and confirm the variation is bounded and reported.
 - **SC-008**: The live draft path is **unchanged**: no capability added by this
   feature is reachable from any live-draft flow, and the draft-day behaviour and
   latency measured before this feature are reproduced unchanged after it.
+- **SC-009**: A recorded draft replays to **identical** output before and after
+  the live projection sets and signal values it was drawn from are deleted or
+  overwritten. The corpus has no shelf life.
+- **SC-010**: **Zero** test-run entries appear in any scorecard used to compare
+  rule sets, and a comparison attempted with an insufficient evidential corpus
+  says so rather than producing a number.
 
 ## Assumptions
 
 These are informed defaults chosen where the roadmap left the question open.
 Each is a decision `/speckit-clarify` should ratify or overturn before planning.
 
-- **The lab is an offline instrument, not a shipped feature.** It runs from the
-  repository — scripts and tests — and adds no page, no API surface, and no
-  production code path. Principle II governs the *product*; a tuning harness has
-  an audience of one, and giving it a UI would add draft-day surface area for no
-  user-facing benefit (Principle VIII). ROADMAP's "CLI or UI" question is
-  answered CLI, provisionally.
+- ~~The lab is an offline instrument.~~ **Ratified** in Clarifications — repo
+  harness, no deployed surface, runs read committed fixtures only. ROADMAP's
+  "CLI or UI" question is answered CLI. See FR-035 – FR-038.
+- ~~The corpus lives in the repository as fixtures.~~ **Ratified** in
+  Clarifications, together with the explicit admission step (FR-037).
 - **Shadow replay is the mode of record.** Findings used to justify a rule change
   come from replays that apply the real picks. Simulation is a sanity check,
   never the evidence.
-- **The metric of record is what the players actually scored**, once a season has
-  been played. Until then the lab reports behavioural measures — how the
-  ordering moved, where the engine disagreed with the owner, how often a rule
-  was decisive — and states plainly that it cannot yet establish outcome
-  quality. Scoring the engine by projected points is scoring it against its own
-  input.
+- ~~The metric of record.~~ **Ratified** in Clarifications — behavioural
+  measures now, actual season points once a season has been played, and no
+  projection-derived quality number reported as evidence at any point. See
+  FR-017 / FR-017a.
 - **The opponent model is ADP-driven with bounded, seeded noise.** Simple enough
   to state in one sentence and reproduce exactly; anything richer is a model
   whose error nobody can characterise.
@@ -472,16 +606,15 @@ Each is a decision `/speckit-clarify` should ratify or overturn before planning.
   determinism are what make an offline replay possible at all; its slow-half /
   fast-half input split is what lets a board be reconstructed once per draft and
   the per-pick state once per pick.
-- **005-draft-monitor** — supplies the recorded-draft shape (`draft_archives`,
-  `draft_picks` with per-pick `observed_at` and first-seen-wins semantics), the
-  snake helpers that answer "whose turn is it", and the oracle comparison against
-  ESPN's completed-draft view. **Note: this path has never written a row in
-  production**, and 005's open items — draft-end detection and the keeper
-  pick-count reconciliation — sit directly between the archive and a real corpus
-  entry.
-- **010-draft-tap** — the one complete real draft this project holds (72 frames
-  with an independent oracle), and the privacy discipline every corpus entry
-  must inherit: numeric identifiers only, screened before storage.
+- **005-draft-monitor** — supplies the **pure reconciler** that turns relay
+  frames into picks, the snake helpers that answer "whose turn is it", and the
+  oracle comparison against ESPN's completed-draft view. Its *archive* path has
+  never written a row in production and is gated on two unfinished items
+  (draft-end detection, keeper pick-count reconciliation); by the ratified
+  decision above, this feature does not wait for it and does not close it.
+- **010-draft-tap** — the retained relay frames (`tap_batches`) that are the
+  actual source of every live-observed corpus entry, and the privacy discipline
+  every entry must inherit: numeric identifiers only, screened before storage.
 - **002-projections-pipeline** — immutable, per-season retained projection sets
   are what make a contemporaneous board reconstructible for any season the
   pipeline covered. It is also the boundary of replay fidelity: no set, no

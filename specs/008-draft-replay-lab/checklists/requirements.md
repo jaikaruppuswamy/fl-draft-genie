@@ -62,20 +62,38 @@ One pass, two amendments after the first validation read:
   names no way to check it. Restated as reachability plus a before/after
   reproduction of the existing draft-day measurements.
 
-### Carried forward to `/speckit-clarify`
+### Resolved in `/speckit-clarify` (Session 2026-08-05)
 
-Not defects — deliberate defaults recorded in Assumptions, each of which clarify
-should ratify or overturn. They are listed here so they are not mistaken for
-settled decisions during planning:
+All four items previously carried forward are now settled, plus one that was not
+on the list. Re-validated against the updated spec: **16/16 still passing.**
 
-1. **CLI harness vs shipped UI** — ROADMAP's open question, answered CLI
-   provisionally on Principle VIII grounds.
-2. **What "the engine did well" means** — ROADMAP's open question. The spec
-   commits to actual season points as the metric of record and states that no
-   such data exists yet for 2026, so early runs report behavioural measures
-   only. This is the most consequential open item in the feature: pick the wrong
-   metric and every tuning session after it optimises the wrong thing.
-3. **Opponent model** — ADP with bounded, seeded noise. ROADMAP asks "pure ADP
-   with noise?" and the spec says yes, provisionally.
-4. **Corpus location** — repository fixtures rather than production data, so a
-   comparison is reviewable in a diff.
+1. **What "the engine did well" means** — behavioural measures now, actual
+   season points once a season is played, and no projection-derived number ever
+   reported as evidence (FR-017, FR-017a).
+2. **CLI harness vs shipped UI** — CLI, ratified (FR-035 – FR-038).
+3. **Corpus location** — committed fixtures, with an explicit admission step
+   (FR-036, FR-037).
+4. **Opponent model** — still ADP with bounded, seeded noise, but no longer a
+   bare assumption: FR-020c requires it be characterised against real
+   drafter-versus-ADP behaviour drawn from pick-sequence-only entries.
+
+Three findings during clarify materially changed the spec and are worth
+recording, since none was visible from the roadmap:
+
+- **The corpus had a built-in expiry.** `pruneSets()` deletes prior-season
+  projection sets on every maintenance cron, so the only replayable draft would
+  have stopped being replayable in January. Resolved by snapshotting inputs into
+  the entry (FR-019a – FR-019d), which also closes the signal-history gap.
+- **The archive path is not a viable source.** Zero rows in production, gated on
+  two unfinished 005 items. Corpus entries are built from retained relay frames
+  instead (FR-019e – FR-019g), removing the dependency entirely.
+- **The captured drafts are test runs, not real league drafts** (owner). They
+  are retained as harness fixtures and excluded from every rule-set comparison
+  (FR-027a – FR-027d). The evidential corpus is therefore empty today.
+
+### Outstanding
+
+- **The evidential corpus is empty.** Not a spec defect — the spec states it and
+  requires the lab to say so rather than compare over test entries (FR-027d,
+  SC-010) — but it does mean SC-001's ten-draft target is a scaling goal, and
+  the first real evidence arrives with the first real 2026 league draft.
