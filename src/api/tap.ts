@@ -23,7 +23,7 @@ import { findConnection, getConnectionById, listConnectionsForLeague } from "../
 import { sessionStub } from "../draft/session";
 import { armingScope } from "../draft/arming";
 import { getSnapshot } from "../db/leagues";
-import { recordHeartbeat, upsertSession } from "../db/draft";
+import { getSession, recordHeartbeat, upsertSession } from "../db/draft";
 import type { Env } from "../env";
 
 /** The tap runs on ESPN's origin; nothing else needs these routes. */
@@ -104,7 +104,12 @@ async function armOne(
   espnLeagueId: string,
   season: number,
   at: Date,
-): Promise<ReturnType<typeof armingScope> | null> {
+): Promise<{ armed: ReturnType<typeof armingScope>; firstEver: boolean } | null> {
+  // Read BEFORE the upsert: afterwards every connection looks like it has run
+  // before. This is what tells a manager joining for the first time apart from
+  // a session recovering after its object was evicted — the row outlives the
+  // object, so its absence means genuinely new.
+  const firstEver = (await getSession(env.DB, row.id)) === null;
   // Each manager's OWN snapshot. Reusing the relayer's to save N reads would
   // import one manager's stale sync into everyone's board, and would destroy
   // FR-005 by leaving no disagreement to surface — two managers in one league
@@ -129,7 +134,7 @@ async function armOne(
     },
     at,
   );
-  return armed.supported ? armed : null;
+  return armed.supported ? { armed, firstEver } : null;
 }
 
 /**
@@ -181,10 +186,12 @@ async function armLeague(
     const audience = await listConnectionsForLeague(env.DB, espnLeagueId, season);
     for (const row of audience) {
       try {
-        const armed = row.id === relayer.id ? relayerArmed : await armOne(env, row, espnLeagueId, season, at);
-        if (!armed) continue; // unsupported for THIS manager; the rest still arm
+        const result = row.id === relayer.id ? relayerArmed : await armOne(env, row, espnLeagueId, season, at);
+        if (!result) continue; // unsupported for THIS manager; the rest still arm
         const stub = sessionStub(env, row.id, season);
-        await stub.arm(armed.scope);
+        // A manager joining for the first time starts at the log's tip, not at
+        // the beginning of a league-wide log that still holds old mock drafts.
+        await stub.arm(result.armed.scope, { floorToLogTip: result.firstEver, floorBefore: at.toISOString() });
         if (nudge) await stub.nudge();
       } catch {
         /* the next frame, or the cron sweep, will arm this one */

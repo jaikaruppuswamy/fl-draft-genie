@@ -371,17 +371,28 @@ function safeParseMessages(json: string): unknown[] {
 export async function latestBatchCursor(
   db: D1Database,
   scope: FeedScope,
+  /**
+   * Ignore rows at or after this instant.
+   *
+   * Needed because the ingest writes the batch BEFORE it arms anyone, so a
+   * floor taken at arming time would otherwise sit on the very frame that
+   * triggered it — and the joining manager would skip the pick that announced
+   * them. Batches from this request all carry `received_at = at`, so excluding
+   * that instant excludes exactly them.
+   */
+  before?: string,
 ): Promise<FeedCursorRow | null> {
   const row = await db
     .prepare(
       `SELECT id, received_at
          FROM tap_batches
         WHERE espn_league_id = ? AND season = ?
+          ${before ? "AND received_at < ?" : ""}
           AND ${ENTITLED}
         ORDER BY received_at DESC, id DESC
         LIMIT 1`,
     )
-    .bind(scope.espnLeagueId, scope.season, scope.readerConnectionId)
+    .bind(...[scope.espnLeagueId, scope.season, ...(before ? [before] : []), scope.readerConnectionId])
     .first<{ id: string; received_at: string }>();
   return row ? { receivedAt: row.received_at, id: row.id } : null;
 }

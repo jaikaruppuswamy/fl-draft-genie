@@ -286,3 +286,54 @@ describe("several relays converge (FR-007a, FR-007b — T014, T015)", () => {
     expect(snap!.picks.filter((p) => p.playerId === 4362628)).toHaveLength(1);
   });
 });
+
+describe("a manager JOINING does not inherit the league's history", () => {
+  it("starts at the log's tip, not at a mock draft from last week", async () => {
+    // The league-wide log is never pruned, so a session starting at
+    // `cursor: null` reads the OLDEST rows in the league. US1's persona is
+    // exactly the manager who arrives cold, and without a floor their first
+    // sight of Draft Genie is a board full of a draft that already finished —
+    // the 2026-08-06 failure, reached from a different direction.
+    //
+    // Relay a "previous draft" BEFORE the quiet manager has any session.
+    await postBatch(batchBody(1, 111111));
+    await postBatch(batchBody(2, 222222));
+
+    // Now wipe the quiet manager's session and its D1 row, so the next frame
+    // arms them as genuinely new — the joining case.
+    await runInDurableObject(stub(QUIET.conn), async (_i: DraftSession, state: DurableObjectState) => {
+      await state.storage.deleteAll();
+      await state.storage.deleteAlarm();
+    });
+    await testEnv.DB.prepare(`DELETE FROM draft_sessions WHERE connection_id = ?`).bind(QUIET.conn).run();
+
+    await postBatch(batchBody(3, 333333));
+
+    const snap = await snapshotOf(QUIET.conn);
+    const ids = snap!.picks.map((p) => p.playerId);
+    expect(ids).toContain(333333);
+    expect(ids).not.toContain(111111);
+    expect(ids).not.toContain(222222);
+  });
+
+  it("PROVES the floor is conditional — a session that has run before still re-reads the log", async () => {
+    // Without this, "does not inherit history" passes against an implementation
+    // that floors every arm, which would silently destroy recovery from storage
+    // loss: after an eviction the object is empty and the log is what brings the
+    // draft back. The D1 row is what tells the two apart, so it stays.
+    await postBatch(batchBody(1, 111111));
+    await postBatch(batchBody(2, 222222));
+
+    await runInDurableObject(stub(QUIET.conn), async (_i: DraftSession, state: DurableObjectState) => {
+      await state.storage.deleteAll();
+      await state.storage.deleteAlarm();
+    });
+    // draft_sessions row deliberately LEFT in place: this session has run before.
+
+    await postBatch(batchBody(3, 333333));
+
+    const ids = (await snapshotOf(QUIET.conn))!.picks.map((p) => p.playerId);
+    expect(ids).toContain(111111);
+    expect(ids).toContain(222222);
+  });
+});

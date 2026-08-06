@@ -125,6 +125,23 @@ interface Stored {
   closed: boolean;
 }
 
+/** How to arm. See `arm()` — the only option is where a NEW session starts. */
+export interface ArmOptions {
+  /**
+   * Start at the log's high-water mark instead of its beginning.
+   *
+   * Set when this connection has never had a session, so a manager joining
+   * mid-season does not ingest every draft the league has ever relayed. Left
+   * unset for recovery, where re-reading the log is the entire point.
+   */
+  floorToLogTip?: boolean;
+  /**
+   * Instant the arming frame arrived. The floor is taken strictly before it, so
+   * the pick that armed this session is not the one it skips.
+   */
+  floorBefore?: string;
+}
+
 export interface SessionSnapshot {
   status: "idle" | "live" | "complete";
   revision: number;
@@ -145,7 +162,7 @@ export class DraftSession extends DurableObject<Env> {
    * scope is refreshed because pre-draft data (order, team count) can arrive
    * after the first frame.
    */
-  async arm(scope: SessionScope): Promise<void> {
+  async arm(scope: SessionScope, opts: ArmOptions = {}): Promise<void> {
     const s = await this.load();
     if (s.closed) return; // disconnected: an explicit decision, not a belief
     // An abort is about a draft that never started. If it is being armed
@@ -158,6 +175,31 @@ export class DraftSession extends DurableObject<Env> {
         "state",
         initialState({ order: scope.order, myTeamId: scope.myTeamId, totalPicks: scope.totalPicks }),
       );
+      // 011 Phase 3 — where a manager JOINING starts reading.
+      //
+      // The log is league-wide now and nothing prunes it, so a session that
+      // starts at `cursor: null` reads the OLDEST rows in the league: last
+      // week's mock, the practice draft, all of it. That is US1's exact
+      // persona — the manager who arrives with no tap and no history — and it
+      // would hand them a board full of a draft that already finished.
+      //
+      // Deliberately NOT applied to every first arm. Total storage loss also
+      // leaves `s.scope` empty, and there the whole point is to re-read the log
+      // and reconstruct the draft. The caller distinguishes them, because D1
+      // knows: a session that has run before has a `draft_sessions` row, and
+      // that row survives the object being evicted.
+      if (opts.floorToLogTip) {
+        const floor = await latestBatchCursor(
+          this.env.DB,
+          {
+            readerConnectionId: scope.connectionId,
+            espnLeagueId: scope.espnLeagueId,
+            season: scope.season,
+          },
+          opts.floorBefore,
+        );
+        if (floor) await this.ctx.storage.put({ cursor: floor, logFloor: floor });
+      }
     } else {
       // Refresh the parts the draft's structure depends on; keep the picks.
       const totalPicks = scope.totalPicks || s.state.totalPicks;
