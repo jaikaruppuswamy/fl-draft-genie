@@ -6,15 +6,15 @@
 
 **Status**: Draft
 
-**Input**: Five defects found live on 2026-08-06 while preparing a mock draft — one of them a design constraint nobody chose, discovered by the owner asking why it existed.
+**Input**: Five defects found live on 2026-08-06 while preparing a mock draft, plus the owner's request to simplify tap setup. Originally split as 011 + 012; **combined 2026-08-06** because they are two halves of one sentence — *nobody should have to pair anything* — and splitting them would have produced two specs arguing about the same boundary. 012 is cancelled and records the merge.
 
 ## Overview
 
 Everything here was found in one evening, seven minutes before a draft, by
 trying to use the product for the thing it was built for. None of it was found
-by a test. That is the second time in two days the same lesson has arrived:
-this project's defects do not announce themselves, and the ones that matter
-surface only under real use.
+by a test. That is the second time in two days the same lesson has arrived: this
+project's defects do not announce themselves, and the ones that matter surface
+only under real use.
 
 **The organising insight came from a question, not from the code**: *"If a draft
 is tapped by one manager in a league, why can't everyone else receive those tap
@@ -32,27 +32,53 @@ tap relayed **71 batches** while the owner's relayed **1**. The owner could have
 had live picks all evening and received nothing, because the frames were
 addressed to somebody else's session.
 
-**This produces the rule the whole feature turns on:**
+### Two rules, and everything follows
 
-> **A draft's frames are LEAGUE-SHARED. A manager's perspective — their team,
+> **1. A draft's frames are LEAGUE-SHARED. A manager's perspective — their team,
 > their league settings, their preferred list — is PER-ACCOUNT.**
+>
+> **2. A relay must prove which account it acts for. The user must never be the
+> one holding the proof.**
 
-Everything below is a consequence of the system having conflated those two.
-Even the tooling defect is: 008's admitting script excluded a leaguemate's
-frames when it should only have excluded their *perspective*.
+Rule 1 governs who may receive. Rule 2 governs who may send. Together they are
+the whole answer to *"nobody should have to pair anything"* — which is why these
+were combined rather than specified apart.
 
-### The five defects
+### Why rule 2 keeps a credential
+
+The tap runs on ESPN's page, where Draft Genie's sign-in does not reach. That is
+the entire reason 010 invented an ingest credential.
+
+Removing it would leave the ingest an **unauthenticated public write endpoint**.
+Anyone who learned a league identifier could inject fabricated picks into a live
+draft, and the engine would advise against a corrupted board — the product's core
+function, failing at the one moment it exists for, while everything looked
+normal. 010 sized the blast radius deliberately: *"if a token leaks: append draft
+messages for this account's own leagues. It can never read league data and never
+reaches ESPN."* That bound exists **because** the credential names an account.
+
+**So the credential stays and stops being the user's problem.** The userscript
+already runs on ESPN's origin; it can also recognise Draft Genie's own page, so a
+signed-in acknowledgement hands the browser what it needs. Install, click, done —
+no codes, nothing copied, nothing to curate. Exactly the requested experience;
+only the handling moves.
+
+**The rejected alternative is recorded in Assumptions verbatim**, so it can be
+chosen deliberately rather than arrived at by simplifying a page.
+
+### The defects
 
 | # | Defect | Consequence |
 |---|---|---|
-| 1 | Live delivery is scoped to the relaying account | A manager whose leaguemate runs the tap receives nothing |
-| 2 | "Cannot reach Draft Genie" is shown when no session is armed | Alarming, wrong, and shown at the worst moment — before a draft |
-| 3 | Opening a **completed** draft room relays its full ledger into a fresh session | A finished draft loads into a new one; the board marks ~72 available players as gone |
-| 4 | No way to reset a session | The only workaround mints a new connection and destroys the preferred list |
-| 5 | Retained frames are scoped by connection, not account | Frames become unreachable after a reconnect, orphaning capture history |
+| 1 | Live delivery is scoped to the relaying account | A manager whose leaguemate relays receives nothing |
+| 2 | Tap setup requires hand-handling a credential | The only such step in the product; it broke under time pressure |
+| 3 | State is not legible — on the tap page or in the draft room | A working tap looked broken; "cannot reach" showed when nothing was wrong |
+| 4 | A **completed** draft room's ledger loads into a fresh session | ~72 available players marked gone; looks like it works |
+| 5 | No way to reset a session | Workaround mints a new connection and destroyed a preferred player |
+| 6 | Retained frames scoped by connection, not account | A reconnect orphans capture history |
 
-Draft Genie stays **read-only against ESPN** (Constitution VI) and no
-recommendation rule changes (Principle IV).
+Draft Genie stays **read-only against ESPN** (Constitution VI) — the tap remains
+strictly passive — and no recommendation rule changes (Principle IV).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -63,102 +89,137 @@ is relaying. The other opens their draft room and sees the picks — live,
 immediately, without installing anything.
 
 **Why this priority**: it is the difference between the product working and not
-working for everyone but the one person who happened to install a userscript.
-Live monitoring already requires desktop Chrome (010's permanent limitation); a
-leaguemate's tap is the only route to live picks for anyone drafting from an
-iPad or the ESPN app, which is most people.
+working for everyone but the one person who installed a userscript. Live
+relaying needs desktop Chrome (010's permanent limitation), so a leaguemate's tap
+is the **only** route to live picks for anyone drafting from an iPad or the ESPN
+app — which is most people. This is a reach problem, not a convenience.
 
-**Independent Test**: with one manager relaying and a second manager not, open
-the second manager's draft room and confirm picks arrive with their own team
-highlighted.
+**Independent Test**: with one manager relaying and a second not, open the second
+manager's draft room and confirm picks arrive with their own team highlighted.
 
 **Acceptance Scenarios**:
 
-1. **Given** a leaguemate is relaying frames for a league and season, **When**
-   another manager in that same league opens their draft room, **Then** they see
-   the picks as they arrive.
+1. **Given** a leaguemate is relaying for a league and season, **When** another
+   manager in that league opens their draft room, **Then** they see picks as they
+   arrive.
 2. **Given** that manager sees the draft, **Then** the board is shown from
-   **their** perspective — their team highlighted, their roster, their needs,
-   their preferred list — not the relayer's.
-3. **Given** two managers in one league have **different** league settings
-   recorded, **Then** each sees a board consistent with their own, and a
-   disagreement about the draft's shape is surfaced rather than silently
-   resolved.
+   **their** perspective — their team, roster, needs and preferred list — not the
+   relayer's.
+3. **Given** two managers have **different** league settings recorded, **Then**
+   each sees a board consistent with their own, and a disagreement about the
+   draft's shape is surfaced rather than silently resolved.
 4. **Given** frames arrive from a leaguemate, **Then** nothing identifies who
    relayed them.
-5. **Given** a manager is in a league where nobody is relaying, **Then** they are
-   told that, and told what would fix it.
+5. **Given** nobody in the league is relaying, **Then** the manager is told that,
+   and told what would fix it.
 6. **Given** a manager is not in the league, **Then** they receive nothing.
 
 ---
 
-### User Story 2 - Tell me the truth about why the screen is empty (Priority: P2)
+### User Story 2 - Tell me the truth about what is working (Priority: P2)
 
-Before the draft starts, the room says it is waiting. When something is actually
-wrong, it says that instead — and the two are never confused.
+Both surfaces — the tap page and the draft room — say plainly what state things
+are in, and never mistake one failure for another.
 
-**Why this priority**: this fired at the worst possible moment, seven minutes
-before a draft, and it said the product could not be reached when in fact
-nothing was wrong at all. A false alarm during the one hour a year that matters
-costs exactly the attention the owner does not have. It ranks below US1 only
-because US1 is the difference between working and not.
+**Why this priority**: this is what actually went wrong. The tap was **working**;
+nobody could tell. So setup was re-done twice under time pressure, revoking a
+working credential each time — three pairings in fourteen minutes — while the
+draft room simultaneously claimed Draft Genie could not be reached, when nothing
+was wrong at all. A one-click setup that is still opaque would have produced the
+identical evening, which is why this outranks the convenience it enables.
 
-**Independent Test**: open a draft room before any session exists and confirm the
-message describes waiting, not failure; then break connectivity and confirm the
-message changes.
+**Independent Test**: put each surface into each of its states and confirm every
+one is reported distinctly, with a remedy.
 
 **Acceptance Scenarios**:
 
-1. **Given** no session has been armed for a league, **When** the draft room is
-   opened, **Then** it reports that it is waiting for the draft to start — not
-   that Draft Genie cannot be reached.
-2. **Given** a session exists but the browser cannot reach the service, **Then**
-   the room reports a reachability problem and its remedy.
-3. **Given** the service is reachable but picks are not arriving, **Then** the
+1. **Given** the tap page, **Then** it distinguishes: not installed; installed
+   but not enabled; enabled but idle; actively relaying.
+2. **Given** an active relay, **Then** it is evidenced by when it last relayed —
+   not asserted.
+3. **Given** a tap that was working and has stopped, **Then** that is
+   distinguished from one never enabled.
+4. **Given** no session has been armed, **When** the draft room is opened,
+   **Then** it reports that it is waiting for the draft — **not** that Draft
+   Genie cannot be reached.
+5. **Given** a session exists but the browser cannot reach the service, **Then**
+   the room reports a reachability problem.
+6. **Given** the service is reachable but picks are not arriving, **Then** the
    room distinguishes that from both cases above — the remedies differ.
-4. **Given** any of those states, **Then** the message says what the owner should
-   *do*, not only what is true.
+7. **Given** any state on either surface, **Then** it says what to *do*, not only
+   what is true.
+8. **Given** a state is indeterminate, **Then** it says unknown rather than
+   guessing.
 
 ---
 
-### User Story 3 - Don't load a finished draft into a new one (Priority: P3)
+### User Story 3 - Set the tap up in one step (Priority: P3)
+
+The owner installs the userscript, opens the tap page while signed in, clicks
+once, and the tap is live. Nothing is copied, entered or remembered.
+
+**Why this priority**: the owner's request, and the removal of the only step in
+the product where a user handles a credential by hand. It ranks below US2 because
+legibility is what prevents the failure; this removes the friction that made
+people reach for the fix.
+
+**Independent Test**: from a browser with no prior setup, install the script and
+enable the tap without typing or pasting anything, then relay from a draft room.
+
+**Acceptance Scenarios**:
+
+1. **Given** the script is installed and the owner is signed in, **When** they
+   acknowledge once, **Then** the tap is enabled with no value shown, copied or
+   retained by the user.
+2. **Given** the tap is enabled, **When** an ESPN draft room is opened, **Then**
+   frames relay without further action.
+3. **Given** the owner is not signed in, **Then** they are asked to sign in
+   rather than shown a failure.
+4. **Given** the tap is already enabled here, **Then** acknowledging again is
+   harmless and does not disturb a relay in progress.
+5. **Given** enabling fails, **Then** the reason is stated and any previously
+   working state is left intact.
+6. **Given** any relay, **Then** its frames remain attributable to exactly one
+   account, and that account's own leagues only.
+
+---
+
+### User Story 4 - Don't load a finished draft into a new one (Priority: P4)
 
 A tab left open on last week's completed mock does not contaminate tonight's
 draft.
 
-**Why this priority**: it silently corrupts the board — a stale ledger marked
-~72 available players as already drafted, so every recommendation excluded
-players who were genuinely available. Worse than a blank screen, because it
-looks like it is working. It ranks below US2 only because it needs a specific
-mistake to trigger, while US2 fires every time.
+**Why this priority**: it silently corrupts the board — a stale ledger marked ~72
+available players as already drafted, so every recommendation excluded players
+who were genuinely available. Worse than a blank screen, because it looks like it
+is working. Below US3 only because it needs a specific mistake to trigger.
 
 **Independent Test**: with a completed draft room open, arm a fresh session and
 confirm the finished draft's picks do not appear.
 
 **Acceptance Scenarios**:
 
-1. **Given** a completed draft's ledger arrives for a session that has no picks,
+1. **Given** a completed draft's ledger arrives for a session with no picks,
    **Then** it does not become that session's state.
 2. **Given** two ledgers describe different drafts, **Then** the session does not
    choose between them by size alone.
-3. **Given** a ledger is rejected as belonging to another draft, **Then** that is
-   recorded, so a genuine recovery is never mistaken for contamination.
+3. **Given** a ledger is rejected, **Then** that is recorded, so a genuine
+   recovery is never mistaken for contamination.
 4. **Given** a draft legitimately resumes after a reload, **Then** its own ledger
    still restores it — the fix must not break recovery, which is what ledgers
    exist for.
 
 ---
 
-### User Story 4 - Let me start over without losing anything (Priority: P4)
+### User Story 5 - Let me start over without losing anything (Priority: P5)
 
 The owner resets a draft session and runs another mock. Their preferred list,
-their league settings and their capture history survive.
+league settings, tap enablement and capture history survive.
 
 **Why this priority**: mock drafts are how the product gets exercised before the
-season, and today a second one requires disconnecting the league — which
-destroys the preferred list and mints a new connection. It ranks last because a
-workaround exists; it is here because the workaround has a cost the owner pays
-silently.
+season, and a second one currently requires disconnecting the league — which
+destroys the preferred list and mints a new connection. A workaround exists; it
+has a cost the owner pays silently.
 
 **Independent Test**: reset a session, run a second mock, and confirm the new
 draft is captured cleanly with the preferred list intact.
@@ -166,27 +227,51 @@ draft is captured cleanly with the preferred list intact.
 **Acceptance Scenarios**:
 
 1. **Given** a completed or abandoned session, **When** the owner resets it,
-   **Then** a subsequent draft is captured as a new draft, with none of the
+   **Then** a subsequent draft is captured as a new draft with none of the
    previous one's picks.
 2. **Given** a reset, **Then** the preferred list, league settings and tap
-   pairing survive.
-3. **Given** a reset, **Then** previously retained frames and any archived draft
-   survive — capture history is never destroyed by a reset.
-4. **Given** a reset happens while a draft is live, **Then** it is refused or
-   confirmed explicitly. It must not be a single unguarded action during a
-   draft.
+   enablement survive.
+3. **Given** a reset, **Then** retained frames and any archived draft survive —
+   capture history is never destroyed by a reset.
+4. **Given** a reset during a live draft, **Then** it is refused or explicitly
+   confirmed.
+5. **Given** a reset, **Then** the session can arm again — it is not disabled.
 
 ---
 
-### User Story 5 - Keep the capture history reachable (Priority: P5)
+### User Story 6 - Simplify the Draft Tap page to match (Priority: P6)
+
+With setup reduced to install-and-acknowledge, the page loses its pairing
+instructions and keeps installation, state, and a way to turn the tap off.
+
+**Why this priority**: follows from US3 rather than standing alone. Documentation
+describing a flow that no longer exists is confusing, not dangerous.
+
+**Independent Test**: give the page to someone who has never set the tap up and
+confirm they succeed without asking a question.
+
+**Acceptance Scenarios**:
+
+1. **Given** the simplified page, **Then** it covers installing, enabling and
+   current state, and no longer instructs anyone to pair a browser or handle a
+   credential.
+2. **Given** the owner wants to stop relaying, **Then** the page provides that
+   and says what stops — including that ESPN is unaffected.
+3. **Given** several browsers are enabled, **Then** each is listable and
+   individually revocable.
+4. **Given** the product's limitation, **Then** the page still states that live
+   relaying needs desktop Chrome.
+
+---
+
+### User Story 7 - Keep the capture history reachable (Priority: P7)
 
 Frames captured before a reconnect remain admissible to the replay lab
 afterwards.
 
 **Why this priority**: a corpus that silently loses its history defeats 008.
-Lowest priority because it affects one maintainer tool rather than the product —
-but it is the same root cause, and fixing it anywhere else would leave the
-inconsistency.
+Lowest because it affects one maintainer tool rather than the product — but it is
+the same root cause, and fixing it elsewhere would leave the inconsistency.
 
 **Independent Test**: reconnect a league, then admit a draft captured before the
 reconnect.
@@ -197,7 +282,7 @@ reconnect.
    beforehand remain reachable to the lab.
 2. **Given** frames relayed by a leaguemate, **Then** they may be used, while the
    entry's **perspective** comes from the operator's own account.
-3. **Given** an entry is built this way, **Then** it records that its frames came
+3. **Given** an entry built this way, **Then** it records that its frames came
    from another manager's relay.
 4. **Given** any admission, **Then** it remains impossible to build an entry
    carrying another account's team, settings or preferred list.
@@ -210,20 +295,21 @@ reconnect.
   recorded an 11-round roster, the other 12, for the same draft.
 - **A leaguemate stops relaying mid-draft.** Everyone depending on that tap loses
   the feed at once.
-- **Two managers relay the same draft simultaneously**, producing duplicate
-  frames for the same picks.
-- **A manager leaves the league** but their connection lingers.
-- **A leaguemate relays a draft the other manager is not in** — a different
-  league, or a mock.
-- **A ledger arrives for a draft that has genuinely resumed after a crash**, and
-  must be honoured; distinguishing this from contamination is the hard part of
-  US3.
-- **A reset is requested while a draft is live.**
-- **A manager who has never connected the league** receives frames addressed to
-  it.
+- **Two browsers, profiles or managers relay the same draft simultaneously**,
+  producing duplicate frames.
+- **A ledger arrives for a draft that genuinely resumed after a crash**, and must
+  be honoured — distinguishing this from contamination is the hard part of US4.
+- **The owner is signed in as one account and drafting a league connected under
+  another.** Which account does the relay act for?
+- **Sign-out.** Does an enabled tap keep relaying, and should it?
+- **A credential expires mid-draft.** They carry a stated lifetime today.
+- **A hostile page tries to trigger enablement** without the owner's intent.
+- **The userscript updates** and must not require re-acknowledgement.
 - **Every manager in a league is on an iPad**, so nobody can relay at all.
-- **A leaguemate's league settings are stale**, so shared frames reconcile
-  against a wrong total.
+- **A manager leaves the league** but their connection lingers.
+- **A reset is requested while a draft is live.**
+- **The tap page is opened on a device that cannot run the script**, which is the
+  common case for other managers.
 
 ## Requirements *(mandatory)*
 
@@ -234,78 +320,115 @@ reconnect.
 - **FR-001**: Frames relayed for a league and season MUST be delivered to every
   manager who has connected that league and season.
 - **FR-002**: Each manager's view MUST be rendered from **their own**
-  perspective — their team, league settings, roster needs and preferred list.
+  perspective — team, league settings, roster needs, preferred list.
 - **FR-003**: The system MUST NOT disclose which manager relayed the frames.
 - **FR-004**: A manager who has not connected a league MUST receive nothing for
   it.
-- **FR-005**: Where two managers' recorded league settings disagree about the
-  draft's shape, the disagreement MUST be surfaced rather than silently
-  resolved.
+- **FR-005**: Where managers' recorded league settings disagree about the draft's
+  shape, the disagreement MUST be surfaced, not silently resolved.
 - **FR-006**: A manager in a league with no active relay MUST be told so, and
   told what would change it.
 - **FR-007**: Delivery MUST remain within the latency budget 005 ratified.
 
-**Honest state reporting (US2)**
+**Honest state (US2)**
 
-- **FR-008**: When no session is armed, the draft room MUST report that it is
+- **FR-008**: The tap page MUST distinguish: not installed; installed but not
+  enabled; enabled but idle; actively relaying.
+- **FR-009**: An active relay MUST be evidenced by when it last relayed, not
+  asserted.
+- **FR-010**: A tap that has stopped MUST be distinguishable from one never
+  enabled.
+- **FR-011**: When no session is armed, the draft room MUST report that it is
   waiting for the draft, and MUST NOT report a reachability failure.
-- **FR-009**: The room MUST distinguish, in what it shows: waiting for a draft;
-  cannot reach the service; and reachable but not receiving picks.
-- **FR-010**: Each state MUST state the remedy, not only the condition.
-- **FR-011**: A transient reconnection MUST NOT present as a failure while it is
+- **FR-012**: The room MUST distinguish: waiting for a draft; cannot reach the
+  service; reachable but not receiving picks.
+- **FR-013**: Every reported state MUST state the remedy, not only the condition.
+- **FR-014**: A transient reconnection MUST NOT present as failure while it is
   still expected to succeed.
+- **FR-015**: An indeterminate state MUST be reported as unknown.
 
-**Ledger containment (US3)**
+**One-step enablement (US3)**
 
-- **FR-012**: A ledger describing a different draft MUST NOT become a session's
+- **FR-016**: The owner MUST be able to enable the tap with a single
+  acknowledgement, having installed the script and signed in.
+- **FR-017**: No credential, code or identifier may be shown to, copied by, or
+  retained by the user.
+- **FR-018**: Enabling MUST require a genuine user action; it MUST NOT be
+  triggerable by a page the owner merely visits.
+- **FR-019**: Enabling MUST require an authenticated session, and the relay MUST
+  act only for that account.
+- **FR-020**: Re-acknowledging MUST be safe and MUST NOT interrupt a relay in
+  progress.
+- **FR-021**: A failure to enable MUST state why and leave any working state
+  intact.
+- **FR-022**: The ingest MUST continue to reject unattributable frames. This
+  feature changes **who handles** the credential, never **whether one exists**.
+
+**Ledger containment (US4)**
+
+- **FR-023**: A ledger describing a different draft MUST NOT become a session's
   state.
-- **FR-013**: Ledger selection MUST NOT rest on coverage alone.
-- **FR-014**: A rejected ledger MUST be recorded with the reason.
-- **FR-015**: A ledger belonging to the session's own draft MUST still restore
-  it after a reload or crash.
+- **FR-024**: Ledger selection MUST NOT rest on coverage alone.
+- **FR-025**: A rejected ledger MUST be recorded with the reason.
+- **FR-026**: A ledger belonging to the session's own draft MUST still restore it
+  after a reload or crash.
 
-**Session reset (US4)**
+**Session reset (US5)**
 
-- **FR-016**: The owner MUST be able to reset a draft session so the next draft
-  is captured as a new one.
-- **FR-017**: A reset MUST preserve the preferred list, league settings and tap
-  pairing.
-- **FR-018**: A reset MUST preserve retained frames and any archived draft.
-- **FR-019**: A reset during a live draft MUST be refused or explicitly
+- **FR-027**: The owner MUST be able to reset a session so the next draft is
+  captured as a new one.
+- **FR-028**: A reset MUST preserve the preferred list, league settings and tap
+  enablement.
+- **FR-029**: A reset MUST preserve retained frames and any archived draft.
+- **FR-030**: A reset during a live draft MUST be refused or explicitly
   confirmed.
-- **FR-020**: A reset MUST leave the session able to arm again — not disabled.
+- **FR-031**: A reset MUST leave the session able to arm again.
 
-**Capture reachability (US5)**
+**The tap page (US6)**
 
-- **FR-021**: Frames MUST remain reachable to the replay lab across a
-  disconnect and reconnect of the league.
-- **FR-022**: A corpus entry MAY use frames relayed by any manager of that
+- **FR-032**: The page MUST cover installing, enabling and current state, and
+  MUST NOT instruct anyone to pair a browser or handle a credential.
+- **FR-033**: The owner MUST be able to stop relaying from that page, with the
+  effect stated — including that ESPN is unaffected.
+- **FR-034**: Where several browsers are enabled, each MUST be listable and
+  individually revocable.
+- **FR-035**: The page MUST state that live relaying requires desktop Chrome.
+
+**Capture reachability (US7)**
+
+- **FR-036**: Frames MUST remain reachable to the replay lab across a disconnect
+  and reconnect.
+- **FR-037**: A corpus entry MAY use frames relayed by any manager of that
   league, and MUST take its perspective from the operator's own account.
-- **FR-023**: An entry built from a leaguemate's frames MUST record that.
-- **FR-024**: It MUST remain impossible to build an entry carrying another
+- **FR-038**: An entry built from a leaguemate's frames MUST record that.
+- **FR-039**: It MUST remain impossible to build an entry carrying another
   account's team, settings or preferred list.
 
 **Boundaries**
 
-- **FR-025**: No recommendation rule changes (Principle IV).
-- **FR-026**: Read-only against ESPN; no draft-room connection (Constitution VI).
-- **FR-027**: No ESPN credential is logged, transmitted or exposed.
-- **FR-028**: Frames crossing between managers MUST carry only what the tap
+- **FR-040**: No recommendation rule changes (Principle IV).
+- **FR-041**: Read-only against ESPN; the tap stays strictly passive, opens no
+  connection and has no send path to ESPN (Constitution VI).
+- **FR-042**: No ESPN credential is read, logged, stored or transmitted by the
+  tap.
+- **FR-043**: Frames crossing between managers MUST carry only what the tap
   already relays — numeric identifiers, no names, no member identifiers.
 
 ### Key Entities
 
-- **Draft**: the shared event — a league, a season, an ordered set of picks. The
-  thing several managers observe at once. Distinct from any one manager's view.
-- **Relay**: a manager's tap supplying frames for a draft. Any manager may be
-  the relay; the draft does not belong to them.
-- **Perspective**: one manager's account-specific context — their team, league
+- **Draft**: the shared event — a league, a season, an ordered set of picks. What
+  several managers observe at once. Distinct from any one manager's view.
+- **Relay**: a browser supplying frames for a draft, acting for exactly one
+  account. Any manager may be the relay; the draft does not belong to them.
+- **Relay enablement**: the state of one browser being permitted to relay for one
+  account. Created by acknowledgement, revocable, never handled by the user.
+- **Perspective**: one manager's account-specific context — team, league
   settings, roster needs, preferred list. Never shared, never inferred from
   whoever relayed.
-- **Session state**: what the room shows and why — waiting, reachable, not
-  receiving — each with a remedy.
-- **Reset**: returning a session to un-started without destroying perspective or
-  capture history.
+- **Observable state**: what each surface reports and why — the tap's four
+  states, the room's three — each with a remedy.
+- **Reset**: returning a session to un-started without destroying perspective,
+  enablement or capture history.
 
 ## Success Criteria *(mandatory)*
 
@@ -316,66 +439,90 @@ reconnect.
 - **SC-002**: **100%** of delivered views show the viewing manager's own team and
   roster — never the relayer's.
 - **SC-003**: **Zero** views disclose who relayed the frames.
-- **SC-004**: Opening a draft room before any session exists reports **waiting**,
-  not failure, **100%** of the time.
-- **SC-005**: A completed draft's ledger arriving at a fresh session results in
+- **SC-004**: A new user goes from nothing to a relaying tap in **one
+  acknowledgement** after installing the script, with **zero** values typed or
+  pasted, and **zero** credentials displayed.
+- **SC-005**: All four tap states and all three draft-room states are reported
+  distinctly, **100%** of the time, each with a remedy.
+- **SC-006**: An active relay is evidenced by a last-relayed time, never by an
+  unsupported claim of health.
+- **SC-007**: A completed draft's ledger arriving at a fresh session results in
   **zero** of its picks entering that session, and the rejection is recorded.
-- **SC-006**: A legitimate reload still restores the draft in progress — the
+- **SC-008**: A legitimate reload still restores the draft in progress — the
   containment fix breaks **no** recovery case.
-- **SC-007**: After a reset, a second mock is captured with **none** of the first
+- **SC-009**: After a reset, a second mock is captured with **none** of the first
   draft's picks, and the preferred list is **unchanged**.
-- **SC-008**: Frames captured before a reconnect remain admissible **100%** of
+- **SC-010**: Frames captured before a reconnect remain admissible **100%** of
   the time afterwards.
-- **SC-009**: **Zero** corpus entries can be produced carrying another account's
+- **SC-011**: **Zero** corpus entries can be produced carrying another account's
   perspective.
-- **SC-010**: Draft-day latency is **unchanged** for the relaying manager.
+- **SC-012**: The ingest continues to reject **100%** of unattributable frames,
+  and enablement cannot be caused by a page the owner merely visits.
+- **SC-013**: Draft-day latency is **unchanged** for the relaying manager, and
+  the tap performs **zero** writes toward ESPN.
 
 ## Assumptions
 
-Informed defaults where the finding did not settle the question. Each is a
-decision `/speckit-clarify` should ratify or overturn.
+Informed defaults. Each is a decision `/speckit-clarify` should ratify or
+overturn — the first especially.
 
-- **Sharing is automatic within a league, not opt-in.** A draft is a shared
-  event and the picks are visible to every manager in the room already, so
-  consent to *receive* is not required. Whether a manager consents to their tap
-  *serving* others is the sharper question, and the one most likely to be
-  overturned.
-- **The relayer stays anonymous.** Managers learn that a relay exists, never
-  whose. This avoids disclosing that a particular person uses the product,
-  which is the only genuinely private fact in the exchange.
+- **The credential remains; the user stops handling it.** The userscript already
+  runs on ESPN's origin and can also recognise Draft Genie's own page, so a
+  signed-in acknowledgement hands the browser what it needs.
+  - **The alternative, stated so it can be chosen deliberately**: no credential
+    at all, making the ingest an unauthenticated public write endpoint. Anyone
+    who learned a league identifier could inject fabricated picks into a live
+    draft, and the engine would advise against a corrupted board. This spec does
+    not do that. If it is wanted anyway, it should be an explicit recorded
+    decision — not a consequence of simplifying a page.
+- **Sharing is automatic within a league, not opt-in.** The picks are visible to
+  every manager in the room already, so consent to *receive* is not required.
+  Whether a manager consents to their tap *serving* others is the sharper
+  question, and the one most likely to be overturned.
+- **The relayer stays anonymous.** Managers learn a relay exists, never whose —
+  which avoids disclosing that a particular person uses the product, the only
+  genuinely private fact in the exchange.
 - **Where managers' league settings disagree, each manager's own settings drive
-  their own view**, and the disagreement is reported. Nobody's view is silently
-  rewritten by someone else's stale sync.
+  their own view**, and the disagreement is reported.
 - **A ledger is bound to the draft it belongs to** by something stronger than
-  size. Exactly what — a start time, a first pick, an explicit identity — is a
-  design question for planning, not a spec decision.
-- **Reset is an owner action in the app**, not an automatic recovery.
-- **The existing latency budget is unchanged.** Fanning out to a handful of
-  managers is not expected to move it, and SC-010 exists to check rather than
-  assume.
+  size. Exactly what is a design question for planning.
+- **Enablement is per browser** and **outlives a sign-out**, remaining revocable
+  — a draft can run longer than a session, and a relay dying mid-draft is worse
+  than a stale enablement.
+- **A credential lifetime is retained** (010 FR-014a), renewed silently where the
+  owner is signed in.
+- **Reset is an owner action in the app**, not automatic recovery.
+- **Desktop Chrome remains the only relaying platform** — 010's permanent
+  limitation, restated rather than revisited.
 
 ## Dependencies
 
 - **005-draft-monitor** — the session, its reconciler, its ledger handling and
-  its latency budget. Four of the five defects live here.
-- **010-draft-tap** — the relay, its pairing, and the numeric-only discipline
-  that shared frames inherit unchanged.
-- **007-draft-room-ui** — where session state is reported, and where a manager's
+  its latency budget. Most of this feature lives here.
+- **010-draft-tap** — the userscript, the ingest, the credential model whose
+  *handling* changes, and the passivity constraint that does not.
+- **007-draft-room-ui** — where session state is reported and a manager's
   perspective is rendered.
-- **008-draft-replay-lab** — the admitting path US5 corrects, and the
+- **008-draft-replay-lab** — the admitting path US7 corrects, and the
   frames-versus-perspective rule this feature generalises.
-- **001-league-onboarding** — the league connection, whose lifecycle US4's reset
-  exists to avoid abusing.
+- **001-league-onboarding** — the league connection whose lifecycle US5's reset
+  exists to avoid abusing, and the sign-in that authenticates enablement.
 
 ## Out of Scope
 
 - **Any recommendation rule change** (Principle IV).
+- **Removing the credential from the ingest.** Explicitly rejected above; a
+  change to that is its own decision with its own record.
 - **Relaying for a league nobody has connected.** A relay serves managers of that
   league, not the public.
 - **Making the tap unnecessary.** Gate 0 stands: no ESPN read API sees a live
   draft. This shares one tap; it does not remove the need for one.
-- **Multiple simultaneous relays as a resilience feature.** Duplicate frames must
-  not corrupt anything (an edge case), but coordinated failover is not built.
+- **Relaying from platforms other than desktop Chrome.**
+- **Multiple simultaneous relays as a resilience feature.** Duplicates must not
+  corrupt anything (an edge case), but coordinated failover is not built.
+- **Any change to what the tap relays.** The frame contract is 010's.
+- **Automatic enablement without user action.** The acknowledgement is the
+  security property, not a UX nicety.
 - **Cross-league or cross-season sharing.**
 - **Closing 005's open items** (draft-end detection, keeper reconciliation).
 - **009's operational concerns** — alerting that a session died belongs there;

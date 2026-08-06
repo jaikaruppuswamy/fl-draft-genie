@@ -2,6 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-08-06
+**Updated**: 2026-08-06 — 012 folded in
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,60 +32,79 @@
 
 ## Notes
 
-### The spec has one idea, and five defects fall out of it
+### One idea, and the defects fall out of it
 
-The five items arrived as a list of bugs. Writing them up separately would have
-produced five unrelated fixes. They are not unrelated — every one is the system
-conflating two things:
+Six items arrived as separate bug reports and one feature request. Written up
+separately they would have been seven unrelated changes. They are not unrelated —
+each is the system conflating two things, and the spec states the rules once and
+derives requirements from them:
 
-> **A draft's frames are LEAGUE-SHARED. A manager's perspective — team, league
+> **1. A draft's frames are LEAGUE-SHARED; a manager's perspective — team,
 > settings, preferred list — is PER-ACCOUNT.**
+>
+> **2. A relay must prove which account it acts for; the user must never hold the
+> proof.**
 
-Delivery (1) shares neither. The stale ledger (3) treats one draft's frames as
-another's. The lab (5) excluded a leaguemate's frames when it should have
-excluded only their perspective. Stating the rule once and deriving the
-requirements from it is why FR-002, FR-022 and FR-024 say compatible things
-rather than three different things.
+Rule 1 governs receiving, rule 2 sending. That is why FR-002, FR-037 and FR-039
+say compatible things rather than three different things, and why FR-022 can say
+the credential's *handling* changes without its *existence* being in question.
+
+### The merge with 012 removed a real duplication
+
+012's "make tap state legible" and 011's "make draft-room state legible" were the
+**same requirement seen from two screens**. Combining them turned eight user
+stories into seven and produced one story (US2) that covers both surfaces with
+one rule: every state names its remedy. Kept apart, the two specs would also have
+argued about the same boundary — who may send, who may receive, what proves it —
+from opposite sides.
 
 ### The constraint was never a decision
 
-Worth recording, because it changes how the change should be judged: **no
-requirement anywhere says frames must not cross accounts.** Delivery is
-account-scoped because the session is addressed by connection and season, and
-that is where the owner's team id happens to live. The constitution's isolation
-rule enumerates *"another user's leagues, credentials, or preferred lists"* —
-not the picks in a draft everyone in the room is watching.
+**No requirement anywhere says frames must not cross accounts.** Delivery is
+account-scoped because a session is addressed by connection and season, and that
+is where the owner's team id happens to live. The constitution's isolation rule
+enumerates *"another user's leagues, credentials, or preferred lists"* — not the
+picks in a draft everyone in the room is watching.
 
-So this is not "relaxing a security boundary". It is implementing a boundary
-that was drawn by accident in the wrong place.
+This is therefore not "relaxing a security boundary". It is implementing one that
+was drawn by accident in the wrong place. The boundary that **is** load-bearing —
+the ingest credential — is kept, and the spec says so at length.
 
 ### Evidence, not assertion
 
-- **71 vs 1** — batches relayed by a leaguemate versus the owner in the same
-  league on 2026-08-05. The owner received nothing.
-- **11 vs 12 rounds** — two managers' recorded settings for the same draft,
-  which is why FR-005 exists rather than assuming agreement.
+- **71 vs 1** — batches relayed by a leaguemate versus the owner, same league,
+  2026-08-05. The owner received nothing.
+- **3 pairings in 14 minutes** — a *working* tap re-paired twice under time
+  pressure because its state was not observable.
+- **11 vs 12 rounds** — two managers' recorded settings for the same draft, which
+  is why FR-005 exists rather than assuming agreement.
 - **~72 players** wrongly marked drafted when a completed draft's ledger loaded
   into a fresh session.
 - **1 preferred player** destroyed by the only available reset workaround.
 
 ### Carried forward to `/speckit-clarify`
 
-1. **Consent to relay** — the spec assumes sharing is automatic within a league.
-   Consent to *receive* is unnecessary (the picks are already visible to
-   everyone in the room); consent for one's tap to *serve* others is the sharper
-   question and the assumption most likely to be overturned.
-2. **What binds a ledger to its draft** — deliberately left open. FR-013 rules
-   out coverage-alone; choosing the replacement is a design question for
-   planning.
-3. **Whether reset is per-session or per-league**, and whether it needs an audit
-   trail.
-4. **Duplicate relays** — treated as an edge case that must not corrupt, not as
-   a resilience feature. Clarify may want more.
+1. **Keep the ingest credential, or remove it?** The central decision. The
+   rejected option is stated in Assumptions in full rather than omitted, because
+   arriving at an unauthenticated write endpoint by simplifying a page would be
+   the worst possible route to it.
+2. **Consent to relay.** Consent to *receive* is unnecessary — the picks are
+   already visible to everyone in the room. Consent for one's tap to *serve*
+   others is the sharper question and the assumption most likely to be
+   overturned.
+3. **What binds a ledger to its draft.** FR-024 rules out coverage-alone;
+   choosing the replacement is a design question for planning.
+4. **Does enablement survive sign-out?** Assumed yes — a draft outlasts a
+   session — but it is a real trade.
+5. **Signed in as one account, drafting a league connected under another.**
 
 ### Outstanding
 
-- **US1 is the largest change and touches shipped 005 behaviour.** It is
-  correctly P1 by value, but it is not a small fix, and the plan should expect
-  the session's addressing to be the substantial part of the work. US2–US5 are
-  each far smaller and independently shippable.
+- **US1 is the largest change and touches shipped 005 behaviour.** Correctly P1
+  by value, but not a small fix: the session's addressing is the substantial
+  work. US2–US7 are each far smaller and independently shippable, so there is a
+  viable path that fixes the sharp-edged bugs first and takes US1 carefully.
+- **Seven user stories is a lot for one feature.** Justified by a single root
+  cause and a single pair of rules, but if planning finds the work does not
+  cohere, the split to make is US1 alone versus the rest — **not** back along the
+  011/012 line, which was the wrong seam.
