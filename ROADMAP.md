@@ -60,6 +60,15 @@ season-long projections only; every season's projection sets retained as
 history for future trend signals; positional ranks on the board; draft-day
 top-up guarantees same-morning projections.
 
+> ⚠️ **The retention decision is NOT what shipped** (found 2026-08-05 during
+> 008's clarify). `pruneSets()` runs `DELETE FROM projection_sets WHERE season <
+> ?` on every scheduled-maintenance cron, and `player_projections` cascades from
+> it — so prior seasons are destroyed, not retained, and the 2026 sets go when
+> the clock rolls to 2027. 008 works around it by snapshotting inputs into each
+> corpus entry rather than depending on the tables, so nothing is urgent; but
+> the ratified decision and the code still disagree, and the "future trend
+> signals" this retention was for have no history to draw on. **Open for 002.**
+
 ## 003 — board-refinements ✅ SHIPPED (2026-08-02)
 
 Owner-requested refinements after production use of 002: the projection
@@ -299,9 +308,52 @@ recommended at each of the user's picks; run simulated drafts (ADP-driven
 opponents) to sanity-check rule changes before draft day. This is how rule
 tuning sessions (Principle IV) validate their changes.
 
-**Open questions**: simulation opponent model (pure ADP with noise?); metrics
-for "the engine did well" (projected points of resulting roster vs. actuals);
-CLI or UI.
+**Ratified in clarify (2026-08-05)** — five decisions, and all three open
+questions above are now answered:
+
+- **Metrics — behavioural now, outcome later.** Rule sets are compared on
+  structural measures (movement in the ordering in round-value units, changes of
+  shortlist head, size and direction of disagreement with the real pick, how
+  often each rule was decisive). The scorecard reserves a slot for **actual
+  season points**, left empty until a season is played. **A projection-derived
+  quality number may never be reported as evidence a rule change is an
+  improvement** — it shares its source with the engine's own input, so it
+  rewards agreement with projections, which is what the rule layer exists to
+  correct. *(Answers "metrics for the engine did well".)*
+- **CLI, not UI.** Repo harness, no page, no endpoint, no code on the deployed
+  worker. Runs read committed fixtures only; admitting a draft is an explicit
+  export step; baselines are committed so a rule change is reviewable as a diff.
+  *(Answers "CLI or UI".)*
+- **Opponent model — ADP with bounded, seeded noise**, but characterised against
+  real drafter-versus-ADP behaviour drawn from imported past-season drafts
+  rather than assumed. *(Answers "pure ADP with noise?".)*
+- **Corpus entries snapshot their engine inputs.** Board and signal values are
+  captured with the draft and read from the entry, never from live tables.
+- **Corpus entries are built from retained relay frames**, reconciled offline —
+  not from 005's archive path.
+
+**Three findings that forced those decisions**, none visible from this roadmap:
+
+1. **The corpus had a built-in expiry.** `pruneSets()` runs `DELETE FROM
+   projection_sets WHERE season < ?` on every maintenance cron, and
+   `player_projections` cascades — so the 2026 sets vanish in 2027 and the only
+   replayable draft stops being replayable. Snapshotting fixes it additively,
+   changing nothing in 002 or 004. **⚠️ This also contradicts 002's ratified
+   decision that "every season's projection sets [are] retained as history for
+   future trend signals" — the shipped code does the opposite. Left recorded
+   here rather than silently fixed; it is 002's to resolve.**
+2. **The archive path is not a viable corpus source.** Zero rows in production,
+   gated on two unfinished 005 items (draft-end detection, keeper pick-count
+   reconciliation). 008 does not wait for it and does not close it.
+3. **The captured drafts are the owner's test runs.** Retained as harness
+   fixtures — they are the only proof the reconciler works on real frames — and
+   excluded from every rule-set comparison. **The evidential corpus is empty
+   today**; its first entry arrives with the first real 2026 league draft.
+
+**Also settled**: a past-season draft can never be replayed (no board for that
+season exists or can be fetched), so imports do two distinct jobs — current-season
+drafts join the replayable corpus, earlier ones are pick-sequence-only and feed
+the opponent model.
 
 ## 010 — draft-tap ✅ SHIPPED (2026-08-05)
 
