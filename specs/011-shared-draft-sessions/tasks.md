@@ -111,12 +111,12 @@ manager's draft room and confirm picks arrive with **their** team highlighted.
 - [X] T008 [US1] Make arming league-wide in `src/api/tap.ts` — arm every connection returned by T002, each with its own scope. **Sessions currently arm from their own tap's first frame, so a manager with no tap has no session at all**; this is the change that gives them one
 - [X] T009 [US1] Nudge every armed session for the league in `src/api/tap.ts`, keeping the existing after-response scheduling so a Durable Object round trip never sits on the tap's request path
 - [X] T010 [P] [US1] Assert in `tests/draft/fanout.test.ts` that a delivered payload contains **no relayer identity** — account, connection, install or session id (FR-003, SC-003) — **and that every delivered view carries the viewing manager's own team, never the relayer's** (FR-002, SC-002)
-- [ ] T011 [US1] Surface a settings disagreement rather than resolving it, in `src/draft/session.ts`: each session uses its own `totalPicks`, and a mismatch across managers is reported (FR-005)
+- [X] T011 [US1] Surface a settings disagreement rather than resolving it, in `src/draft/session.ts`: each session uses its own `totalPicks`, and a mismatch across managers is reported (FR-005)
 - [X] T012 [US1] Report "no active relay" and its remedy in `web/src/pages/DraftRoom.tsx` (FR-006)
 - [X] T013 [US1] Report a relay that **stopped mid-draft** with the same message for every manager, naming what would restore it, and never presentable as a draft that has not started (FR-006a)
 - [X] T014 [US1] Accept several relays and converge on pick identity in `src/draft/feed.ts` (FR-007a)
 - [X] T015 [US1] Prefer the frame carrying **more information** over the one that arrived first (FR-007b). `foldBatches` already prefers ledger coverage over arrival order for exactly this reason — a tap flushing after an outage sends an old snapshot with a new timestamp
-- [ ] T016 [US1] Measure delivery latency for a non-relaying manager against T003's baseline and confirm 005's budget holds (FR-007, SC-001)
+- [X] T016 [US1] Measure delivery latency for a non-relaying manager against T003's baseline and confirm 005's budget holds (FR-007, SC-001)
 
 **Checkpoint**: a manager on an iPad sees the draft.
 

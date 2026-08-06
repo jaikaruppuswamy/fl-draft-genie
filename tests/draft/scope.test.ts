@@ -68,6 +68,28 @@ describe("the shared half and the per-manager half are named apart", () => {
     const facts: DraftFacts = { espnLeagueId: "1", season: 2026, order: [] };
     expect(facts).not.toHaveProperty("myTeamId");
   });
+
+  it("puts the settings DISAGREEMENT on the shared side (011 T011)", () => {
+    // Recorded here because this is where the split is decided. The
+    // disagreement is a fact about the LEAGUE — every session in a disagreeing
+    // league carries the identical value — whereas `totalPicks`, the thing
+    // being disagreed about, stays per-manager. Putting the report next to the
+    // number would imply the number had been reconciled, which is exactly what
+    // FR-005 forbids.
+    //
+    // Optional, so the exact-keys assertion above still describes a league that
+    // agrees — which is nearly all of them.
+    const facts: DraftFacts = {
+      espnLeagueId: "1",
+      season: 2026,
+      order: [],
+      disagreement: { totals: [22, 24] },
+    };
+    expect(facts.disagreement?.totals).toEqual([22, 24]);
+
+    const view: ManagerView = { accountId: "a", connectionId: "c", myTeamId: 1, totalPicks: 24 };
+    expect(view).not.toHaveProperty("disagreement");
+  });
 });
 
 describe("a session never takes its perspective from a relayer", () => {

@@ -184,14 +184,39 @@ async function armLeague(
     // The relayer is already in this list — it is a connection of this league.
     // Adding it separately would double its writes per frame.
     const audience = await listConnectionsForLeague(env.DB, espnLeagueId, season);
+
+    // TWO PASSES, and the reason is FR-005. The disagreement is a property of
+    // the league, so it cannot be known until every manager's scope has been
+    // built — arming as we go would give the first manager a null and the last
+    // one the answer.
+    const prepared: { row: (typeof audience)[number]; armed: ReturnType<typeof armingScope>; firstEver: boolean }[] = [];
     for (const row of audience) {
       try {
         const result = row.id === relayer.id ? relayerArmed : await armOne(env, row, espnLeagueId, season, at);
         if (!result) continue; // unsupported for THIS manager; the rest still arm
-        const stub = sessionStub(env, row.id, season);
+        prepared.push({ row, armed: result.armed, firstEver: result.firstEver });
+      } catch {
+        /* the next frame, or the cron sweep, will arm this one */
+      }
+    }
+
+    // 0 means "not established yet", not a claim about the draft's length —
+    // counting it would report a disagreement between a manager who knows and
+    // one who has simply not synced.
+    const totals = [...new Set(prepared.map((p) => p.armed.scope.totalPicks).filter((t) => t > 0))].sort(
+      (a, b) => a - b,
+    );
+    const disagreement = totals.length > 1 ? { totals } : null;
+
+    for (const p of prepared) {
+      try {
+        const stub = sessionStub(env, p.row.id, season);
         // A manager joining for the first time starts at the log's tip, not at
         // the beginning of a league-wide log that still holds old mock drafts.
-        await stub.arm(result.armed.scope, { floorToLogTip: result.firstEver, floorBefore: at.toISOString() });
+        await stub.arm(
+          { ...p.armed.scope, disagreement },
+          { floorToLogTip: p.firstEver, floorBefore: at.toISOString() },
+        );
         if (nudge) await stub.nudge();
       } catch {
         /* the next frame, or the cron sweep, will arm this one */

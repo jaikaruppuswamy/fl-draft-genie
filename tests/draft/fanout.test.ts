@@ -411,3 +411,80 @@ describe("the room asks whether ANYONE is relaying (011 T012, FR-006)", () => {
     expect(Object.keys(body.relay as object).sort()).toEqual(["active", "lastRelayedAt"]);
   });
 });
+
+describe("a settings disagreement is SURFACED, not resolved (011 T011, FR-005)", () => {
+  // The fixture gives these two managers 11 and 12 rounds for the same draft —
+  // the real 2026-08-06 shape, where one manager's snapshot was stale.
+  //
+  // Resolving it is the tempting move and the wrong one: nothing distinguishes
+  // the stale sync from the fresh one, so picking a winner silently reshapes
+  // somebody's board. Each session keeps its own number; the league is told the
+  // numbers disagree.
+
+  it("reports the disagreement to BOTH managers, with the same values", async () => {
+    await postBatch(batchBody(1, 4362628));
+
+    const quiet = await snapshotOf(QUIET.conn);
+    const relayer = await snapshotOf(RELAYER.conn);
+
+    expect(quiet!.disagreement).not.toBeNull();
+    expect(quiet!.disagreement!.totals).toEqual(relayer!.disagreement!.totals);
+    expect(quiet!.disagreement!.totals.length).toBeGreaterThan(1);
+  });
+
+  it("does NOT resolve it — each session still uses its own count", async () => {
+    // The half that was already true, asserted here so a later "tidy-up" that
+    // makes everyone agree fails loudly instead of quietly.
+    await postBatch(batchBody(1, 4362628));
+
+    const quiet = await snapshotOf(QUIET.conn);
+    const relayer = await snapshotOf(RELAYER.conn);
+    expect(quiet!.totalPicks).not.toBe(relayer!.totalPicks);
+    expect(quiet!.disagreement!.totals).toContain(quiet!.totalPicks);
+    expect(quiet!.disagreement!.totals).toContain(relayer!.totalPicks);
+  });
+
+  it("names no manager (FR-003)", async () => {
+    // Counts and values only. Which leaguemate disagrees is not the reader's
+    // business, and naming them puts one manager's configuration into another's
+    // view — the thing this whole feature exists to prevent.
+    await postBatch(batchBody(1, 4362628));
+
+    const d = JSON.stringify((await snapshotOf(QUIET.conn))!.disagreement);
+    for (const secret of [RELAYER.conn, RELAYER.account, QUIET.conn, QUIET.account]) {
+      expect(d, `leaked ${secret}`).not.toContain(secret);
+    }
+  });
+
+  it("reports NOTHING when the league agrees — PROVES the check is conditional", async () => {
+    // Without this, "reports the disagreement" passes against an implementation
+    // that always reports one, which would put a permanent warning on a league
+    // where nothing is wrong.
+    await testEnv.DB.prepare(`UPDATE league_snapshots SET roster_json = ? WHERE connection_id = ?`)
+      .bind(JSON.stringify({ starting_slots: 10, bench_slots: 2, slots: {} }), QUIET.conn)
+      .run();
+    await testEnv.DB.prepare(`UPDATE league_snapshots SET roster_json = ? WHERE connection_id = ?`)
+      .bind(JSON.stringify({ starting_slots: 10, bench_slots: 2, slots: {} }), RELAYER.conn)
+      .run();
+
+    await postBatch(batchBody(1, 4362628));
+
+    expect((await snapshotOf(QUIET.conn))!.disagreement).toBeNull();
+  });
+
+  it("treats an UNKNOWN length as unknown, not as a disagreement", async () => {
+    // `totalPicks === 0` means not yet established. Counting it would report a
+    // disagreement between a manager who knows and one who has not synced — the
+    // same mistake 006 made reading an unknown as a claim.
+    await testEnv.DB.prepare(`UPDATE league_snapshots SET roster_json = ? WHERE connection_id = ?`)
+      .bind(JSON.stringify({ starting_slots: 10, bench_slots: 2, slots: {} }), RELAYER.conn)
+      .run();
+    await testEnv.DB.prepare(`UPDATE league_snapshots SET roster_json = ? WHERE connection_id = ?`)
+      .bind(JSON.stringify({ slots: {} }), QUIET.conn)
+      .run();
+
+    await postBatch(batchBody(1, 4362628));
+
+    expect((await snapshotOf(RELAYER.conn))!.disagreement).toBeNull();
+  });
+});

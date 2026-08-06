@@ -59,6 +59,32 @@ export interface DraftFacts {
   season: number;
   /** Round-1 pick order. Derived from the picks; see 008's finding on this. */
   order: number[];
+  /**
+   * 011 T011 (FR-005) — the league's managers do not agree on the draft's
+   * length. SURFACED, never resolved.
+   *
+   * Optional because most leagues agree and because it belongs to the league
+   * rather than to any manager — every session in a disagreeing league carries
+   * the same value, which is what makes it a `DraftFacts` field.
+   *
+   * Resolving it is the tempting move and the wrong one. There is no way to
+   * tell which manager's sync is the stale one: on 2026-08-06 two managers in
+   * one league recorded 11 and 12 rounds for the same draft, and picking a
+   * winner would silently reshape somebody's board. Each session keeps using
+   * its OWN `totalPicks` — that stays on `ManagerView` — and the disagreement
+   * is reported so a human can decide.
+   */
+  disagreement?: SettingsDisagreement | null;
+}
+
+/**
+ * Counts and values, never identities (FR-003). Which managers disagree is not
+ * the reader's business and naming them would put a leaguemate's configuration
+ * into someone else's view.
+ */
+export interface SettingsDisagreement {
+  /** Every distinct total-pick count across the league, ascending. */
+  totals: number[];
 }
 
 /**
@@ -152,6 +178,8 @@ export interface SessionSnapshot {
   orderTrust: ReturnType<typeof trust>;
   totalPicks: number;
   complete: boolean;
+  /** FR-005. Null when the league agrees, which is the ordinary case. */
+  disagreement: SettingsDisagreement | null;
 }
 
 export class DraftSession extends DurableObject<Env> {
@@ -630,6 +658,10 @@ export class DraftSession extends DurableObject<Env> {
             }),
       orderTrust: trust(s.state),
       totalPicks: s.state.totalPicks,
+      // From the scope, not from `state`: it is a fact about the league that
+      // arming establishes, and `stateFingerprint` must not see it or FR-014's
+      // rebuild equality would depend on who else happens to be connected.
+      disagreement: s.scope?.disagreement ?? null,
       complete: s.state.complete,
     };
   }
