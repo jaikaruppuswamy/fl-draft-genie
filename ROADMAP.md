@@ -362,15 +362,43 @@ answer forever.
 > Also wrong in the schema reads: `my_team_id` is on `league_connections`, not
 > `league_snapshots`.
 >
-> **Outcome**: one capture admitted (6×12, 72 picks, all with observation
-> timing, 1026-player snapshot, ADP floor 168.89) and it **replays** — 12 owner
-> turns with real names and reasoning, the first real replay this project has
-> run. Two captures were refused, correctly: one has no picks (a stray ledger,
-> not a draft), and one hit `totalPicks 66 ≠ picks 72` because that connection's
-> league snapshot is **stale** — it records an 11-round roster for a draft that
-> ran 12. Re-syncing that league would let it be admitted.
+> Then two more, and the fifth is the serious one:
 >
-> All three admitted/refused entries are `--class test`, so none is evidence.
+> 5. **It admitted ANOTHER USER'S draft.** This is a multi-user service, and a
+>    popular league has several managers running the tap — so frames for one
+>    league sit under several accounts. When a session spanned two connections
+>    the script disambiguated by **batch count** (71 vs 1) rather than by
+>    ownership, and the resulting entry carried *their* team as the owner. It
+>    was committed and pushed to a public repo before this was noticed.
+>    Contents were numeric ids, team numbers and public projections — no names,
+>    GUIDs or credentials, and the privacy sweep passed throughout — but it
+>    breached FR-027 all the same. **Entry removed; `--as <email>` is now
+>    required and the account filter is in the SQL, so another manager's frames
+>    are never fetched, never listed and never selectable.** The previous code
+>    claimed to enforce FR-027 "in the query" while scoping to whichever account
+>    the frames happened to belong to. Left in git history by the owner's
+>    decision.
+> 6. **It took the draft order from ESPN's published settings.** A mock draft
+>    randomises its own, so the two describe different events — published
+>    `[6,5,2,4,1,3]` against an actual `[5,1,4,6,3,2]`. The picks are the
+>    authority (round 2 is the exact reverse of round 1, a clean snake across
+>    all 12 rounds), so the order is now derived from round 1 and a disagreement
+>    is reported. `lab-import.ts` already did this; admit was inconsistent.
+>    **Caught by the replay guard added after the mutation sweep**, firing on
+>    real data for the first time.
+>
+> **Outcome**: the owner's own capture admitted —
+> `1064865483-2026-a6143677`, 6×12, 72 picks all carrying observation timing,
+> 1026-player snapshot, ADP floor 168.89, `myTeamId=1` — and it **replays** to
+> 12 owner turns with real names and reasoning. The first real replay this
+> project has run. Two others refused, correctly: one has no picks (a stray
+> ledger), and one was another account's.
+>
+> Admitting it also needed a **league re-sync**: the owner's snapshot was from
+> Aug 3 and recorded an 11-round roster for a draft that ran 12, so
+> `totalPicks 66 ≠ picks 72` refused it until the league was re-synced.
+>
+> Everything admitted is `--class test`, so none of it is evidence.
 
 **Ratified in clarify (2026-08-05)** — five decisions, already recorded below.
 
