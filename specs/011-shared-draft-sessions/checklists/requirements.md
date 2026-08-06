@@ -120,6 +120,37 @@ the fifth was deferred deliberately.
   Remains an edge case. Low likelihood with one operator; worth resolving in
   planning rather than spending a clarify question on.
 
+### Resolved in `/speckit-analyze` (2026-08-06)
+
+13 findings, all fixed. Coverage 68/72 → 72/72.
+
+- **CRITICAL — an unverified external premise.** US8 assumes ESPN's `drafted`
+  flag flips **true → false** when a real draft is reset, and nobody had checked.
+  What *was* verified is only that mocks never appear in ESPN's record — a
+  different fact. Now **T001, gating Phase 8**, with the consequence recorded: if
+  the flag does not flip, US8 collapses and US5 becomes the only reset path.
+  Third time this project has needed a gate; the previous two both changed a
+  feature's shape.
+- **HIGH ×2 — ordering errors I introduced when appending US8.** Polish ran
+  *before* US8, so "record 011 as shipped" would have fired with a third of the
+  feature unbuilt; and a US5 task (the latch fix) sat inside US8's phase, after
+  the task that depends on it. Phases now run in priority order with Polish last,
+  and the latch fix (T041) precedes the reset implementation it makes coherent.
+- **MEDIUM ×5** — priorities drifted between spec and tasks (US6/US7 still showed
+  P6/P7); the dependency graph carried a garbled edit; FR-031g sorted inside
+  US8's `FR-031a–f` block though it belonged to US5 (now **FR-044**); FR-040 had
+  no task (now T066, asserting nothing under `src/engine/` changed); SC-005 had
+  no completeness assertion (now T024).
+- **MEDIUM — the sharpest one.** FR-031d said a session "currently receiving
+  picks" must not be voided. That is a trap: 005 measured **90 s+ between human
+  picks** and concluded liveness comes from the heartbeat, never from pick
+  silence. A recency test would void a live draft while a manager deliberates.
+  Now **FR-031d1** (heartbeat, not recency) and **FR-031d2** (one guard shared
+  with FR-030's owner-initiated reset, since two copies diverge).
+- **LOW ×3** — SC-002 folded into T010; FR-024 now points at its replacement rule
+  rather than only forbidding the old one; T003 records its baseline in the task
+  list rather than rewriting `research.md` mid-build.
+
 ### Outstanding
 
 - **US1 is the largest change and touches shipped 005 behaviour.** Correctly P1

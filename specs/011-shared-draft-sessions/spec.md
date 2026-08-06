@@ -470,7 +470,10 @@ reconnect.
 
 - **FR-023**: A ledger describing a different draft MUST NOT become a session's
   state.
-- **FR-024**: Ledger selection MUST NOT rest on coverage alone.
+- **FR-024**: Ledger selection MUST NOT rest on coverage alone. The replacement
+  rule is research §2 — *a finished draft cannot be the first thing a session
+  learns*; coverage remains correct for choosing between ledgers **of the same
+  draft**, which is what it was built for.
 - **FR-025**: A rejected ledger MUST be recorded with the reason.
 - **FR-026**: A ledger belonging to the session's own draft MUST still restore it
   after a reload or crash.
@@ -485,7 +488,7 @@ reconnect.
 - **FR-030**: A reset during a live draft MUST be refused or explicitly
   confirmed.
 - **FR-031**: A reset MUST leave the session able to arm again.
-- **FR-031g**: A session MUST NOT be able to hold a completion stamp while
+- **FR-044**: A session MUST NOT be able to hold a completion stamp while
   reporting a pre-completion status. Observed live 2026-08-06: arming writes
   status directly and bypasses the completion latch, leaving a session marked
   `armed` while carrying `completed_at` — which can never transition to `live`,
@@ -511,9 +514,16 @@ reconnect.
 - **FR-031c**: Voiding a session MUST NOT destroy retained frames or any
   archived record of the draft that was reset. A draft that really happened
   remains history.
-- **FR-031d**: A session that is **currently receiving picks** MUST NOT be
-  voided by any sync result. A transient or wrong response must never be able to
-  wipe a live draft.
+- **FR-031d**: A session that is **live** MUST NOT be voided by any sync result.
+  A transient or wrong response must never be able to wipe a draft in progress.
+- **FR-031d1**: "Live" MUST be determined from the session's armed state and the
+  tap heartbeat — **never from how recently a pick arrived**. 005 measured
+  inter-pick gaps from ~1 s under autodraft to 90 s+ between human picks and
+  concluded that liveness comes from the heartbeat, not from pick silence. A
+  recency test would void a live draft while a manager deliberates.
+- **FR-031d2**: This protection and FR-030's (refusing an owner-initiated reset
+  during a live draft) MUST share one implementation. They differ only in
+  trigger, and two copies of a live-draft guard will diverge.
 - **FR-031e**: Every void MUST record its reason and the observation that
   triggered it.
 - **FR-031f**: Where ESPN's report is unavailable or ambiguous, nothing is
