@@ -17,6 +17,29 @@ worse.
 
 ---
 
+## 0. Gate 0 — the one thing to settle first
+
+```bash
+ESPN_S2='...' SWID='{...}' npx tsx scripts/lab-gate0.ts --league <espnLeagueId> --season 2024
+```
+
+**Run this before Phase 5 (import) is used in anger.** It asks whether ESPN still
+serves a completed draft for a *past* season. 005's Gate 0 proved ESPN writes the
+completed draft reliably — but for the **current** season, on a draft that had
+just finished. Nothing has ever asked a two-year-old league.
+
+It probes **both** URL forms, because ESPN serves prior seasons from
+`/leagueHistory/{id}?seasonId=` (returning an array) rather than the
+`/seasons/{y}/segments/0/leagues/{id}` path `src/espn/client.ts` uses. Probing
+only one would make "ESPN has no past drafts" and "we asked the wrong way"
+produce the same answer, and those have opposite consequences.
+
+Prints a summary only — no fixture written, no cookie in a URL, a log line or an
+error. A **FAIL** verdict prints exactly what shrinks, and
+[research.md](research.md) §12 records it.
+
+---
+
 ## 1. The correctness suite
 
 ```bash
@@ -41,10 +64,45 @@ Covers `tests/lab/**` alongside everything else. What to look for:
 The privacy sweep runs as the third step of `npm test` and already walks
 `tests/fixtures`, so lab fixtures are covered from the first commit.
 
-**The one that matters most is SC-009.** It deletes the projection set a snapshot
-came from and replays again, expecting identical output. That is the assertion
-that the corpus has no shelf life — and the only one that would have caught
-`pruneSets()` quietly emptying the corpus in January.
+**The one that matters most is SC-009** ([durability.test.ts](../../tests/lab/durability.test.ts)).
+"The source set was deleted" cannot be staged, because the whole point of the
+design is that no live table is ever consulted — so durability is proven the way
+it is actually guaranteed: structurally (`replayEntry` takes an entry and a
+bundle, and imports nothing from `src/db/`) and behaviourally (a snapshot
+round-tripped through *text* replays identically). It is the only assertion that
+would have caught `pruneSets()` quietly emptying the corpus in January.
+
+**Measured on this build**: 178 lab tests, 989 + 80 across the whole suite.
+
+### The mutation sweep
+
+```bash
+# Corrupt one thing, confirm a NAMED test dies, revert with an inverse edit.
+# Never `git checkout` a file with uncommitted work — that silently reverted
+# real code twice during 005.
+```
+
+Six mutations, all killed, with the full 178 running each time — 006's M7
+reported SURVIVED only because 10 of 102 tests actually executed, so the test
+**count** is checked, not just pass/fail.
+
+| Mutation | Killed by |
+|---|---|
+| codec drops its sort | 1 test — byte-identity from two input orderings |
+| turn read from the pick's `teamId` | **survived at first** — see below |
+| off-by-one: state includes the pick being made | 4 tests |
+| threshold comparison inverted | 2 tests |
+| exclusion filter drops the provenance half | 3 tests |
+| fidelity always claims `as_of` | 1 test |
+
+The survivor was real. `replayEntry` passed `observed` — built from each pick's
+own `teamId` — into `teamAt`, which prefers observation over projection. So the
+turn was *effectively* derived from the field FR-006 says never to read, and no
+fixture could tell, because every fixture is internally consistent. The code was
+changed (not the test): the schedule now comes from an empty-observation
+projection, and a disagreement between it and the recorded `teamId` is **raised
+as a fault** rather than silently resolved — the discipline 010 applied to its
+oracle.
 
 ---
 
@@ -132,16 +190,20 @@ Commit a definition:
 ```
 
 ```bash
-npx vitest run --project lab tests/lab/sweep.test.ts
+npm run lab:sweep
 ```
 
-One scorecard per value plus pairwise comparisons against the first, so the
-*shape* of the effect is visible rather than a single before/after pair. The
-definition is a committed artifact, so the sweep that produced a finding is in
-the diff alongside it.
+One result per value, so the *shape* of the effect is visible rather than a
+single before/after pair. The definition is a committed artifact, so the sweep
+that produced a finding sits in the diff alongside it.
+[`sweeps/bye-weight.json`](../../tests/fixtures/lab/sweeps/bye-weight.json) is
+the worked example and runs under `npm test`.
 
-Nothing is written to `src/engine/` at any point — values are substituted by
-swapping the module in-process (research §6).
+Nothing is written to `src/engine/` at any point — values are substituted in
+memory with `vi.resetModules()` + `vi.doMock` built from `vi.importActual`, so
+only the swept field differs and every other constant provably comes from the
+real module. Both properties are asserted, and the FR-018 check compares the
+engine's constants before and after a sweep rather than trusting the mechanism.
 
 ---
 
@@ -173,10 +235,27 @@ counterfactual, and the result is only as good as the opponent model.
 
 ## Troubleshooting
 
+## Measured on this build
+
+| | |
+|---|---|
+| `lab:run` wall clock | **0.65–0.68 s**, indistinguishable at 0, 1 or 3 entries — the tsx process start dominates entirely, and the replay work is below measurement noise |
+| corpus it was measured on | 1 synthetic entry: **18 picks, 24 players, 3 owner turns** |
+| SC-001's bar | 5 minutes for ten drafts |
+
+**The ten-draft figure is an extrapolation, not a measurement, and must be
+re-measured once a real entry exists.** A real board is ~522 players against 24,
+and a real draft ~15 owner turns against 3 — roughly 110× the engine work per
+draft. Even so the ceiling is three orders of magnitude away, and the shape of
+the cost (per-turn `recommend()` over the board) is understood rather than
+guessed.
+
 | Symptom | Cause |
 |---|---|
-| `lab:run` exits: "no admissible entries" | Corpus is all test runs or pick-sequence-only. Expected today. |
+| `lab:run` exits: "no admissible entries" | Corpus is all test runs or pick-sequence-only. **Expected today** — the only committed entry is synthetic and classed `test`. |
 | `refusing to write: corpus contains an identifier` | Screening caught a GUID or URL. Working as intended — do not bypass it. |
 | Entry admitted as `pick_sequence_only` unexpectedly | No complete projection set predates the draft, or `gaps` is non-empty. The reason is in `unreplayableReason`. |
-| Comparison non-empty after no rule change | Determinism failure. Check for unsorted iteration in the codec first. |
-| `import.meta.glob` returns `{}` in a test | It was aliased or factored into a helper. Vite only rewrites the literal call. |
+| Comparison non-empty after no rule change | Determinism failure. `lab:run` exits non-zero and says so rather than printing movement. Check for unsorted iteration in the codec first. |
+| `import.meta.glob` returns `{}`, or the build fails with "Expected the second argument to be an object literal" | The options object was hoisted into a `const`. Vite only rewrites the **literal** call — this bit during the build of this very feature. |
+| `replayEntry` throws "the round and order put team N on the clock" | The entry's picks disagree with its own schedule. Raised as a fault, never resolved — the corpus entry is not trustworthy. |
+| Two tap typecheck errors in `tap/main.ts` / `tests/tap/corpus.test.ts` | **Pre-existing**, reproduced at `31abebf` before any 008 code. Not this feature's. |

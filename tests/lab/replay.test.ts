@@ -33,6 +33,30 @@ describe("replayEntry", () => {
     expect(second.shortlist.every((s) => s.playerId !== 1001)).toBe(true);
   });
 
+  it("follows the ORDER when a pick's teamId disagrees with it", () => {
+    // The assertion a mutation sweep demanded. Replacing the round+order
+    // derivation with `current.teamId` SURVIVED, because every fixture is
+    // internally consistent — which is exactly the condition under which a
+    // wrong field goes unnoticed. 010's oracle found a field reading that
+    // agreed with the truth on 5 of 70 picks; this is the 5.
+    const picks = entry().picks.map((p) => (p.overall === 1 ? { ...p, teamId: 4 } : p));
+    expect(() => replayEntry(entry({ picks }), bundle())).toThrow(/round and order put team 1/);
+  });
+
+  it("does not silently prefer either side of that disagreement", () => {
+    // Recorded as a fault, never resolved — the discipline 010 applied to its
+    // oracle. An entry whose schedule and picks disagree cannot produce
+    // trustworthy turns.
+    const picks = entry().picks.map((p) => (p.overall === 1 ? { ...p, teamId: 4 } : p));
+    try {
+      replayEntry(entry({ picks }), bundle());
+      throw new Error("expected a refusal");
+    } catch (e) {
+      expect((e as Error).message).toMatch(/recorded for team 4/);
+      expect((e as Error).message).toMatch(/round and order put team 1/);
+    }
+  });
+
   it("carries the engine's warnings through on every turn", () => {
     const result = replayEntry(entry(), bundle());
     for (const t of result.turns) expect(Array.isArray(t.warnings)).toBe(true);

@@ -94,9 +94,9 @@ Do **not** rebuild these. Each was verified in the source during planning.
 runnable.
 
 - [ ] T001 **GATE 0 — verify ESPN still serves past-season completed drafts** before any dependent code exists. Fetch `mDraftDetail` for one league with `seasonId` set to a prior season and record in [research.md](research.md) whether `draftDetail.picks` comes back populated. **This is a constitution MUST** (Development Workflow: an unverified external premise is verified first, in the cheapest possible experiment) and it is the 005 Gate 0 pattern, where one evening's capture disproved a source eight phases had assumed. **If it fails**: `pick_sequence_only` has no source, so US3 reduces to current-season import, T052 has no data, and T055's noise parameter stays an assumption — record all three consequences in [research.md](research.md) and [spec.md](spec.md) rather than proceeding as though the corpus were coming
-- [ ] T002 Add a `lab` project (node environment, `include: ["tests/lab/**/*.test.ts"]`) to `vitest.config.ts` **and add `tests/lab/**` to the `exclude` array in `vitest.workers.config.ts`**. Both halves in one task: that config's include glob is `tests/**/*.test.ts`, and its own comment records that without a matching exclude the workers pool *also* collects the node-project tests and they fail there
-- [ ] T003 [P] Add `lab:admit`, `lab:import`, `lab:run`, `lab:behaviour`, `lab:simulate` and `lab:sweep` scripts to `package.json` per [contracts/cli.md](contracts/cli.md)
-- [ ] T004 [P] Create `tests/fixtures/lab/README.md` recording the format contract, the forbidden-field list, and the "no timestamps of convenience" rule from [contracts/corpus.md](contracts/corpus.md)
+- [X] T002 Add a `lab` project (node environment, `include: ["tests/lab/**/*.test.ts"]`) to `vitest.config.ts` **and add `tests/lab/**` to the `exclude` array in `vitest.workers.config.ts`**. Both halves in one task: that config's include glob is `tests/**/*.test.ts`, and its own comment records that without a matching exclude the workers pool *also* collects the node-project tests and they fail there
+- [X] T003 [P] Add `lab:admit`, `lab:import`, `lab:run`, `lab:behaviour`, `lab:simulate` and `lab:sweep` scripts to `package.json` per [contracts/cli.md](contracts/cli.md)
+- [X] T004 [P] Create `tests/fixtures/lab/README.md` recording the format contract, the forbidden-field list, and the "no timestamps of convenience" rule from [contracts/corpus.md](contracts/corpus.md)
 
 ---
 
@@ -105,16 +105,16 @@ runnable.
 **Purpose**: the corpus types, codec, invariants and guards every story needs.
 **No user story can start until this phase is done.**
 
-- [ ] T005 Define `CorpusEntry`, `CorpusPick`, `InputSnapshot`, `Fidelity`, `OracleCheck`, use class and provenance class in `src/lab/corpus.ts` per [data-model.md](data-model.md)
-- [ ] T006 Write invariant tests FIRST in `tests/lab/corpus.test.ts`: contiguous picks unless in `gaps`; `replayable` requires non-null `myTeamId`, non-empty `order`, empty `gaps` and a matching snapshot; `pick_sequence_only` requires a non-null reason and is **retained rather than discarded** (FR-025); unknown `formatVersion` is a hard error; **a D/ST pick at −16001 and the −1 sentinel are handled distinctly and neither is filtered on sign**
-- [ ] T007 Implement the invariant checks in `src/lab/corpus.ts` so every failure names the entry and the invariant — never a silently skipped draft
-- [ ] T008 [P] Write codec tests in `tests/lab/codec.test.ts`: `EngineBundle` → snapshot → `EngineBundle` round-trips with `Map`/`Set` restored; two different input orderings produce **byte-identical** output; scorecard numbers round to 4dp
-- [ ] T009 Implement `bundleToSnapshot` / `snapshotToBundle` and the canonical serializer (sorted keys, sorted arrays, fixed rounding, two-space indent, trailing newline) in `src/lab/codec.ts`
-- [ ] T010 [P] Write `chooseSetAt` tests in `tests/lab/setchoice.test.ts`: newest `complete` set with `fetched_at <= at`; `building` sets ignored; **no set predating the draft returns null, never the nearest one**
-- [ ] T011 Implement `chooseSetAt(rows, at)` in `src/lab/setChoice.ts`
-- [ ] T012 [P] Write the structural guard in `tests/lab/boundary.test.ts` reading source with `import.meta.glob`: no file outside `src/lab/` imports from `src/lab/`; `src/index.ts`'s reachable graph excludes it; `src/lab/**` contains no `Math.random`, `Date.now`, `new Date(` or `fetch(`; **and `scripts/lab-run.ts` / `lab-simulate.ts` / `lab-behaviour.ts` contain no D1 or wrangler call** — a *run* reads committed fixtures only, and only the admitting scripts touch production (FR-035, FR-036, FR-037)
-- [ ] T013 [P] Write the passivity guard in `tests/lab/passivity.test.ts`, modelled on `tests/tap/passivity.test.ts`: no file in `src/lab/**` or `scripts/lab-*.ts` opens a WebSocket, an EventSource, or any connection to an ESPN draft-room host, and none issues a non-GET request to ESPN. **Constitution VI is a MUST and had no guard** (FR-033)
-- [ ] T014 Hand-author a small synthetic corpus entry and snapshot (6 teams, 3 rounds) at `tests/fixtures/lab/synthetic-2026.{draft,inputs}.json` so every later phase is testable without D1, ESPN, or a real draft
+- [X] T005 Define `CorpusEntry`, `CorpusPick`, `InputSnapshot`, `Fidelity`, `OracleCheck`, use class and provenance class in `src/lab/corpus.ts` per [data-model.md](data-model.md)
+- [X] T006 Write invariant tests FIRST in `tests/lab/corpus.test.ts`: contiguous picks unless in `gaps`; `replayable` requires non-null `myTeamId`, non-empty `order`, empty `gaps` and a matching snapshot; `pick_sequence_only` requires a non-null reason and is **retained rather than discarded** (FR-025); unknown `formatVersion` is a hard error; **a D/ST pick at −16001 and the −1 sentinel are handled distinctly and neither is filtered on sign**
+- [X] T007 Implement the invariant checks in `src/lab/corpus.ts` so every failure names the entry and the invariant — never a silently skipped draft
+- [X] T008 [P] Write codec tests in `tests/lab/codec.test.ts`: `EngineBundle` → snapshot → `EngineBundle` round-trips with `Map`/`Set` restored; two different input orderings produce **byte-identical** output; scorecard numbers round to 4dp
+- [X] T009 Implement `bundleToSnapshot` / `snapshotToBundle` and the canonical serializer (sorted keys, sorted arrays, fixed rounding, two-space indent, trailing newline) in `src/lab/codec.ts`
+- [X] T010 [P] Write `chooseSetAt` tests in `tests/lab/setchoice.test.ts`: newest `complete` set with `fetched_at <= at`; `building` sets ignored; **no set predating the draft returns null, never the nearest one**
+- [X] T011 Implement `chooseSetAt(rows, at)` in `src/lab/setChoice.ts`
+- [X] T012 [P] Write the structural guard in `tests/lab/boundary.test.ts` reading source with `import.meta.glob`: no file outside `src/lab/` imports from `src/lab/`; `src/index.ts`'s reachable graph excludes it; `src/lab/**` contains no `Math.random`, `Date.now`, `new Date(` or `fetch(`; **and `scripts/lab-run.ts` / `lab-simulate.ts` / `lab-behaviour.ts` contain no D1 or wrangler call** — a *run* reads committed fixtures only, and only the admitting scripts touch production (FR-035, FR-036, FR-037)
+- [X] T013 [P] Write the passivity guard in `tests/lab/passivity.test.ts`, modelled on `tests/tap/passivity.test.ts`: no file in `src/lab/**` or `scripts/lab-*.ts` opens a WebSocket, an EventSource, or any connection to an ESPN draft-room host, and none issues a non-GET request to ESPN. **Constitution VI is a MUST and had no guard** (FR-033)
+- [X] T014 Hand-author a small synthetic corpus entry and snapshot (6 teams, 3 rounds) at `tests/fixtures/lab/synthetic-2026.{draft,inputs}.json` so every later phase is testable without D1, ESPN, or a real draft
 
 **Checkpoint**: `npm test` green in all four projects, guards firing, a corpus
 entry loadable.
@@ -132,14 +132,14 @@ rank the drafted player held — with no live draft, no network and no clock.
 
 ### Replay core
 
-- [ ] T015 [US1] Write replay tests FIRST in `tests/lab/replay.test.ts`: owner turns derived from **round + order** and never from a field on a pick; state before turn N contains exactly picks 1…N−1; keepers unavailable from pick one on every team; the drafted player's rank and value gap reported; **a drafted player absent from the board yields `actual: null` and the turn still resolves**; and **the engine's `warnings` are carried through on every turn**, which FR-003 requires and `TurnObservation` already models
-- [ ] T016 [US1] Implement `replayEntry()` in `src/lab/replay.ts` — `deriveState()` per turn, then `recommend(bundle, state)`, calling the engine exactly as `src/api/recommendations.ts` does
-- [ ] T017 [US1] Set `withholding: null` at **one named place** in `src/lab/replay.ts` with the reason recorded in a comment: there is no tap in a replay, so the condition cannot arise. Never let a default fall through (research §11)
-- [ ] T018 [P] [US1] Derive `decisiveRule` in `src/lab/replay.ts` from the engine's own output only — the head under `finalValue` versus the head under `rawValue` — with no second ranking implementation
-- [ ] T019 [US1] Write a determinism test in `tests/lab/replay.test.ts`: the same entry replayed twice produces an identical hash, **and a companion assertion proving the check can fail** when a value is perturbed (SC-002)
-- [ ] T020 [US1] Write `tests/lab/durability.test.ts` asserting the replay reads only the entry and its snapshot — its signature admits no database, and a bundle whose source set no longer exists replays identically (FR-019b, **SC-009**)
-- [ ] T021 [US1] Assert the **shadow property** in `tests/lab/replay.test.ts`: the sequence of picks the replay applies is byte-equal to the entry's own picks, and the engine's preference never alters it (FR-007). Distinct from the state-construction assertions in T015, and the property that will blur once `simulate.ts` sits beside `replay.ts`
-- [ ] T022 [US1] Implement `scripts/lab-run.ts` single-entry mode: per-turn output with the engine's head, the actual pick, its rank, and the gap in **round-value units**
+- [X] T015 [US1] Write replay tests FIRST in `tests/lab/replay.test.ts`: owner turns derived from **round + order** and never from a field on a pick; state before turn N contains exactly picks 1…N−1; keepers unavailable from pick one on every team; the drafted player's rank and value gap reported; **a drafted player absent from the board yields `actual: null` and the turn still resolves**; and **the engine's `warnings` are carried through on every turn**, which FR-003 requires and `TurnObservation` already models
+- [X] T016 [US1] Implement `replayEntry()` in `src/lab/replay.ts` — `deriveState()` per turn, then `recommend(bundle, state)`, calling the engine exactly as `src/api/recommendations.ts` does
+- [X] T017 [US1] Set `withholding: null` at **one named place** in `src/lab/replay.ts` with the reason recorded in a comment: there is no tap in a replay, so the condition cannot arise. Never let a default fall through (research §11)
+- [X] T018 [P] [US1] Derive `decisiveRule` in `src/lab/replay.ts` from the engine's own output only — the head under `finalValue` versus the head under `rawValue` — with no second ranking implementation
+- [X] T019 [US1] Write a determinism test in `tests/lab/replay.test.ts`: the same entry replayed twice produces an identical hash, **and a companion assertion proving the check can fail** when a value is perturbed (SC-002)
+- [X] T020 [US1] Write `tests/lab/durability.test.ts` asserting the replay reads only the entry and its snapshot — its signature admits no database, and a bundle whose source set no longer exists replays identically (FR-019b, **SC-009**)
+- [X] T021 [US1] Assert the **shadow property** in `tests/lab/replay.test.ts`: the sequence of picks the replay applies is byte-equal to the entry's own picks, and the engine's preference never alters it (FR-007). Distinct from the state-construction assertions in T015, and the property that will blur once `simulate.ts` sits beside `replay.ts`
+- [X] T022 [US1] Implement `scripts/lab-run.ts` single-entry mode: per-turn output with the engine's head, the actual pick, its rank, and the gap in **round-value units**
 
 ### Admission from retained frames
 
@@ -147,14 +147,14 @@ Without this, US1 works only on the synthetic fixture. This is what points it at
 a real draft — and, per the ratified decision, it does **not** wait for 005's
 archive path.
 
-- [ ] T023 [US1] Implement `scripts/lab-admit.ts`: query `tap_batches` **scoped by `account_id` in the query itself** (FR-027), fold through `foldBatches()` → `reconcile()`, emit a `CorpusEntry`
-- [ ] T024 [US1] Capture the input snapshot in `scripts/lab-admit.ts`: `chooseSetAt(sets, startedAt)`, assemble the `EngineBundle`, serialize via the codec, and record `sourceSetId` / `sourceSetFetchedAt`
-- [ ] T025 [US1] Assert in `tests/lab/boundary.test.ts` that the admitting scripts issue **only reads** against `projection_sets`, `player_projections` and `signal_entries` — no `INSERT`, `UPDATE`, `DELETE` or retention flag. **This is the guarantee that made snapshotting the right answer** over exempting seasons from the prune: the design is additive, and 002's and 004's shipped behaviour is untouched (FR-019c)
-- [ ] T026 [US1] Emit the `Fidelity` declaration in `scripts/lab-admit.ts` — `signals: "present_day"` for any draft admitted after the fact, stated in the output rather than implied (FR-015)
-- [ ] T027 [US1] Refuse to snapshot when no complete set predates the draft: mark the entry unreplayable with the reason, never substitute the nearest set (FR-019d, FR-016)
-- [ ] T028 [US1] Detect missing overall numbers in `scripts/lab-admit.ts`, record them in `gaps`, and mark the entry unreplayable rather than presenting a shorter draft as complete (FR-019g)
-- [ ] T029 [US1] Screen before writing in `scripts/lab-admit.ts` — GUID, URL and `memberNamesIn()` — and exit non-zero **without writing** on any hit (FR-021)
-- [ ] T030 [US1] Make `--class real|test` **required with no default** in `scripts/lab-admit.ts`; misclassifying a mock as real poisons every later comparison invisibly (FR-027a)
+- [X] T023 [US1] Implement `scripts/lab-admit.ts`: query `tap_batches` **scoped by `account_id` in the query itself** (FR-027), fold through `foldBatches()` → `reconcile()`, emit a `CorpusEntry`
+- [X] T024 [US1] Capture the input snapshot in `scripts/lab-admit.ts`: `chooseSetAt(sets, startedAt)`, assemble the `EngineBundle`, serialize via the codec, and record `sourceSetId` / `sourceSetFetchedAt`
+- [X] T025 [US1] Assert in `tests/lab/boundary.test.ts` that the admitting scripts issue **only reads** against `projection_sets`, `player_projections` and `signal_entries` — no `INSERT`, `UPDATE`, `DELETE` or retention flag. **This is the guarantee that made snapshotting the right answer** over exempting seasons from the prune: the design is additive, and 002's and 004's shipped behaviour is untouched (FR-019c)
+- [X] T026 [US1] Emit the `Fidelity` declaration in `scripts/lab-admit.ts` — `signals: "present_day"` for any draft admitted after the fact, stated in the output rather than implied (FR-015)
+- [X] T027 [US1] Refuse to snapshot when no complete set predates the draft: mark the entry unreplayable with the reason, never substitute the nearest set (FR-019d, FR-016)
+- [X] T028 [US1] Detect missing overall numbers in `scripts/lab-admit.ts`, record them in `gaps`, and mark the entry unreplayable rather than presenting a shorter draft as complete (FR-019g)
+- [X] T029 [US1] Screen before writing in `scripts/lab-admit.ts` — GUID, URL and `memberNamesIn()` — and exit non-zero **without writing** on any hit (FR-021)
+- [X] T030 [US1] Make `--class real|test` **required with no default** in `scripts/lab-admit.ts`; misclassifying a mock as real poisons every later comparison invisibly (FR-027a)
 - [ ] T031 [US1] Re-admit the drafts captured to date with `--class test` and commit them as harness fixtures, retained rather than deleted (FR-027c)
 
 **Checkpoint**: a real draft replays, turn by turn, from committed fixtures.
@@ -169,18 +169,18 @@ archive path.
 the report names exactly the turns whose outcome changed — and that changing
 nothing produces an empty diff.
 
-- [ ] T032 [US2] Write scorecard tests in `tests/lab/scorecard.test.ts`: only `replayable` **and** `real` entries contribute; test runs and pick-sequence-only entries appear in `excluded[]` with reasons; `outcome` is null and never defaulted
-- [ ] T033 [US2] Implement `src/lab/scorecard.ts` with the behavioural measures from [data-model.md](data-model.md) — head agreement, actual-rank distribution, mean/median gap in rounds, decisive-rule counts, forced-turn count. **No aggregate derived from projections may be emitted as a quality score** (FR-017)
-- [ ] T034 [US2] Implement `RuleSetIdentity` as a **parameter** of `src/lab/scorecard.ts`, not something it computes: the flattened constants come from importing `src/engine/constants`, but the **content hash of `src/engine/*.ts` is computed in `scripts/lab-run.ts` with `node:fs` and passed in**. The pure core cannot read files (root tsconfig, no node types) and the script runs under tsx where `import.meta.glob` does not exist — neither mechanism is available inside the core. Same pure-core/thin-IO split as `chooseSetAt` (FR-011)
-- [ ] T035 [US2] Reserve the `outcome` block for actual season points, printed as explicitly empty until the season is played — never omitted, never filled with a projection-derived stand-in (FR-017a)
-- [ ] T036 [P] [US2] Write comparison tests in `tests/lab/compare.test.ts`: head changes named; movements reported only beyond threshold; **the threshold is stated in the output**; identical rule sets produce an empty diff; a non-empty diff under identical rule sets is flagged `determinismFailure`, not a rule effect (FR-013)
-- [ ] T037 [US2] Implement `src/lab/compare.ts` with the **default threshold fixed and named in one exported constant**: `rankMovement: 3` positions, `valueInRounds: 0.1`. Both are reported in every comparison. A threshold that each run picks for itself makes two reports incomparable, which is the failure this fixes (FR-012)
-- [ ] T038 [US2] Add `--write-baseline` and `--baseline` modes to `scripts/lab-run.ts`, writing scorecards under `tests/fixtures/lab/baselines/` for committing (FR-038)
-- [ ] T039 [US2] Make an empty evidential corpus exit non-zero with a clear message rather than reporting a comparison over test entries (FR-027d, **SC-010**)
-- [ ] T040 [US2] Write the sweep in `tests/lab/sweep.test.ts` using `vi.resetModules()` + `vi.doMock` built from `vi.importActual`, so **only the swept field differs**; assert an unswept constant still holds its real value (research §6)
-- [ ] T041 [US2] Read sweep definitions from `tests/fixtures/lab/sweeps/*.json` and emit one scorecard per value plus pairwise comparisons against the first, so the *shape* of the effect is visible (FR-014)
-- [ ] T042 [US2] Commit one sweep definition (`WEIGHT.bye` across three values) as the worked example, so the mechanism is exercised by `npm test`
-- [ ] T043 [US2] Assert in `tests/lab/sweep.test.ts` that no file under `src/engine/` is modified by a sweep run (FR-018)
+- [X] T032 [US2] Write scorecard tests in `tests/lab/scorecard.test.ts`: only `replayable` **and** `real` entries contribute; test runs and pick-sequence-only entries appear in `excluded[]` with reasons; `outcome` is null and never defaulted
+- [X] T033 [US2] Implement `src/lab/scorecard.ts` with the behavioural measures from [data-model.md](data-model.md) — head agreement, actual-rank distribution, mean/median gap in rounds, decisive-rule counts, forced-turn count. **No aggregate derived from projections may be emitted as a quality score** (FR-017)
+- [X] T034 [US2] Implement `RuleSetIdentity` as a **parameter** of `src/lab/scorecard.ts`, not something it computes: the flattened constants come from importing `src/engine/constants`, but the **content hash of `src/engine/*.ts` is computed in `scripts/lab-run.ts` with `node:fs` and passed in**. The pure core cannot read files (root tsconfig, no node types) and the script runs under tsx where `import.meta.glob` does not exist — neither mechanism is available inside the core. Same pure-core/thin-IO split as `chooseSetAt` (FR-011)
+- [X] T035 [US2] Reserve the `outcome` block for actual season points, printed as explicitly empty until the season is played — never omitted, never filled with a projection-derived stand-in (FR-017a)
+- [X] T036 [P] [US2] Write comparison tests in `tests/lab/compare.test.ts`: head changes named; movements reported only beyond threshold; **the threshold is stated in the output**; identical rule sets produce an empty diff; a non-empty diff under identical rule sets is flagged `determinismFailure`, not a rule effect (FR-013)
+- [X] T037 [US2] Implement `src/lab/compare.ts` with the **default threshold fixed and named in one exported constant**: `rankMovement: 3` positions, `valueInRounds: 0.1`. Both are reported in every comparison. A threshold that each run picks for itself makes two reports incomparable, which is the failure this fixes (FR-012)
+- [X] T038 [US2] Add `--write-baseline` and `--baseline` modes to `scripts/lab-run.ts`, writing scorecards under `tests/fixtures/lab/baselines/` for committing (FR-038)
+- [X] T039 [US2] Make an empty evidential corpus exit non-zero with a clear message rather than reporting a comparison over test entries (FR-027d, **SC-010**)
+- [X] T040 [US2] Write the sweep in `tests/lab/sweep.test.ts` using `vi.resetModules()` + `vi.doMock` built from `vi.importActual`, so **only the swept field differs**; assert an unswept constant still holds its real value (research §6)
+- [X] T041 [US2] Read sweep definitions from `tests/fixtures/lab/sweeps/*.json` and emit one scorecard per value plus pairwise comparisons against the first, so the *shape* of the effect is visible (FR-014)
+- [X] T042 [US2] Commit one sweep definition (`WEIGHT.bye` across three values) as the worked example, so the mechanism is exercised by `npm test`
+- [X] T043 [US2] Assert in `tests/lab/sweep.test.ts` that no file under `src/engine/` is modified by a sweep run (FR-018)
 
 **Checkpoint**: a constant change produces a reviewable diff.
 
@@ -199,16 +199,16 @@ half only, and record the reduction rather than leaving tasks that cannot run.
 view pick for pick, carries no manager names or member identifiers, and replays
 through US1 unmodified.
 
-- [ ] T044 [US3] Write import tests in `tests/lab/import.test.ts` against a sanitized fixture: every pick captured with round, round-pick, team, player, keeper and autodraft flags; **keepers recorded for every team, not only the owner's** (FR-024); a negative D/ST id survives
-- [ ] T045 [US3] Implement `scripts/lab-import.ts` using `parseCompletedDraft()` unchanged, reading through the existing credential-decryption path — no cookie in a log, a filename or an argument
-- [ ] T046 [US3] Refuse a non-snake draft with a stated reason rather than importing it as though the order were a snake (FR-023)
-- [ ] T047 [US3] Assign the use class in `scripts/lab-import.ts`: season covered by the pipeline → `replayable` with a snapshot matched by `chooseSetAt`; otherwise → `pick_sequence_only` with the reason naming the absent projection set (FR-020a, FR-020b)
-- [ ] T048 [US3] Discard `members[]` names and member identifiers at the boundary in `scripts/lab-import.ts`, before anything is written, using `memberNamesIn()` (FR-021)
-- [ ] T049 [US3] Record oracle divergence where an entry exists from both frames and ESPN — enumerate every disagreement, resolve none (FR-019f, FR-022, **SC-005**)
-- [ ] T050 [US3] Add a test to `tests/lab/replay.test.ts` proving the engine **cannot** be run against a `pick_sequence_only` entry — refused structurally, not by convention (FR-020b)
-- [ ] T051 [US3] Assert **provenance-agnostic replay** in `tests/lab/replay.test.ts`: two entries with identical picks, order and snapshot but different `provenance` (`live_frames` vs `espn_import`) produce identical turn observations. FR-019 requires the replay to behave the same however an entry was produced, and US3's own independent test claims it — nothing checked it
-- [ ] T052 [P] [US3] Implement `src/lab/behaviour.ts` with tests in `tests/lab/behaviour.test.ts`: the distribution of (pick overall − player ADP) across pick-sequence-only entries, with ADP at or above the detected floor treated as absent (FR-020c)
-- [ ] T053 [US3] Implement `scripts/lab-behaviour.ts` to report that distribution — the engine is never invoked here, these entries have no board
+- [X] T044 [US3] Write import tests in `tests/lab/import.test.ts` against a sanitized fixture: every pick captured with round, round-pick, team, player, keeper and autodraft flags; **keepers recorded for every team, not only the owner's** (FR-024); a negative D/ST id survives
+- [X] T045 [US3] Implement `scripts/lab-import.ts` using `parseCompletedDraft()` unchanged, reading through the existing credential-decryption path — no cookie in a log, a filename or an argument
+- [X] T046 [US3] Refuse a non-snake draft with a stated reason rather than importing it as though the order were a snake (FR-023)
+- [X] T047 [US3] Assign the use class in `scripts/lab-import.ts`: season covered by the pipeline → `replayable` with a snapshot matched by `chooseSetAt`; otherwise → `pick_sequence_only` with the reason naming the absent projection set (FR-020a, FR-020b)
+- [X] T048 [US3] Discard `members[]` names and member identifiers at the boundary in `scripts/lab-import.ts`, before anything is written, using `memberNamesIn()` (FR-021)
+- [X] T049 [US3] Record oracle divergence where an entry exists from both frames and ESPN — enumerate every disagreement, resolve none (FR-019f, FR-022, **SC-005**)
+- [X] T050 [US3] Add a test to `tests/lab/replay.test.ts` proving the engine **cannot** be run against a `pick_sequence_only` entry — refused structurally, not by convention (FR-020b)
+- [X] T051 [US3] Assert **provenance-agnostic replay** in `tests/lab/replay.test.ts`: two entries with identical picks, order and snapshot but different `provenance` (`live_frames` vs `espn_import`) produce identical turn observations. FR-019 requires the replay to behave the same however an entry was produced, and US3's own independent test claims it — nothing checked it
+- [X] T052 [P] [US3] Implement `src/lab/behaviour.ts` with tests in `tests/lab/behaviour.test.ts`: the distribution of (pick overall − player ADP) across pick-sequence-only entries, with ADP at or above the detected floor treated as absent (FR-020c)
+- [X] T053 [US3] Implement `scripts/lab-behaviour.ts` to report that distribution — the engine is never invoked here, these entries have no board
 
 **Checkpoint**: the corpus grows beyond what the tap happened to catch.
 
@@ -221,23 +221,23 @@ through US1 unmodified.
 **Independent test**: same seed twice ⇒ identical drafts; different seeds ⇒
 bounded, reported variation.
 
-- [ ] T054 [P] [US4] Implement mulberry32 in `src/lab/rng.ts` with tests in `tests/lab/rng.test.ts` — the only randomness in the feature, and `Math.random` stays banned by T012's guard
-- [ ] T055 [US4] Implement the ADP-with-seeded-noise opponent model in `src/lab/simulate.ts`, taking `noiseSd` from T052's measured distribution rather than a chosen number. **If Gate 0 (T001) failed**, no measurement exists — use a stated placeholder and record in the output that the model is ungrounded, rather than presenting a guess as a measurement (FR-028)
-- [ ] T056 [US4] Write `tests/lab/simulate.test.ts`: same seed ⇒ identical draft pick for pick; different seeds ⇒ different drafts; a player already taken is never taken again (FR-029, **SC-007**)
-- [ ] T057 [US4] Report the simulated roster beside the owner's real roster from the corresponding entry, using one measure for both (FR-030)
-- [ ] T058 [US4] Label every simulated result model-dependent, carrying the model identity and seed, and assert in test that it can never be merged into a shadow-replay scorecard (FR-031)
-- [ ] T059 [US4] Implement `scripts/lab-simulate.ts`
+- [X] T054 [P] [US4] Implement mulberry32 in `src/lab/rng.ts` with tests in `tests/lab/rng.test.ts` — the only randomness in the feature, and `Math.random` stays banned by T012's guard
+- [X] T055 [US4] Implement the ADP-with-seeded-noise opponent model in `src/lab/simulate.ts`, taking `noiseSd` from T052's measured distribution rather than a chosen number. **If Gate 0 (T001) failed**, no measurement exists — use a stated placeholder and record in the output that the model is ungrounded, rather than presenting a guess as a measurement (FR-028)
+- [X] T056 [US4] Write `tests/lab/simulate.test.ts`: same seed ⇒ identical draft pick for pick; different seeds ⇒ different drafts; a player already taken is never taken again (FR-029, **SC-007**)
+- [X] T057 [US4] Report the simulated roster beside the owner's real roster from the corresponding entry, using one measure for both (FR-030)
+- [X] T058 [US4] Label every simulated result model-dependent, carrying the model identity and seed, and assert in test that it can never be merged into a shadow-replay scorecard (FR-031)
+- [X] T059 [US4] Implement `scripts/lab-simulate.ts`
 
 ---
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T060 Run a mutation sweep over `src/lab/`: corrupt each of the codec's sort, the turn-derivation, the threshold comparison, the exclusion filter and the fidelity declaration, and confirm each is killed by a **named** test. Report the count of tests that ran, not only pass/fail — 006's M7 reported SURVIVED because only 10 of 102 tests executed, and the test **count** is what caught it
-- [ ] T061 [P] Verify SC-001 by timing `npm run lab:run` and recording **the corpus size alongside the figure**, plus the per-draft cost. The evidential corpus will be far short of ten drafts, so the ten-draft number is an extrapolation and must be reported as one rather than as a measurement
-- [ ] T062 [P] Verify **SC-008** by emitting the Worker bundle with `wrangler deploy --dry-run --outdir <tmp>` and confirming no `src/lab/` module appears in it. **Not `npm run build`** — that is `vite build --config web/vite.config.ts`, which builds the SPA; the Worker is bundled by wrangler from `main: "src/index.ts"`, so building the SPA would prove nothing about the deployed Worker
-- [ ] T063 Run `npm test` (all four projects), `npm run typecheck`, `npm run lint` and `npm run privacy` — all clean, with the privacy sweep confirming zero findings across the new fixtures
-- [ ] T064 Walk [quickstart.md](quickstart.md) end to end against the built lab and correct anything that does not match what was actually built — 007's T053 was marked done in a bulk loop **without being run**, and it was the one check that would have caught a draft room that did not match its own design
-- [ ] T065 Record 008 in `ROADMAP.md` as shipped, with Gate 0's result, the measured SC-001 figure and corpus size, the state of the evidential corpus, and anything the build learned that the plan did not know
+- [X] T060 Run a mutation sweep over `src/lab/`: corrupt each of the codec's sort, the turn-derivation, the threshold comparison, the exclusion filter and the fidelity declaration, and confirm each is killed by a **named** test. Report the count of tests that ran, not only pass/fail — 006's M7 reported SURVIVED because only 10 of 102 tests executed, and the test **count** is what caught it
+- [X] T061 [P] Verify SC-001 by timing `npm run lab:run` and recording **the corpus size alongside the figure**, plus the per-draft cost. The evidential corpus will be far short of ten drafts, so the ten-draft number is an extrapolation and must be reported as one rather than as a measurement
+- [X] T062 [P] Verify **SC-008** by emitting the Worker bundle with `wrangler deploy --dry-run --outdir <tmp>` and confirming no `src/lab/` module appears in it. **Not `npm run build`** — that is `vite build --config web/vite.config.ts`, which builds the SPA; the Worker is bundled by wrangler from `main: "src/index.ts"`, so building the SPA would prove nothing about the deployed Worker
+- [X] T063 Run `npm test` (all four projects), `npm run typecheck`, `npm run lint` and `npm run privacy` — all clean, with the privacy sweep confirming zero findings across the new fixtures
+- [X] T064 Walk [quickstart.md](quickstart.md) end to end against the built lab and correct anything that does not match what was actually built — 007's T053 was marked done in a bulk loop **without being run**, and it was the one check that would have caught a draft room that did not match its own design
+- [X] T065 Record 008 in `ROADMAP.md` as shipped, with Gate 0's result, the measured SC-001 figure and corpus size, the state of the evidential corpus, and anything the build learned that the plan did not know
 
 ---
 

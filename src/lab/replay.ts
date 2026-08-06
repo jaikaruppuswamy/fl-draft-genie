@@ -84,6 +84,18 @@ export class NotReplayableError extends Error {
  */
 const REPLAY_HAS_NO_TAP = null;
 
+/**
+ * No observations, on purpose.
+ *
+ * `teamAt` answers from observation FIRST and falls back to the serpentine
+ * projection. That is right in production, where an observation is a pick the
+ * session actually saw arrive. Here the only "observation" available is the
+ * `teamId` written on the corpus record — so feeding it in would make the
+ * schedule agree with the record by construction, and FR-006's requirement to
+ * derive the turn from the round and the order would be satisfied in name only.
+ */
+const EMPTY_OBSERVED: ReadonlyMap<number, number> = new Map();
+
 export function replayEntry(entry: CorpusEntry, bundle: EngineBundle): ReplayResult {
   if (entry.useClass !== "replayable") {
     // Structural refusal, not a convention. A `pick_sequence_only` entry has no
@@ -103,14 +115,34 @@ export function replayEntry(entry: CorpusEntry, bundle: EngineBundle): ReplayRes
   const keepers = new Map<number, number>(entry.keepers.map((k) => [k.playerId, k.teamId]));
 
   const ordered = [...entry.picks].sort((a, b) => a.overall - b.overall);
-  const observed = new Map<number, number>(ordered.map((p) => [p.overall, p.teamId]));
 
   const turns: TurnObservation[] = [];
   for (const current of ordered) {
-    // Whose turn it is comes from the ROUND and the order — never from a field
-    // on the pick. 010's oracle disproved the field-3-is-the-round reading at 5
-    // of 70, and `teamAt` prefers what was observed over what was projected.
-    const holder = teamAt({ order: entry.order, overall: current.overall, observed });
+    // Whose turn it is comes from the ROUND and the ORDER. FR-006, and it is
+    // literal: the empty `observed` map is deliberate, because `teamAt` prefers
+    // observation when given any, and the only observation available here is
+    // the pick's own `teamId` field — which is exactly what must not decide
+    // this. 010's oracle disproved a field reading that agreed with the truth
+    // on 5 of 70 picks.
+    //
+    // A mutation replacing this with `current.teamId` SURVIVED the first
+    // mutation sweep, because every fixture is internally consistent and the
+    // two readings agree. That is precisely the condition under which a wrong
+    // field goes unnoticed, so the disagreement is now checked below rather
+    // than assumed away.
+    const holder = teamAt({ order: entry.order, overall: current.overall, observed: EMPTY_OBSERVED });
+
+    if (holder !== null && holder !== current.teamId) {
+      // Recorded as a fault, never silently resolved in favour of either side —
+      // the same discipline 010 applied to its oracle. An entry whose schedule
+      // and whose picks disagree cannot produce trustworthy turns, and quietly
+      // preferring one would hide a corrupt corpus.
+      throw new NotReplayableError(
+        entry.id,
+        `pick ${current.overall} is recorded for team ${current.teamId}, but the round and order put team ${holder} on the clock`,
+      );
+    }
+
     if (holder !== myTeamId) continue;
 
     // Everything before this pick, and nothing else. `deriveState` computes

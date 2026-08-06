@@ -16,7 +16,7 @@ Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
  ├─→ 002 projections-pipeline ✅ ─→ 003 board-refinements ✅
  ├─→ 004 context-signals ✅ ────────┬─→ 006 recommendation-engine ✅ ┐
  └─→ 010 draft-tap ✅ ─→ 005 draft-monitor ✅ ─┘                  ├─→ 007 draft-room-ui ✅
-                                   └──────────────────────────────┴─→ 008 draft-replay-lab
+                                   └──────────────────────────────┴─→ 008 draft-replay-lab ⚙️
 009 deployment-ops (exercised continuously since 001; hardening at the end)
 ```
 
@@ -299,7 +299,65 @@ survives a page reload mid-draft.
 audio/visual alert when the user is on the clock or on deck; whether preferred
 lists are per-league or shared across leagues (recommend per-league).
 
-## 008 — draft-replay-lab
+## 008 — draft-replay-lab ⚙️ BUILT (2026-08-05) — one gate outstanding
+
+**Built 2026-08-05.** Pure core in `src/lab/` (corpus, codec, setChoice, replay,
+scorecard, compare, behaviour, simulate, rng), I/O in `scripts/lab-*.ts`, 178
+tests in `tests/lab/`. **No migration, no endpoint, no page, no new dependency.**
+SC-008 verified against the **Worker bundle** (`wrangler deploy --dry-run`) — no
+lab symbol reaches it.
+
+**The corpus entry's input snapshot is a serialized `EngineBundle`.** That single
+decision is the architecture: the engine's slow half is exactly what a replay
+needs to freeze, so `recommend(bundle, state)` is called the way production
+calls it, with no adapter to drift. It also makes Principle III structural — the
+board in a bundle is already scored in the league's own currency, so a replay
+cannot accidentally score in generic PPR. The *output* is deliberately not
+stored; snapshotting the ranked board would make every replay return August's
+answer forever.
+
+> ⛔ **GATE 0 IS NOT YET RUN** (`scripts/lab-gate0.ts`). Whether ESPN still
+> serves a completed draft for a **past** season has never been tested — 005's
+> Gate 0 established that only for the *current* season, on a draft that had just
+> finished. `/speckit-analyze` caught the omission as a constitution violation
+> (verify-first is a MUST). It needs the ESPN cookie pair, so the owner runs it.
+> **If it fails**: `pick_sequence_only` has no source, US3 reduces to
+> current-season import, and the opponent model's noise stays ungrounded — the
+> script prints all three, and `research.md` §12 records them. US1 and US2 are
+> unaffected either way, which is why the gate is cheap to run and cheap to fail.
+>
+> **Also outstanding**: re-admitting the already-captured drafts as `--class
+> test` (needs D1 access).
+
+**Ratified in clarify (2026-08-05)** — five decisions, already recorded below.
+
+**What the mutation sweep found.** Six mutations, all killed, with the full 178
+tests confirmed to run each time (006's M7 reported SURVIVED because only 10 of
+102 executed — the test **count** is what caught it). One survived at first, and
+it was real: `replayEntry` fed `observed` — built from each pick's own `teamId` —
+into `teamAt`, which prefers observation over projection. The turn was therefore
+derived from the field FR-006 says never to read, and no fixture could tell,
+because every fixture is internally consistent. **The code changed, not the
+test**: the schedule now comes from an empty-observation projection, and a
+disagreement with the recorded `teamId` is raised as a fault rather than silently
+resolved — the discipline 010 applied to its oracle.
+
+**Two fixture bugs found by running it rather than reading it**: the synthetic
+league had 8 mandatory slots over 3 rounds, so every turn reported `forced` and
+the engine was never actually choosing; and the deliberately off-board pick sat
+on a turn the owner does not hold, so FR-005's path was never exercised.
+
+**SC-001 measured**: `lab:run` takes **0.65–0.68 s**, indistinguishable at 0, 1
+or 3 entries — process start dominates and the replay work is below measurement
+noise. Measured on 18 picks / 24 players; a real draft is ~110× the engine work,
+still three orders of magnitude inside the five-minute bar. **An extrapolation,
+not a measurement**, to be redone when a real entry exists.
+
+**The evidential corpus is empty**, exactly as the spec said it would be. The one
+committed entry is synthetic and classed `test`; `lab:run` exits non-zero and
+says so rather than comparing over it.
+
+### Original scope (008)
 
 **Summary**: The test harness that makes the secret sauce trustworthy. Record
 every live draft the monitor observes; import past ESPN drafts; replay any
