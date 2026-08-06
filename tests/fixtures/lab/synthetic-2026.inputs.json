@@ -446,7 +446,7 @@
     ]
   ],
   "roster": {
-    "bench_slots": 3,
+    "bench_slots": 1,
     "slots": [
       {
         "count": 1,
@@ -454,37 +454,17 @@
         "slotId": 0
       },
       {
-        "count": 2,
+        "count": 1,
         "label": "RB",
         "slotId": 2
       },
       {
-        "count": 2,
-        "label": "WR",
-        "slotId": 4
-      },
-      {
         "count": 1,
-        "label": "TE",
-        "slotId": 6
-      },
-      {
-        "count": 1,
-        "label": "K",
-        "slotId": 17
-      },
-      {
-        "count": 1,
-        "label": "D/ST",
-        "slotId": 16
-      },
-      {
-        "count": 3,
         "label": "BE",
         "slotId": 20
       }
     ],
-    "starting_slots": 8
+    "starting_slots": 2
   },
   "signalFreshness": [
     {

@@ -26,6 +26,15 @@ const ROUNDS = 3;
 const TOTAL = TEAMS * ROUNDS;
 const ORDER = [3, 1, 5, 2, 6, 4]; // arbitrary, and NOT 1..6 — so a bug that
 // assumes the identity order is visible rather than accidentally correct.
+const MY_TEAM = 5;
+/**
+ * The owner's turns, worked out from ORDER rather than assumed.
+ *
+ * Round 1 (odd) runs 3,1,5,2,6,4 → owner at overall 3.
+ * Round 2 (even) runs 4,6,2,5,1,3 → owner at overall 10.
+ * Round 3 (odd) runs 3,1,5,2,6,4 → owner at overall 15.
+ */
+const OWNER_OFF_BOARD_TURN = 15;
 
 const POSITIONS = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
 const TEAM_ABBR = ["SF", "KC", "BUF", "DAL", "PHI", "CIN", "DET", "MIA"];
@@ -84,18 +93,20 @@ function bundle(players: BoardEntry[]): EngineBundle {
     proTeamByPlayer: new Map(
       players.map((p, i) => [p.espn_player_id, (i % 8) + 1] as [number, number]),
     ),
+    // DELIBERATELY SMALL. A 3-round draft against 8 mandatory starting slots
+    // makes every single turn `forced` — the engine stops choosing and starts
+    // filling, so the fixture would exercise the degenerate path and nothing
+    // else. Two mandatory slots over three rounds leaves the engine actually
+    // ranking for the first two turns and forced for the last, which is the
+    // mix worth having.
     roster: {
       slots: [
         { slotId: 0, label: "QB", count: 1 },
-        { slotId: 2, label: "RB", count: 2 },
-        { slotId: 4, label: "WR", count: 2 },
-        { slotId: 6, label: "TE", count: 1 },
-        { slotId: 17, label: "K", count: 1 },
-        { slotId: 16, label: "D/ST", count: 1 },
-        { slotId: 20, label: "BE", count: 3 },
+        { slotId: 2, label: "RB", count: 1 },
+        { slotId: 20, label: "BE", count: 1 },
       ],
-      starting_slots: 8,
-      bench_slots: 3,
+      starting_slots: 2,
+      bench_slots: 1,
     },
     teamCount: TEAMS,
     preferred: new Set<number>([2003]),
@@ -117,10 +128,15 @@ function picks(players: BoardEntry[]): CorpusPick[] {
     // oracle disproved the field-3-is-the-round reading at 5 of 70.
     const seat = round % 2 === 1 ? idx : TEAMS - 1 - idx;
     const playerId =
-      // Pick 17 takes a player who is NOT on the board — obscure, released, or
-      // simply outside the serving set. Normal, and the replay must still
-      // resolve that turn rather than throwing.
-      overall === 17 ? 999_999 : players[overall - 1]!.espn_player_id;
+      // Overall 15 is one of the OWNER's turns (order [3,1,5,2,6,4], owner is
+      // team 5, so the owner holds 3, 10 and 15). It takes a player who is not
+      // on the board at all — obscure, released, or outside the serving set.
+      //
+      // Putting it on an owner turn is the whole point: an off-board pick that
+      // lands on someone else's turn never reaches `TurnObservation`, so the
+      // path FR-005 exists for would go untested. An earlier version of this
+      // generator used overall 17, which belongs to team 6.
+      overall === OWNER_OFF_BOARD_TURN ? 999_999 : players[overall - 1]!.espn_player_id;
     out.push({
       overall,
       round,
@@ -151,7 +167,7 @@ const entry: CorpusEntry = {
   teamCount: TEAMS,
   roundCount: ROUNDS,
   totalPicks: TOTAL,
-  myTeamId: 5,
+  myTeamId: MY_TEAM,
   order: ORDER,
   picks: picks(players),
   keepers: [],

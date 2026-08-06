@@ -108,6 +108,37 @@ describe("the shadow property (FR-007)", () => {
   });
 });
 
+describe("provenance-agnostic replay (FR-019)", () => {
+  it("gives identical observations however the entry was produced", () => {
+    // US3's independent test claims an imported draft "replays through US1
+    // unmodified", and nothing checked it. Two entries with the same picks,
+    // order and snapshot must be indistinguishable to the replay — otherwise
+    // a corpus mixing tap-admitted and ESPN-imported drafts would compare
+    // apples to something subtly different.
+    const fromFrames = entry({ id: "same", provenance: "live_frames" });
+    const fromEspn = entry({
+      id: "same",
+      provenance: "espn_import",
+      // An import cannot supply per-pick timing: ESPN's post-completion flush
+      // stamps every pick with one time. That difference must NOT reach the
+      // observations.
+      picks: entry().picks.map((p) => ({ ...p, observedAt: null, observedEpoch: null })),
+    });
+
+    const a = replayEntry(fromFrames, bundle());
+    const b = replayEntry(fromEspn, bundle());
+    expect(canonicalHash(a, { round: 4 })).toBe(canonicalHash(b, { round: 4 }));
+  });
+
+  it("is unaffected by the archive route too", () => {
+    const fromArchive = entry({ id: "same", provenance: "archive" });
+    const fromFrames = entry({ id: "same", provenance: "live_frames" });
+    expect(canonicalHash(replayEntry(fromArchive, bundle()), { round: 4 })).toBe(
+      canonicalHash(replayEntry(fromFrames, bundle()), { round: 4 }),
+    );
+  });
+});
+
 describe("refusals", () => {
   it("refuses a pick_sequence_only entry structurally", () => {
     // FR-020b. Running the engine over a 2024 pick sequence against a 2026
