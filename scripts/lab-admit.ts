@@ -62,15 +62,41 @@ function main(): void {
   const league = arg("league");
   const season = Number(arg("season") ?? "2026");
   const cls = arg("class");
+  const asEmail = arg("as");
 
-  if (!league || (cls !== "real" && cls !== "test")) {
-    console.error("usage: npx tsx scripts/lab-admit.ts --league <espnLeagueId> --season 2026 --class real|test [--local]");
+  if (!league || (cls !== "real" && cls !== "test") || !asEmail) {
+    console.error("usage: npx tsx scripts/lab-admit.ts --league <espnLeagueId> --season 2026 \\");
+    console.error("         --class real|test --as <your-account-email> [--local]");
     console.error("");
     console.error("  --class is REQUIRED and has no default. A mock draft replays perfectly and");
     console.error("  is still not evidence: the room did not behave the way a real room behaves,");
     console.error("  so tuning against one fits noise. Misclassifying it contaminates every");
     console.error("  comparison afterwards, and nothing downstream can detect it.");
+    console.error("");
+    console.error("  --as is REQUIRED because this is a MULTI-USER service and a popular league");
+    console.error("  has several managers running the tap. Frames for one league can sit under");
+    console.error("  several accounts, and an entry built from someone else's connection carries");
+    console.error("  THEIR team as the owner. Naming the account makes cross-account admission");
+    console.error("  impossible rather than a judgement call — which is how it went wrong once.");
     process.exit(2);
+  }
+
+  // Resolve the operator's account ONCE, and filter everything to it. This is
+  // FR-027 enforced in the query, which is what the previous version claimed to
+  // do while actually scoping to whichever account the frames happened to
+  // belong to.
+  const me = query<{ id: string }>(`SELECT id FROM accounts WHERE email = ${q(asEmail)}`)[0];
+  if (!me) {
+    console.error(`no account for ${asEmail}`);
+    process.exit(1);
+  }
+  const myConnections = query<{ id: string }>(
+    `SELECT id FROM league_connections
+     WHERE account_id = ${q(me.id)} AND espn_league_id = ${q(league)} AND season = ${season}`,
+  ).map((r) => r.id);
+  if (myConnections.length === 0) {
+    console.error(`${asEmail} has no connection to league ${league} for ${season}`);
+    process.exit(1);
   }
 
   // ---- 1. the frames -----------------------------------------------------
@@ -85,15 +111,21 @@ function main(): void {
   // full-looking pick list and a complete ledger. Nothing downstream could
   // detect it. So the selection is explicit, and ambiguity is refused rather
   // than guessed.
+  // `connection_id IN (mine)` is the FR-027 boundary, and it is in the query so
+  // no later filtering step can be forgotten. Another manager's frames for this
+  // same league are never fetched, never listed, and never selectable.
+  const mineSql = myConnections.map(q).join(", ");
   const sessionRows = query<{ session_id: string; n: number; t0: string; t1: string; msgs: number }>(
     `SELECT session_id, COUNT(*) AS n, MIN(received_at) AS t0, MAX(received_at) AS t1,
             SUM(message_count) AS msgs
      FROM tap_batches WHERE espn_league_id = ${q(league)} AND season = ${season}
+       AND connection_id IN (${mineSql})
      GROUP BY session_id ORDER BY t0`,
   );
 
   if (sessionRows.length === 0) {
-    console.error(`no retained frames for league ${league}, season ${season}`);
+    console.error(`no retained frames for league ${league}, season ${season} under ${asEmail}`);
+    console.error(`(frames may exist under another manager's account — those are not yours to admit)`);
     process.exit(1);
   }
 
@@ -136,6 +168,7 @@ function main(): void {
   }>(
     `SELECT id, account_id, connection_id, received_at, install_id, session_id, first_seq, last_seq, messages_json
      FROM tap_batches WHERE espn_league_id = ${q(league)} AND season = ${season}
+       AND connection_id IN (${mineSql})
      ORDER BY received_at, id`,
   ).filter((b) => inSet.has(b.session_id));
 
@@ -226,6 +259,11 @@ function main(): void {
 
   // ---- 3. reconcile ------------------------------------------------------
   const observation = foldBatches(null, batches);
+  // The published order seeds the reconciler only for event/ordinal projection;
+  // every SELECTED frame carries its own teamId, so the pick list does not
+  // depend on it. (Verified on the first real capture: the published order was
+  // wrong and the reconciled picks were still a clean snake.) The ENTRY's order
+  // is derived from those picks below.
   let state: DraftState = initialState({
     order: draft.order ?? [],
     myTeamId: snapRow.my_team_id,
@@ -262,6 +300,38 @@ function main(): void {
     // to work out is junk.
     console.error("no picks in the selected session — this is not a draft, refusing to admit");
     process.exit(1);
+  }
+
+  // ---- 3b. the order is what HAPPENED, not what was announced -------------
+  //
+  // `draft_json.order` is the order ESPN published for the league's scheduled
+  // draft. A MOCK draft randomises its own, so for a captured mock the two are
+  // simply different events — the first real admission found published
+  // [6,5,2,4,1,3] against an actual [5,1,4,6,3,2].
+  //
+  // The picks are the authority: they are what occurred. 005's own
+  // `replay-live.test.ts` already derives this corpus's order from the oracle
+  // for exactly this reason, and `lab-import.ts` derives it from round 1 too —
+  // this script was the inconsistent one.
+  //
+  // Disagreement is REPORTED, never silently dropped.
+  const observedOrder = picks
+    .filter((p) => p.round === 1)
+    .sort((a, b) => a.overall - b.overall)
+    .map((p) => p.teamId);
+  const publishedOrder = draft.order ?? [];
+  const order = observedOrder.length > 0 ? observedOrder : publishedOrder;
+
+  if (
+    observedOrder.length > 0 &&
+    publishedOrder.length > 0 &&
+    publishedOrder.join(",") !== observedOrder.join(",")
+  ) {
+    console.log(`\n  note: the published draft order disagrees with what was drafted.`);
+    console.log(`    published: [${publishedOrder.join(", ")}]`);
+    console.log(`    drafted:   [${observedOrder.join(", ")}]`);
+    console.log(`    Using what was drafted. A mock draft randomises its own order, so the`);
+    console.log(`    published one describes the league's scheduled draft, not this one.`);
   }
 
   const totalPicks = teamCount * roundCount;
@@ -356,7 +426,7 @@ function main(): void {
     roundCount,
     totalPicks,
     myTeamId: snapRow.my_team_id,
-    order: draft.order ?? [],
+    order,
     picks,
     keepers: [],
     startedAt,

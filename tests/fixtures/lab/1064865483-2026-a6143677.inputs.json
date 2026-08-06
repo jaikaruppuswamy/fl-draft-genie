@@ -1,6 +1,6 @@
 {
   "adpFloor": 168.888125,
-  "entryId": "1064865483-2026-419980a6",
+  "entryId": "1064865483-2026-a6143677",
   "formatVersion": 1,
   "freshness": {
     "fetchedAt": "2026-08-04T20:55:49.948Z",
@@ -15182,7 +15182,9 @@
       "team": "TB"
     }
   ],
-  "preferred": [],
+  "preferred": [
+    4429795
+  ],
   "proTeamByPlayer": [
     [
       -16034,
