@@ -16,7 +16,7 @@ Kit cycle: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
  ├─→ 002 projections-pipeline ✅ ─→ 003 board-refinements ✅
  ├─→ 004 context-signals ✅ ────────┬─→ 006 recommendation-engine ✅ ┐
  └─→ 010 draft-tap ✅ ─→ 005 draft-monitor ✅ ─┘                  ├─→ 007 draft-room-ui ✅
-                                   └──────────────────────────────┴─→ 008 draft-replay-lab ⚙️
+                                   └──────────────────────────────┴─→ 008 draft-replay-lab ✅
 009 deployment-ops (exercised continuously since 001; hardening at the end)
 ```
 
@@ -299,7 +299,13 @@ survives a page reload mid-draft.
 audio/visual alert when the user is on the clock or on deck; whether preferred
 lists are per-league or shared across leagues (recommend per-league).
 
-## 008 — draft-replay-lab ⚙️ BUILT (2026-08-05) — gate passed, corpus pending
+## 008 — draft-replay-lab ✅ SHIPPED (2026-08-05) — merged; corpus pending
+
+**Merged to main and deployed 2026-08-05** (version `f786c4f2`). The deploy was a
+formality: 008 adds **nothing** to the Worker. The bundle is byte-identical to
+main's before the merge — verified by normalized hash, every difference being a
+build-path comment — and production confirms no lab surface exists (`/lab`
+behaves exactly like any nonsense path, i.e. the SPA catch-all).
 
 **Built 2026-08-05.** Pure core in `src/lab/` (corpus, codec, setChoice, replay,
 scorecard, compare, behaviour, simulate, rng), I/O in `scripts/lab-*.ts`, 178
