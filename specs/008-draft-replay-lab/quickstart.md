@@ -35,8 +35,13 @@ only one would make "ESPN has no past drafts" and "we asked the wrong way"
 produce the same answer, and those have opposite consequences.
 
 Prints a summary only — no fixture written, no cookie in a URL, a log line or an
-error. A **FAIL** verdict prints exactly what shrinks, and
-[research.md](research.md) §12 records it.
+error. A **FAIL** verdict prints exactly what shrinks.
+
+**Already run, 2026-08-05: PASS.** A 2025 league returned 140 filled picks, zero
+skeleton rows and a present draft order, identically by both URL forms. So
+`pick_sequence_only` has a real source, and `src/espn/client.ts` needs no second
+URL shape. Full result in [research.md](research.md) §12 — no need to re-run it
+unless ESPN changes.
 
 ---
 

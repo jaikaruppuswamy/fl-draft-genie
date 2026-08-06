@@ -319,16 +319,37 @@ assumed."*
 
 **Decision**: one authenticated read, before Phase 5 exists — tasks T001.
 
-**What depends on the answer**, and nothing else does:
+### ✅ RESULT: PASS (run by the owner, 2026-08-05)
 
-| Depends | If past seasons are unavailable |
-|---|---|
-| `pick_sequence_only` entries (§5) | no source; the class stays defined but empty |
-| Opponent-model grounding (FR-020c) | no measured pick-vs-ADP distribution; `noiseSd` stays an assumption and must say so |
-| US3's scope | reduces to current-season import — still valuable, since it reaches leagues the tap never ran on |
+One of the owner's leagues, **season 2025** — a season the projections pipeline
+never covered, which is the case that matters:
 
-US1 and US2 are unaffected either way. That asymmetry is why the gate is cheap
-to run and cheap to fail: it costs one request and it cannot invalidate the MVP.
+| Form | Status | Filled picks | Skeleton (`playerId === -1`) | Draft order |
+|---|---|---|---|---|
+| `/seasons/{y}/segments/0/leagues/{id}` — the client's current shape | 200 (object) | **140** | 0 | present |
+| `/leagueHistory/{id}?seasonId={y}` — ESPN's documented past-season shape | 200 (array[1]) | **140** | 0 | present |
+
+**Three things this settles, two of them beyond what was asked:**
+
+1. **Past-season drafts are readable.** `pick_sequence_only` has a real source,
+   FR-020c's opponent-model grounding is obtainable, and Phase 5 proceeds as
+   planned.
+2. **Both URL forms work**, so `src/espn/client.ts` needs no second shape — the
+   §5 concern that "no past drafts" and "we asked the wrong way" would look
+   alike is moot, and both readings agree pick-for-pick (140 = 140).
+3. **Zero skeleton picks.** Every row carries a real player id, so a completed
+   past draft is fully materialised — not the frozen `playerId: -1` shell that
+   005's Gate 0 found during a *live* draft. That contrast is the sharpest
+   confirmation available that the post-completion flush is the reliable view.
+
+The draft order is present too, so an imported past-season entry does not have
+to fall back on deriving the order from its own round-1 picks.
+
+**What would have changed on a FAIL**, recorded because the design was built to
+absorb it: `pick_sequence_only` would have had no source, T052 no data, and
+T055's `noiseSd` would have stayed an assumption obliged to say so. US1 and US2
+were unaffected either way, which is why the gate was cheap to run and cheap to
+fail.
 
 **Alternatives considered**: *assume it works and find out during Phase 5.* This
 is exactly what 005 did before Gate 0, and it cost eight phases of design built
@@ -349,8 +370,8 @@ on a data source that could not do the job.
 
 No unresolved NEEDS CLARIFICATION remain.
 
-**One unverified external premise remains, deliberately**: whether ESPN serves
-past-season completed drafts (§12). It is not a clarification — it is a fact
-about someone else's system, and the constitution says the answer is obtained by
-experiment rather than by decision. T001 runs that experiment before any
-dependent code is written, and §12 records what changes if the answer is no.
+**The one unverified external premise is now verified**: ESPN does serve
+past-season completed drafts, by both URL forms, fully materialised (§12, run
+2026-08-05). It was never a clarification — it is a fact about someone else's
+system, and the constitution says such facts are obtained by experiment rather
+than by decision.

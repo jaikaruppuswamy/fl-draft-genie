@@ -299,7 +299,7 @@ survives a page reload mid-draft.
 audio/visual alert when the user is on the clock or on deck; whether preferred
 lists are per-league or shared across leagues (recommend per-league).
 
-## 008 — draft-replay-lab ⚙️ BUILT (2026-08-05) — one gate outstanding
+## 008 — draft-replay-lab ⚙️ BUILT (2026-08-05) — gate passed, corpus pending
 
 **Built 2026-08-05.** Pure core in `src/lab/` (corpus, codec, setChoice, replay,
 scorecard, compare, behaviour, simulate, rng), I/O in `scripts/lab-*.ts`, 178
@@ -316,18 +316,24 @@ cannot accidentally score in generic PPR. The *output* is deliberately not
 stored; snapshotting the ranked board would make every replay return August's
 answer forever.
 
-> ⛔ **GATE 0 IS NOT YET RUN** (`scripts/lab-gate0.ts`). Whether ESPN still
-> serves a completed draft for a **past** season has never been tested — 005's
-> Gate 0 established that only for the *current* season, on a draft that had just
-> finished. `/speckit-analyze` caught the omission as a constitution violation
-> (verify-first is a MUST). It needs the ESPN cookie pair, so the owner runs it.
-> **If it fails**: `pick_sequence_only` has no source, US3 reduces to
-> current-season import, and the opponent model's noise stays ungrounded — the
-> script prints all three, and `research.md` §12 records them. US1 and US2 are
-> unaffected either way, which is why the gate is cheap to run and cheap to fail.
+> ✅ **GATE 0 PASSED (2026-08-05)**, run by the owner against a **2025** league —
+> a season the projections pipeline never covered, which is the case that
+> matters. `/speckit-analyze` caught its absence as a constitution violation
+> (verify-first is a MUST); 005's Gate 0 had established the post-completion
+> flush only for the *current* season, on a draft that had just finished.
 >
-> **Also outstanding**: re-admitting the already-captured drafts as `--class
-> test` (needs D1 access).
+> **140 filled picks, 0 skeleton rows, draft order present — by BOTH URL forms**
+> (`/seasons/…` and `/leagueHistory/…?seasonId=`), agreeing pick-for-pick. Three
+> consequences: `pick_sequence_only` has a real source so Phase 5 proceeds;
+> `src/espn/client.ts` needs no second URL shape; and zero skeleton rows is the
+> sharpest confirmation available that the completed-draft view is the reliable
+> one — 005's Gate 0 found the frozen `playerId: -1` shell during a *live*
+> draft, and this is the same endpoint after completion. Full result in
+> `specs/008-draft-replay-lab/research.md` §12.
+>
+> **Still outstanding**: re-admitting the already-captured drafts as `--class
+> test` (needs D1 access), and importing a real past season (needs the ESPN
+> cookie pair).
 
 **Ratified in clarify (2026-08-05)** — five decisions, already recorded below.
 
