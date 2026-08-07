@@ -79,7 +79,13 @@ Do **not** rebuild these. Each was verified during planning.
 
 ## Phase 1: Setup
 
-- [ ] T001 **GATE — does ESPN's completion flag flip back?** Reset a completed draft in ESPN, sync, and record in this file whether `draftDetail.drafted` returns to **false**. **US8 rests entirely on it** and nobody has checked; what *is* verified is only that mocks never appear in ESPN's league record at all, which is a different fact. **This is a constitution MUST** (an unverified external premise is verified first, in the cheapest possible experiment) and it is the third time this project has needed it — 005 Gate 0 and 008 Gate 0 both changed a feature's shape. **If the flag does not flip**: Phase 8 has no signal, US8 collapses, and US5 becomes the only reset path — record that here and in [spec.md](spec.md) rather than building against a signal that never arrives
+- [X] T001 **GATE — does ESPN's completion flag flip back?** Reset a completed draft in ESPN, sync, and record in this file whether `draftDetail.drafted` returns to **false**. **US8 rests entirely on it** and nobody has checked; what *is* verified is only that mocks never appear in ESPN's league record at all, which is a different fact. **This is a constitution MUST** (an unverified external premise is verified first, in the cheapest possible experiment) and it is the third time this project has needed it — 005 Gate 0 and 008 Gate 0 both changed a feature's shape. **If the flag does not flip**: Phase 8 has no signal, US8 collapses, and US5 becomes the only reset path — record that here and in [spec.md](spec.md) rather than building against a signal that never arrives
+  - **How to run it**: `scripts/gate-draft-reset.ts` (`npm run gate:reset -- --league <id>`), against `DraftGenieTester`, whose draft is complete in the **current** season. Two runs of the same command with a real reset in between: run 1 records the baseline, run 2 compares and prints the verdict. The premise is a *transition* — `drafted: true` becoming `false` for one league and season — so a past-season read (008's `lab:gate0` shape) cannot answer it: that measures persistence, not reversal.
+  - **What it measures beyond the flag**: three reads per run, because FR-031f says an ambiguous report voids nothing and one read cannot tell a flip from an odd response; the pick record alongside the flag, so a sticky flag with an emptied draft is reported as a *different* signal rather than as a failure; and `drafted` as **three** states — true, false and **absent** — because production parses `draftDetail?.drafted ?? false`, which would turn a missing field into a reset ESPN never reported. All five outcomes were rehearsed against a stub before the gate was run for real.
+  - **RESULT — GATE PASSES, measured 2026-08-07**, league `1064865483` (2026, `DraftGenieTester`, 6 teams, SNAKE, 72 picks), 3 reads per run, all three in agreement. **`draftDetail.drafted` returned to `false`.** US8's premise holds: Phase 8 has its signal and T049/T050 can key on ESPN's own report.
+    - **The pick record corroborates**: 72 filled picks → 0, and the skeleton returned in their place (0 → 72 rows at `playerId: -1`). `pickRows` stayed 72 throughout, so a reset **rebuilds the skeleton** rather than emptying the array — counting rows would have seen no change at all. Detection must look at pick *contents*, never at `picks.length`.
+    - **`drafted` was PRESENT and `false`, never absent**, so the `?? false` coercion hazard did not fire here. That is one observation of one reset, not a guarantee; T050 should still require the field to be present before treating `false` as a signal (FR-031f).
+    - **A reset also CLEARS ESPN's draft date** — `settings.draftSettings.date` went from `2026-08-06T06:15:00.000Z` to absent. Unmeasured before this run, and it has consequences for T050/T055 recorded under Phase 8.
 - [X] T002 Add a league-scoped connection lookup to `src/db/leagues.ts` — every connection for one `(espn_league_id, season)`, across accounts — since fan-out needs the audience before it can deliver to it
 - [X] T003 [P] Measure and record here (not in [research.md](research.md), which is the Phase 0 record and must not be rewritten mid-build) the current delivery latency for the relaying manager, so SC-001's "unchanged" is a comparison rather than an assertion
   - **Baseline recorded 2026-08-06**: the only measured figure this project has is 005's — **p95 0.223 s across a 72-pick draft**, against a ratified budget of p95 ≤ 2 s / 100% ≤ 10 s. A *fresh* pre-change measurement needs a live draft, which is not available on demand; 005's figure is therefore the comparison point, and T067 must re-measure under the same conditions (a real draft) rather than a synthetic one, or the comparison is between different things.
@@ -149,15 +155,15 @@ reported distinctly, with a remedy.
 **Independent test**: from a browser with nothing installed, enable the tap
 without typing or pasting anything, then relay from a draft room.
 
-- [ ] T025 [US3] Write enablement tests FIRST in `tests/tap/enable.test.ts`: enablement requires an authenticated session and a genuine gesture, and **cannot be caused by a page the owner merely visits** (FR-018, SC-012)
-- [ ] T026 [US3] Add the acknowledgement endpoint in `src/api/tapEnable.ts`, issuing enablement for the signed-in account only (FR-016, FR-019)
-- [ ] T027 [US3] Match Draft Genie's own origin in `tap/` so the script can receive enablement from the page, keeping the ESPN match and `document_start` behaviour unchanged
-- [ ] T028 [US3] Make enablement idempotent — re-acknowledging must not interrupt a relay in progress (FR-020)
-- [ ] T029 [US3] Make enablement survive sign-out and session expiry while staying revocable (FR-020a). A draft outlasts a session, and under fan-out a relay dying mid-draft takes a **whole league's** feed with it
-- [ ] T030 [US3] State the reason on a failed enablement and leave any working state intact (FR-021)
-- [ ] T031 [US3] Assert in `tests/tap/enable.test.ts` that **no credential, code or identifier is ever rendered** to the user (FR-017, SC-004)
-- [ ] T032 [US3] Assert the ingest still rejects unattributable frames, and that attribution is **never inferred** from an armed session, a live-draft window or a league id alone (FR-022, FR-022a) — those constraints are weakest exactly when a draft is live
-- [ ] T033 [US3] Re-run `tests/tap/passivity.test.ts` against the changed userscript and confirm it still opens no connection to ESPN and has no send path (FR-041)
+- [X] T025 [US3] Write enablement tests FIRST in `tests/tap/enable.test.ts`: enablement requires an authenticated session and a genuine gesture, and **cannot be caused by a page the owner merely visits** (FR-018, SC-012)
+- [X] T026 [US3] Add the acknowledgement endpoint in `src/api/tapEnable.ts`, issuing enablement for the signed-in account only (FR-016, FR-019)
+- [X] T027 [US3] Match Draft Genie's own origin in `tap/` so the script can receive enablement from the page, keeping the ESPN match and `document_start` behaviour unchanged
+- [X] T028 [US3] Make enablement idempotent — re-acknowledging must not interrupt a relay in progress (FR-020)
+- [X] T029 [US3] Make enablement survive sign-out and session expiry while staying revocable (FR-020a). A draft outlasts a session, and under fan-out a relay dying mid-draft takes a **whole league's** feed with it
+- [X] T030 [US3] State the reason on a failed enablement and leave any working state intact (FR-021)
+- [X] T031 [US3] Assert in `tests/tap/enable.test.ts` that **no credential, code or identifier is ever rendered** to the user (FR-017, SC-004)
+- [X] T032 [US3] Assert the ingest still rejects unattributable frames, and that attribution is **never inferred** from an armed session, a live-draft window or a league id alone (FR-022, FR-022a) — those constraints are weakest exactly when a draft is live
+- [X] T033 [US3] Re-run `tests/tap/passivity.test.ts` against the changed userscript and confirm it still opens no connection to ESPN and has no send path (FR-041)
 
 ---
 
@@ -198,9 +204,24 @@ survive and the preferred list is untouched.
 
 ## Phase 8: User Story 8 — Notice when ESPN says the draft was reset (P6)
 
-**BLOCKED BY T001.** If the gate showed ESPN's flag does not flip back, this
-phase has no signal — record that and skip it rather than building against
-nothing.
+**UNBLOCKED — T001 passed on 2026-08-07.** `draftDetail.drafted` returned to
+`false` on a real reset, corroborated by the pick record emptying. Build this
+phase against the flag, with two measurements from the gate that change how:
+
+1. **A reset rebuilds the pick skeleton, it does not shorten the array.**
+   `picks.length` stayed 72 while filled picks went 72 → 0. Any corroborating
+   check must count picks whose `playerId` is not the `-1` skeleton — and must
+   not filter on sign, since D/ST ids are legitimately negative.
+2. **A reset clears ESPN's draft date**, which means *no cron ever observes the
+   reset*. `scanPreDraftWindow` is the only automatic caller of
+   `refreshConnection`, and `findPreDraftWindowConnections`
+   ([src/db/leagues.ts:250](../../src/db/leagues.ts:250)) selects on
+   `draft_at IS NOT NULL` inside the window and then drops anything already
+   `completed`. A league whose draft finished is excluded on both counts, and
+   the stored snapshot keeps saying `completed: true` with the stale date — so
+   the exclusion never lifts by itself. The observing sync must come from
+   somewhere else. **T055 must not be written as though the cron will notice**;
+   see the note on T055 below.
 
 **Goal**: a draft reset in ESPN is noticed at the next sync, and the next draft
 is captured cleanly without the owner doing anything.
@@ -216,6 +237,7 @@ next draft is captured with none of the previous one's picks.
 - [ ] T053 [US8] Assert retained frames and any archived record of the reset draft **survive** the void (FR-031c). A draft that really happened stays history, and 008's corpus may already depend on it
 - [ ] T054 [US8] Record the reason and the triggering observation on every void (FR-031e), and prove in test that a live draft cannot be voided by any sync result, using T043's shared guard (FR-031d, SC-009b)
 - [ ] T055 [US8] Verify SC-009a end to end: a draft reset in ESPN is noticed at the next sync and the next draft is captured with none of the previous one's picks, **with no action by the owner**
+  - **T001 found that no sync arrives on its own.** A completed draft is excluded from the pre-draft scan by both its `completed` flag and its now-null `draft_at`, and nothing else refreshes a connection automatically — the only other callers of `refreshConnection` are the league API and the credential API, both user-triggered. So "the next sync" is today an owner opening the app, and SC-009a's "with no action by the owner" is **not currently satisfiable**. Decide before writing this test: either widen the automatic scan so a recently-completed league is re-read for some period after its draft (the smaller change, and it makes the void reachable), or amend SC-009a to say the reset is noticed at the next sync *whenever one occurs*. Do not write a test that passes only because the test harness called the sync itself — that would assert the mechanism into existence
 
 ---
 

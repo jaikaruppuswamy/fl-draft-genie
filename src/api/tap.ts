@@ -18,7 +18,7 @@ import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { now } from "../env";
 import { logError, logInfo } from "./logging";
-import { issuePairing, listPairings, retainBatch, revokePairing, summariseBatches, touchPairing, verifyPairing } from "../db/tap";
+import { listPairings, retainBatch, revokePairing, summariseBatches, touchPairing, verifyPairing } from "../db/tap";
 import { findConnection, getConnectionById, listConnectionsForLeague } from "../db/leagues";
 import { sessionStub } from "../draft/session";
 import { armingScope } from "../draft/arming";
@@ -31,7 +31,7 @@ const ALLOWED_ORIGINS = new Set(["https://fantasy.espn.com"]);
 
 /** Wire-contract versions this Worker understands. A tap outside this set gets
  *  409 so it can tell the user to update, rather than being misread. */
-const SUPPORTED_CONTRACT_VERSIONS = new Set([1]);
+export const SUPPORTED_CONTRACT_VERSIONS = new Set([1]);
 
 /** Brace-form or bare SWID. Nothing numeric-only can match this. */
 const GUID_ON_WIRE = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/;
@@ -498,11 +498,15 @@ export function pairingRoutes() {
     });
   });
 
-  app.post("/", async (c) => {
-    // Shown once and never again — only the hash is stored.
-    const { token, row } = await issuePairing(c.env.DB, c.get("accountId"), now(c.env));
-    return Response.json({ id: row.id, token, expires_at: row.expires_at }, { status: 201 });
-  });
+  // 011 US3 REMOVED `POST /api/tap-pairings`.
+  //
+  // It returned a raw 180-day bearer in a JSON body to page JavaScript, which
+  // rendered it into the DOM — readable by any same-origin script, with no race
+  // to win. Credentials are now minted only by the enablement redeem, which
+  // requires a preimage the page never holds.
+  //
+  // Existing pairings keep working until they expire or are revoked; nobody is
+  // cut off mid-season by this removal.
 
   app.get("/captures", async (c) => {
     return Response.json({ captures: await summariseBatches(c.env.DB, c.get("accountId")) });

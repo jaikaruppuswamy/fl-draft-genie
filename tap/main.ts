@@ -10,6 +10,7 @@
 // build asserts no ESPN request literal survives bundling.
 
 import { CONTRACT_VERSION, INGEST_ORIGIN, TAP_VERSION } from "./meta";
+import { errorCodeOf, evaluateGesture, shouldForgetCredential } from "./enable";
 import { classify, isDraftChannel } from "./classify";
 import { decodeInitFrame, filledPicks } from "./decode";
 import { assertTransmittable, filterLedgerPick, filterPickFields } from "./filter";
@@ -67,7 +68,6 @@ function captureNative<T>(fn: T): T | null {
   }
 }
 
-const PAGE_PROMPT = captureNative(W.prompt);
 const PAGE_ALERT = captureNative(W.alert);
 
 const gmStorage: StoragePort = {
@@ -220,7 +220,7 @@ function flush(): void {
       }
       failures++;
       if (r.status === 409) return render("version-rejected");
-      if (r.status === 401) return render("not-paired");
+      if (r.status === 401) return onUnauthorised(r.responseText);
       if (r.status === 403) return render("incompatible", "this ESPN league is not connected to Draft Genie");
       if (r.status === 400) return render("incompatible", "Draft Genie rejected the message shape");
       render("buffering", `server said ${r.status}`);
@@ -271,6 +271,35 @@ function heartbeat(triggeredByEvent: boolean): void {
   if (!decision.send) return;
   lastHeartbeatAt = clock.now();
   postStatus(status.state, status.detail, true);
+}
+
+/**
+ * A 401 means this credential will never work again — so STOP USING IT.
+ *
+ * It used to render "not paired" and keep the token. `token()` still returned
+ * the string, so `flush()` passed its guard and every remaining pick of the
+ * draft was POSTed to a dead credential: the owner revoked it, the badge said
+ * something had gone wrong, and the tap went on relaying into a 401 for the
+ * rest of the session. `GM_deleteValue` was granted and wired and never used on
+ * `dg:token`.
+ *
+ * ONE EXCEPTION, and it is the important one. `missing_install` means WE failed
+ * to send the `X-Tap-Install` header — a bug on this side, not a dead
+ * credential. Deleting on it would destroy a perfectly good enablement because
+ * of our own mistake, mid-draft, with no way back except re-enabling. Every
+ * other reason (revoked, expired, unknown, wrong_install) means the token
+ * cannot work in this browser again.
+ *
+ * The reason is read with a regex rather than `JSON.parse`. This runs on ESPN's
+ * page, where `JSON` is theirs to replace, and the tap's standing posture is to
+ * depend on nothing the page can swap out.
+ */
+function onUnauthorised(body: string): void {
+  if (shouldForgetCredential(errorCodeOf(body))) {
+    gmStorage.remove("dg:token");
+    return render("not-paired", "this browser's relay was turned off — turn it on again in Draft Genie");
+  }
+  render("not-paired");
 }
 
 function postStatus(state: TapState, detail: string, isHeartbeat: boolean): void {
@@ -392,7 +421,200 @@ function onDraftState(raw: string): void {
 
 // --- start ---------------------------------------------------------------
 
+// --- 011 US3: enablement, on Draft Genie's own origin ------------------------
+//
+// The handshake, and why it has the shape it has:
+//
+//   * the PAGE creates the claim under session auth, sending only a HASH. It
+//     never sees a credential, so a same-origin script cannot read one out of
+//     it — which is precisely what the flow this replaces did, rendering a
+//     180-day bearer into the DOM.
+//   * THIS SCRIPT redeems it with the preimage the page never had. Only the
+//     extension can finish the exchange, and only the extension is handed the
+//     token.
+//
+// The channel is a CustomEvent on our own document, never `postMessage`. A
+// `message` listener can be driven by any page that gets a handle to our
+// window; there is deliberately no such listener anywhere in this file, and a
+// test asserts its absence in the shipped bundle.
+
+/** Nonces we generated, keyed by their commit. Closure-local, never stored. */
+const pendingNonces = new Map<string, { nonce: string; at: number }>();
+
+/** A claim is worth two seconds. Longer is a credential in waiting. */
+const CLAIM_TTL_MS = 120_000;
+
+function announceResult(ok: boolean, detail: Record<string, unknown> = {}): void {
+  try {
+    W.document.dispatchEvent(new CustomEvent("dg:enable-result", { detail: { ok, ...detail } }));
+  } catch {
+    /* the page will time out and say so */
+  }
+}
+
+async function hashHex(input: string): Promise<string> {
+  const digest = await W.crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function enablementMode(): void {
+  // `@noframes` should already guarantee this. Asserted anyway — the metadata
+  // block is one line away from not saying it, and a framed click is somebody
+  // else's click.
+  if (W.top !== W.self) return;
+
+  // Tell the page the script is here, at document-start, before React mounts.
+  // No ping, no race, and no identifier: the version and nothing else. This is
+  // what turns "we cannot tell whether it is installed" into a real answer.
+  try {
+    W.document.documentElement.setAttribute("data-dg-tap", TAP_VERSION);
+  } catch {
+    /* nothing else here depends on it */
+  }
+
+  const nativesIntact =
+    captureNative(W.crypto.getRandomValues) !== null &&
+    captureNative(W.JSON.parse) !== null &&
+    captureNative(W.EventTarget.prototype.addEventListener) !== null;
+
+  // Capture-phase, so a page listener cannot stop propagation first.
+  W.document.addEventListener(
+    "click",
+    (ev: Event) => {
+      const mouse = ev as MouseEvent;
+      const path = typeof mouse.composedPath === "function" ? mouse.composedPath() : [];
+      const target = path.find(
+        (n): n is Element => n instanceof Element && n.hasAttribute("data-dg-tap-enable"),
+      );
+      const box = target?.getBoundingClientRect();
+
+      const verdict = evaluateGesture({
+        isTrusted: mouse.isTrusted === true,
+        button: typeof mouse.button === "number" ? mouse.button : -1,
+        activationActive: W.navigator.userActivation?.isActive === true,
+        pathHasTarget: target !== undefined,
+        inDocument: target ? W.document.contains(target) : false,
+        hasBox: box ? box.width > 0 && box.height > 0 : false,
+        topFrame: W.top === W.self,
+        originMatches: W.location.origin === INGEST_ORIGIN,
+        nativesIntact,
+      });
+      // Silent on refusal. This handler sees EVERY click on the page, and the
+      // overwhelmingly common verdict is "that was not the enable button".
+      if (!verdict.mint) {
+        if (target) announceResult(false, { reason: verdict.reason });
+        return;
+      }
+
+      void beginClaim();
+    },
+    true,
+  );
+
+  // The page hands back the claim id once the server has minted it. The commit
+  // rides along so a double-click cannot redeem claim 1 against nonce 2.
+  W.document.addEventListener("dg:enable-claim", (ev: Event) => {
+    const detail = (ev as CustomEvent).detail as { claimId?: string; commit?: string } | null;
+    if (!detail?.claimId || !detail?.commit) return;
+    void redeem(detail.claimId, detail.commit);
+  });
+}
+
+/** Generate a nonce, tell the page its hash, and let the page mint the claim. */
+async function beginClaim(): Promise<void> {
+  try {
+    const bytes = new Uint8Array(32);
+    W.crypto.getRandomValues(bytes);
+    const nonce = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const commit = await hashHex(nonce);
+
+    // Drop anything stale before adding, so a page that clicks and never
+    // returns cannot grow this without bound.
+    const cutoff = clock.now() - CLAIM_TTL_MS;
+    for (const [k, v] of pendingNonces) if (v.at < cutoff) pendingNonces.delete(k);
+    pendingNonces.set(commit, { nonce, at: clock.now() });
+
+    W.document.dispatchEvent(new CustomEvent("dg:tap-commit", { detail: { commit } }));
+  } catch {
+    announceResult(false, { reason: "natives_replaced" });
+  }
+}
+
+/** Redeem the claim with the preimage. The token never touches the page. */
+async function redeem(claimId: string, commit: string): Promise<void> {
+  const held = pendingNonces.get(commit);
+  if (!held) return announceResult(false, { reason: "no_claim" });
+  pendingNonces.delete(commit);
+
+  GM_xmlhttpRequest({
+    method: "POST",
+    url: `${INGEST_ORIGIN}/api/tap/enable/redeem`,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Tap-Install": installId(),
+      // The credential this browser ALREADY holds, when it holds one. Without
+      // it the server cannot tell a first enablement from a second, so
+      // `already_enabled` is unreachable and every click mints another 180-day
+      // pairing while the previous one stays live. FR-020 exists here or
+      // nowhere — the contract tests supplied this header themselves, so they
+      // passed against a script that never sent it.
+      ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
+    },
+    // No cookies. The claim and the preimage are the whole authorisation, and
+    // this request must not carry the owner's session anywhere.
+    anonymous: true,
+    data: JSON.stringify({ claim: claimId, nonce: held.nonce, v: CONTRACT_VERSION }),
+    onload: (r) => {
+      let body: { status?: string; token?: string; pairing_id?: string; error?: string } = {};
+      try {
+        body = JSON.parse(r.responseText) as typeof body;
+      } catch {
+        return announceResult(false, { reason: "network" });
+      }
+      if (r.status !== 200) return announceResult(false, { reason: body.error ?? "network" });
+
+      // `already_enabled` returns no token and must touch nothing — FR-020, and
+      // the reason re-acknowledging cannot interrupt a relay in progress.
+      if (body.status === "enabled" && body.token) {
+        GM_setValue("dg:token", body.token);
+        // DELIBERATELY NO `render()` HERE.
+        //
+        // `render` reports a state change to the server, which touches the
+        // pairing's `last_used_at` — and the tap page reads that as "relaying".
+        // So enabling would paint a green "Relaying" for the next 150 seconds
+        // with ESPN never opened, on the very card that exists because a
+        // working tap could not say so on 2026-08-05. A status signal that
+        // means "you clicked a button" is worse than none.
+        //
+        // Nothing is lost by staying quiet: an ESPN tab already open reads
+        // `dg:token` fresh on its next flush, so it picks the credential up
+        // without a reload.
+      }
+      announceResult(true, { pairingId: body.pairing_id, status: body.status });
+    },
+    onerror: () => announceResult(false, { reason: "network" }),
+  });
+}
+
 function start(): void {
+  // 011 US3 — on Draft Genie's own origin this script is not a tap.
+  //
+  // It handles the one-click enablement handshake and NOTHING else: no
+  // interception, no badge, no menu, no buffer, no heartbeat, no relay.
+  //
+  // The branch is not hygiene. `install()` wraps `WebSocket` on the page, and
+  // Draft Genie's own draft room opens one to itself — without this the tap
+  // would proxy our app's own live feed and hand it to the draft classifier.
+  // ESPN behaviour has to stay byte-for-byte what it was.
+  //
+  // Strict `===` against the constant, never `.includes()`: `INGEST_ORIGIN` is
+  // a full origin, and a substring test would match
+  // `https://draft.neelamjai.com.evil.test`.
+  if (W.location.origin === INGEST_ORIGIN) {
+    enablementMode();
+    return;
+  }
+
   const result = install(
     W,
     {
@@ -482,20 +704,10 @@ function registerMenu(): void {
     if (PAGE_ALERT) PAGE_ALERT.call(W, text);
     else render(status.state, "cannot display status — the page replaced alert()");
   });
-  GM_registerMenuCommand("Draft Genie: paste pairing token", () => {
-    if (!PAGE_PROMPT) {
-      // Refuse. Handing the token to whatever replaced prompt() is exactly the
-      // failure this guard exists to prevent, and a token is not revocable by
-      // the person who typed it.
-      render(
-        status.state,
-        "cannot accept a token on this page — prompt() was replaced. Pair from Draft Genie instead.",
-      );
-      return;
-    }
-    const t = PAGE_PROMPT.call(W, "Paste the pairing token from Draft Genie settings:");
-    if (t) { GM_setValue("dg:token", String(t).trim()); render("watching"); flush(); }
-  });
+  // 011 US3 removed "paste pairing token". Enabling happens with one click on
+  // Draft Genie's own page and the credential never passes through a human, so
+  // there is nothing left to paste — and no reason to keep a code path whose
+  // whole job was accepting a secret typed into a page ESPN controls.
 }
 
 start();

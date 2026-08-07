@@ -396,3 +396,69 @@ export async function latestBatchCursor(
     .first<{ id: string; received_at: string }>();
   return row ? { receivedAt: row.received_at, id: row.id } : null;
 }
+
+// --- 011 US3: the one-click enablement handshake ----------------------------
+
+/**
+ * Record a claim. The PAGE calls this, under session auth, holding only a hash.
+ *
+ * Prior unconsumed claims for the account are cleared first: a double-click
+ * otherwise leaves live claims lying around, and a claim is a thing that can be
+ * redeemed.
+ */
+export async function createEnableClaim(
+  db: D1Database,
+  accountId: string,
+  commitHash: string,
+  now: Date,
+  ttlMs = 120_000,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(`DELETE FROM tap_enable_claims WHERE account_id = ? AND consumed_at IS NULL`)
+    .bind(accountId)
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO tap_enable_claims (id, account_id, commit_hash, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .bind(id, accountId, commitHash, now.toISOString(), new Date(now.getTime() + ttlMs).toISOString())
+    .run();
+  return id;
+}
+
+export type ClaimRejection = "no_claim" | "claim_expired" | "claim_used" | "bad_preimage";
+
+/**
+ * Redeem a claim with the preimage. The SCRIPT calls this; the page never can,
+ * because the page only ever held the hash.
+ *
+ * Consumption is a conditional UPDATE and the row count is checked — the same
+ * pattern `revokePairing` uses. Two redeems of one claim cannot both mint, even
+ * if they arrive together.
+ */
+export async function consumeEnableClaim(
+  db: D1Database,
+  claimId: string,
+  nonce: string,
+  now: Date,
+): Promise<{ ok: true; accountId: string } | { ok: false; reason: ClaimRejection }> {
+  const row = await db
+    .prepare(`SELECT account_id, commit_hash, expires_at, consumed_at FROM tap_enable_claims WHERE id = ?`)
+    .bind(claimId)
+    .first<{ account_id: string; commit_hash: string; expires_at: string; consumed_at: string | null }>();
+  if (!row) return { ok: false, reason: "no_claim" };
+  if (row.consumed_at !== null) return { ok: false, reason: "claim_used" };
+  if (Date.parse(row.expires_at) <= now.getTime()) return { ok: false, reason: "claim_expired" };
+  // Compared AFTER existence and expiry so a wrong preimage cannot be used to
+  // probe which claim ids exist.
+  if ((await sha256Hex(nonce)) !== row.commit_hash) return { ok: false, reason: "bad_preimage" };
+
+  const consumed = await db
+    .prepare(`UPDATE tap_enable_claims SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL`)
+    .bind(now.toISOString(), claimId)
+    .run();
+  if (consumed.meta.changes !== 1) return { ok: false, reason: "claim_used" };
+  return { ok: true, accountId: row.account_id };
+}

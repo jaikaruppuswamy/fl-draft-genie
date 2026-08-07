@@ -69,10 +69,27 @@ describe("the pairing token never passes through a page-replaceable function", (
     expect(bundle).toMatch(/Function\.prototype\.toString/);
   });
 
-  it("refuses rather than falling back when prompt has been replaced", () => {
-    // The failure mode must be "no pairing", never "pair through whatever the
-    // page installed" — a token is not revocable by the person who typed it.
-    expect(bundle).toMatch(/prompt\(\) was replaced|cannot accept a token/);
+  it("never asks a page for a credential AT ALL — the successor to the prompt guard", () => {
+    // This used to assert that the paste command REFUSED when `prompt()` had
+    // been replaced. 011 US3 removed the paste command: enabling is one click
+    // on Draft Genie's own page and the credential never passes through a
+    // person, so there is no longer a code path whose job is accepting a secret
+    // typed into a page ESPN controls.
+    //
+    // Rewritten rather than deleted, and the successor is strictly stronger: a
+    // function that is never called cannot be replaced. The original assertion
+    // would now pass trivially on a bundle with no pairing path at all, which
+    // is exactly what a mechanically-fixed test would have become.
+    // Comments stripped: the ban is on CODE. A comment explaining why the
+    // paste flow was removed is not a paste flow, and a test that cannot tell
+    // them apart would forbid documenting the decision.
+    const code = bundle.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+    expect(code).not.toMatch(/\bprompt\s*\(/);
+    expect(code).not.toMatch(/GM_registerMenuCommand\([^)]*paste/i);
+  });
+
+  it("PROVES that check can fail", () => {
+    expect('const t = W.prompt("token?");').toMatch(/\bprompt\s*\(/);
   });
 
   it("keeps the token out of the DOM and out of page-visible storage", () => {

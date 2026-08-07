@@ -246,3 +246,56 @@ describe("011 T012/T013 — the room's question is about the LEAGUE, not the vie
     expect(roomStateOf(room({ sessionArmed: false })).state).toBe("waiting_for_draft");
   });
 });
+
+describe("an EXPIRED enablement is not an enablement", () => {
+  // An enablement lasts 180 days; a season is longer. So expiry is the ordinary
+  // way one ends, not an edge case — and filtering on `revoked` alone meant
+  // everyone who enabled last August read as "Enabled, idle" this August, over
+  // a credential the ingest was already rejecting.
+  const NOW = Date.parse("2026-08-06T05:00:00.000Z");
+  const past = new Date(NOW - 86_400_000).toISOString();
+  const future = new Date(NOW + 86_400_000).toISOString();
+
+  it("reads as installed-but-not-enabled once it has expired", () => {
+    const r = tapStateOf({
+      scriptDetected: true,
+      enablements: [{ lastUsedAt: null, revoked: false, expiresAt: past }],
+      nowMs: NOW,
+    });
+    expect(r.state).toBe("installed_not_enabled");
+    expect(r.state).not.toBe("enabled_idle");
+  });
+
+  it("does not let an expired one look like it is RELAYING", () => {
+    // The worst version: recently used AND expired reads as healthy, which is
+    // the page telling someone everything is fine while nothing is arriving.
+    const r = tapStateOf({
+      scriptDetected: true,
+      enablements: [{ lastUsedAt: new Date(NOW - 5_000).toISOString(), revoked: false, expiresAt: past }],
+      nowMs: NOW,
+    });
+    expect(r.state).not.toBe("relaying");
+  });
+
+  it("PROVES the check is conditional — an unexpired one still counts", () => {
+    // Without this, the assertions above pass against an implementation that
+    // treats every enablement as expired, and nobody could ever look enabled.
+    const r = tapStateOf({
+      scriptDetected: true,
+      enablements: [{ lastUsedAt: null, revoked: false, expiresAt: future }],
+      nowMs: NOW,
+    });
+    expect(r.state).toBe("enabled_idle");
+  });
+
+  it("still works when expiry is unknown", () => {
+    // Optional by design: a caller that cannot know must not be forced to
+    // invent a date, and an absent expiry is not an expired one.
+    const r = tapStateOf({
+      scriptDetected: true,
+      enablements: [{ lastUsedAt: null, revoked: false }],
+      nowMs: NOW,
+    });
+    expect(r.state).toBe("enabled_idle");
+  });
+});

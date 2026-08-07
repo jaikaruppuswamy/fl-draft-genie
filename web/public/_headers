@@ -1,3 +1,23 @@
+# 011 US3 — no page of Draft Genie may be framed.
+#
+# The app served NO frame protection at all: no X-Frame-Options, no CSP, nothing,
+# confirmed against production. Any site could embed draft.neelamjai.com.
+#
+# That becomes an attack the moment US3 adds a one-click "enable the relay"
+# button, because FR-018 requires that enabling cannot be triggered by a page the
+# owner merely visits — and a framed button clicked through an overlay is exactly
+# that. It also protects the magic-link confirmation, whose entire job is to let
+# someone SEE which account they are signing into.
+#
+# Assets are served by the platform ahead of the Worker, so this cannot be a
+# middleware; the sign-in confirmation sets the same headers itself because it IS
+# a Worker response.
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+
 # 010 T012 — the userscript must never be served stale.
 #
 # FR-022's "fix in minutes" depends on the script manager fetching the current

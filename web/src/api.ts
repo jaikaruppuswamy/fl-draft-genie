@@ -294,6 +294,11 @@ export const apiClient = {
     request<{ fetched_at: string; player_count: number }>("POST", "/api/projections/refresh"),
   getProjectionsStatus: () => request<ProjectionsStatus>("GET", "/api/projections/status"),
   listTapPairings: () => request<{ pairings: TapPairing[] }>("GET", "/api/tap-pairings"),
-  createTapPairing: () => request<{ id: string; token: string; expires_at: string }>("POST", "/api/tap-pairings"),
+  // 011 US3 — sends a HASH and gets back an opaque handle. Deliberately no
+  // method that returns a credential to page JavaScript: `createTapPairing`
+  // returned a 180-day bearer that the page then rendered into the DOM, which
+  // is what FR-017 forbids.
+  enableTapClaim: (commit: string) =>
+    request<{ claim_id: string }>("POST", "/api/tap-pairings/enable/claim", { commit, v: 1 }),
   revokeTapPairing: (id: string) => request<void>("DELETE", `/api/tap-pairings/${id}`),
 };
