@@ -84,19 +84,14 @@ export default function LeagueBoard() {
 
   if (!board) return <div className="empty">Loading…</div>;
 
-  // 003 FR-004: tier groupings when a single-position filter is active —
-  // grouped mode orders by tier (untiered last), points within tier.
-  const grouped = filter !== "ALL" && filter !== "FLEX";
+  // 016 — TIERING REMOVED. Positional tiers came from a public feed and were a
+  // grouping the board had to explain: "worst tier" and "the source has no
+  // opinion" looked identical on screen, and the QB feed was ranking retired
+  // players while omitting the position's best. The board now orders by
+  // projected points, which is the number every other surface already uses.
   const projected = visible
     .filter((p) => p.projected_points !== null)
-    .sort((a, b) => {
-      if (grouped) {
-        const ta = a.tier ?? Infinity;
-        const tb = b.tier ?? Infinity;
-        if (ta !== tb) return ta - tb;
-      }
-      return (b.projected_points ?? 0) - (a.projected_points ?? 0);
-    });
+    .sort((a, b) => (b.projected_points ?? 0) - (a.projected_points ?? 0));
   const unprojected = visible.filter((p) => p.projected_points === null);
 
   return (
@@ -144,7 +139,6 @@ export default function LeagueBoard() {
             <tr>
               <th>Player</th>
               <th>Pos</th>
-              <th>Tier</th>
               <th>Team</th>
               <th>Bye</th>
               <th>ADP</th>
@@ -152,17 +146,8 @@ export default function LeagueBoard() {
             </tr>
           </thead>
           <tbody>
-            {projected.map((p, i) => {
-              const prev = i > 0 ? projected[i - 1] : null;
-              const tierBoundary =
-                grouped && p.tier !== null && (prev === null || prev.tier !== p.tier);
-              return [
-                tierBoundary ? (
-                  <tr key={`tier-${p.tier}-${p.espn_player_id}`} className="tier-divider">
-                    <td colSpan={7}>Tier {p.tier}</td>
-                  </tr>
-                ) : null,
-                <tr key={p.espn_player_id} onClick={() => setOpenPlayer(p.espn_player_id)} style={{ cursor: "pointer" }}>
+            {projected.map((p) => (
+              <tr key={p.espn_player_id} onClick={() => setOpenPlayer(p.espn_player_id)} style={{ cursor: "pointer" }}>
                   <td>{p.name}</td>
                   <td>
                     <span className="badge info">
@@ -170,14 +155,12 @@ export default function LeagueBoard() {
                       {p.position_rank}
                     </span>
                   </td>
-                  <td className="num muted">{p.tier ?? "—"}</td>
                   <td className="muted">{p.team}</td>
                   <td className="num muted">{p.bye_week ?? "—"}</td>
                   <td className="num muted">{p.adp ?? "—"}</td>
                   <td className="num" style={{ fontWeight: 700 }}>{p.projected_points}</td>
-                </tr>,
-              ];
-            })}
+              </tr>
+            ))}
           </tbody>
         </table>
         {unprojected.length > 0 && (

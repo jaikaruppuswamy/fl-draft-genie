@@ -33,8 +33,6 @@ export interface Env {
   APP_BASE_URL?: string;
   /** Override the ESPN API host (dev/quickstart failure simulation). */
   ESPN_BASE_URL?: string;
-  /** Override the tier-feed host (tests/failure simulation). */
-  TIERS_BASE_URL?: string;
   /** Test-only: injected fetch implementation serving recorded fixtures. */
   ESPN_FETCH?: typeof fetch;
   /** Test-only: fixed clock (ISO string). */

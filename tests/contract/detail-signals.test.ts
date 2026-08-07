@@ -66,6 +66,11 @@ describe("detail signals block (004)", () => {
     const res = await api(env, cookie, "GET", `/api/leagues/${leagueId}/board`);
     const body = (await res.json()) as Record<string, any>;
     expect(body.players[0].signals).toBeUndefined();
-    expect(body.players[0].tier).toBeDefined(); // 003 field intact (null without tier ingest)
+    // Repointed in 016 when tiering was removed. The assertion here is "signals
+    // did not change the board list shape", and `tier` was merely the field
+    // chosen to witness it. `position_rank` is the surviving 003-era field and
+    // carries the same meaning — deleting the assertion outright would have
+    // left the real claim untested.
+    expect(body.players[0].position_rank).toBeDefined();
   });
 });

@@ -7,8 +7,6 @@ import { getActivePlayer, listBoardUniverse } from "../db/players";
 import { getServingSet, getSetRowForPlayer, getSetRows } from "../db/projections";
 import { buildLeagueBoard, round1, scoreStatLine } from "../projections/scoring";
 import { isStale } from "../projections/freshness";
-import { getTierMap } from "../db/tiers";
-import { normalizeName, tierFormatForLeague } from "../tiers/borischen";
 import { getSignalMaps, type SignalKind } from "../db/signals";
 import { signalLabel } from "../signals/compute";
 import { currentSeason } from "../espn/leagueRef";
@@ -41,12 +39,11 @@ export function boardRoutes() {
       listBoardUniverse(c.env.DB),
       getSetRows(c.env.DB, serving.id),
     ]);
-    const tierMap = await getTierMap(c.env.DB, tierFormatForLeague(scoring.reception_points));
-    const players = buildLeagueBoard(universe, rows, scoring.items).map((p) => ({
-      ...p,
-      // Additive to the 002 contract (003 plan): positional tier or null.
-      tier: tierMap.get(`${p.position}:${normalizeName(p.name, p.position)}`) ?? null,
-    }));
+    // The board is what the engine builds, unmodified. This used to spread each
+    // row to attach a positional tier; with tiering removed there is nothing to
+    // add, and an identity map would just invite something to be added here
+    // rather than in the builder.
+    const players = buildLeagueBoard(universe, rows, scoring.items);
 
     return c.json({
       freshness: {
@@ -80,12 +77,10 @@ export function boardRoutes() {
       listBoardUniverse(c.env.DB),
       getSetRows(c.env.DB, serving.id),
     ]);
-    const tierMap = await getTierMap(c.env.DB, tierFormatForLeague(scoring.reception_points));
     const board = buildLeagueBoard(universe, rows, items);
     const found = board.find((b) => b.espn_player_id === playerId)!;
     const boardRow = {
       ...found,
-      tier: tierMap.get(`${found.position}:${normalizeName(found.name, found.position)}`) ?? null,
     };
 
     const projection = await getSetRowForPlayer(c.env.DB, serving.id, playerId);
