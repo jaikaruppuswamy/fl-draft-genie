@@ -28,6 +28,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env";
 import { latestBatchCursor, readBatchesAfter, type FeedCursorRow } from "../db/tap";
 import { markSessionStatus } from "../db/draft";
+import { logInfo } from "../api/logging";
 import { foldBatches, type FeedBatch, type RelayMessage } from "./feed";
 import { initialState, reconcile, trust, frontier, type DraftEvent, type DraftState } from "./reconcile";
 import { picksUntilTurn, teamAt } from "./snake";
@@ -489,7 +490,22 @@ export class DraftSession extends DurableObject<Env> {
     }));
 
     const observation = foldBatches(s.cursor, batches);
-    const { state, events } = reconcile(s.state, observation);
+    const { state, events, rejectedLedger } = reconcile(s.state, observation);
+    if (rejectedLedger) {
+      // FR-025 said this was "recorded, never silent" and it was destructured
+      // away here, so the claim lived entirely inside a return value and its
+      // unit test. The misfire direction is reachable: `rebuild()` replays the
+      // log with zero picks held, so a rebuild late in a draft can refuse its
+      // own ledger and drop the ledger-only picks — 3 of 72 in the measured
+      // corpus. Without a line there is no way afterwards to tell "we refused a
+      // ledger" from "no ledger arrived".
+      //
+      // One enum and two integers. Nothing here identifies anybody.
+      logInfo(
+        `ledger refused (${rejectedLedger.reason}): ${rejectedLedger.rows} rows against ` +
+          `${rejectedLedger.totalPicks} total picks`,
+      );
+    }
 
     // T024: do not persist on a no-op. A safety sweep that finds only
     // duplicates produces zero events — but the CURSOR still moved, and not
@@ -520,7 +536,20 @@ export class DraftSession extends DurableObject<Env> {
       ...(delivered.length ? { deliverySeq: s.deliverySeq + delivered.length, eventWindow } : {}),
     });
 
-    if (delivered.length) this.broadcast(s.epoch, delivered);
+    // 014 — the turn countdown rides on EVERY frame.
+    //
+    // It used to reach a client only via `on_deck`, which the reconciler fires
+    // sparsely — once as a turn approaches, not per pick. So `picksUntilMyTurn`
+    // went to 0 on the manager's own turn and STAYED there: the room read "your
+    // pick — now" for the rest of the draft, correcting itself only on a reload,
+    // because a snapshot recomputes it. Observed live on 2026-08-07.
+    //
+    // Computed here from the committed state rather than sent as an event,
+    // because it is not an event — it is the answer to "where am I now", and
+    // every frame is a chance to answer it correctly.
+    if (delivered.length) {
+      this.broadcast(s.epoch, delivered, this.turnOf({ ...s, state }));
+    }
 
     // T058: mirror the status to D1, AFTER the commit. D1 is what the cron
     // sweep and the diagnostic surface read; the object's own storage is
@@ -552,7 +581,7 @@ export class DraftSession extends DurableObject<Env> {
    * clients. Every socket gets identical frames with identical `seq`, so tabs
    * converge with no coordination.
    */
-  private broadcast(epoch: string, delivered: Delivered[]): void {
+  private broadcast(epoch: string, delivered: Delivered[], picksUntilMyTurn: number | null): void {
     const sockets = this.ctx.getWebSockets();
     if (sockets.length === 0) return;
     for (const d of delivered) {
@@ -563,6 +592,9 @@ export class DraftSession extends DurableObject<Env> {
         revision: d.event.revision,
         kind: d.event.kind,
         payload: d.event,
+        // Present on every frame, whatever the kind. See the comment at the
+        // broadcast call: this is state, not an event.
+        picksUntilMyTurn,
       });
       for (const ws of sockets) {
         // One dead socket must never stop the others from being told.
@@ -614,6 +646,7 @@ export class DraftSession extends DurableObject<Env> {
             revision: d.event.revision,
             kind: d.event.kind,
             payload: d.event,
+            picksUntilMyTurn: this.turnOf(s),
           }),
         );
       }
@@ -650,6 +683,23 @@ export class DraftSession extends DurableObject<Env> {
     if ((await this.ctx.storage.getAlarm()) === null) {
       await this.ctx.storage.setAlarm(Date.now() + SAFETY_ALARM_MS);
     }
+  }
+
+  /**
+   * How many picks until this manager is up — the same arithmetic `toSnapshot`
+   * publishes, factored out so the live path and the snapshot cannot disagree.
+   * Null when there is no team or no order to reason from.
+   */
+  private turnOf(s: Stored): number | null {
+    if (s.state.myTeamId === null) return null;
+    const observed = new Map(s.state.picks.map((p) => [p.overall, p.teamId]));
+    return picksUntilTurn({
+      order: s.state.order,
+      frontier: frontier(s.state),
+      myTeamId: s.state.myTeamId,
+      observed,
+      totalPicks: s.state.totalPicks || undefined,
+    });
   }
 
   private toSnapshot(s: Stored): SessionSnapshot {

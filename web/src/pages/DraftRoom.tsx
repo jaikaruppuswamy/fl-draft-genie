@@ -387,10 +387,21 @@ export default function DraftRoom() {
       {(state.phase === "complete" || state.picks.length > 0) && (
         <details className="card">
           <summary>Start this draft over</summary>
+          {/* The copy said "everyone in this league" while the endpoint clears
+              ONE session — FR-027 makes reset session-level, and the route's own
+              comment says a leaguemate is left untouched. Both halves were
+              written in the same commit, one against fan-out semantics and one
+              against per-session. A manager clearing a contaminated session
+              before a draft was told the league was clean while every
+              leaguemate's object still held the old picks. */}
           <p className="muted small">
-            Clears the picks for <strong>everyone in this league</strong> and lets a new draft be captured.
-            It does not touch your ESPN account, your preferred list, your settings, or any draft already
-            saved.
+            Clears <strong>your</strong> copy of this draft and lets a new one be captured. Each manager
+            clears their own. It does not touch your ESPN account, your preferred list, your settings, or
+            any draft already saved.
+          </p>
+          <p className="muted small">
+            If ESPN itself reports the draft reset, every manager&apos;s copy is cleared automatically —
+            you don&apos;t need to ask them to do this.
           </p>
           <button
             disabled={resetBusy}

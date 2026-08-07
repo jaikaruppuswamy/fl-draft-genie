@@ -288,7 +288,23 @@ function reduceFrame(state: RoomState, frame: DraftFrame, at: number): { state: 
     return { state, effects: [{ kind: "fetchSnapshot" }] };
   }
 
-  const advanced = { ...state, cursor: frame.seq };
+  // 014 — THE TURN COUNTDOWN, FROM EVERY FRAME.
+  //
+  // It used to arrive only on `on_deck`, which the server fires sparsely — once
+  // as a turn approaches, not per pick. So after a manager's own turn the value
+  // stayed at 0 and the room read "your pick — now" for the rest of the draft,
+  // correcting itself only on a reload. The server now sends the current count
+  // on every frame, because it is state rather than an event.
+  //
+  // `?? state.picksUntilMyTurn` so a frame from an older server, or one that
+  // genuinely cannot compute a turn, leaves the last known value rather than
+  // blanking the indicator.
+  const turnFrom = (frame as { picksUntilMyTurn?: number | null }).picksUntilMyTurn;
+  const advanced = withTurnState({
+    ...state,
+    cursor: frame.seq,
+    picksUntilMyTurn: turnFrom === undefined ? state.picksUntilMyTurn : turnFrom,
+  });
   // `payload` — the key the server actually sends, and the one the ratified
   // stream contract names (005 contracts/api.md: `{type, epoch, seq, revision,
   // kind, payload}`).
