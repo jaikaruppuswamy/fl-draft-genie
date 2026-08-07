@@ -30,15 +30,48 @@ async function accountIdFor(cookie: string): Promise<string> {
   return row!.id;
 }
 
+
+/**
+ * Mint a credential the way the product now does it.
+ *
+ * `POST /api/tap-pairings` is gone — it returned a 180-day bearer to page
+ * JavaScript, which then rendered it into the DOM. These tests are about what a
+ * credential IS and how it is revoked, so they walk the real handshake rather
+ * than reaching for a shortcut that no longer exists.
+ */
+async function mint(env: Env, cookie: string): Promise<{ token: string; id: string }> {
+  const { sha256Hex } = await import("../../src/db/client");
+  const nonce = "c".repeat(64);
+  const claimRes = await app.request(
+    "/api/tap-pairings/enable/claim",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ commit: await sha256Hex(nonce) }),
+    },
+    env,
+  );
+  const { claim_id } = (await claimRes.json()) as { claim_id: string };
+  const res = await app.request(
+    "/api/tap/enable/redeem",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim: claim_id, nonce }),
+    },
+    env,
+  );
+  const body = (await res.json()) as { token: string; pairing_id: string };
+  return { token: body.token, id: body.pairing_id };
+}
+
 describe("pairing lifecycle", () => {
   // FR-011 (revocable, least-privilege credential distinct from ESPN cookies),
   // FR-013 (revocation stops the relay without touching ESPN) and FR-014a
   // (stated lifetime and install binding).
   it("issues a token once, stores only its hash, and verifies it", async () => {
     const cookie = await signIn(env, "pair@test.co");
-    const res = await app.request("/api/tap-pairings", { method: "POST", headers: { Cookie: cookie } }, env);
-    expect(res.status).toBe(201);
-    const { token, id } = (await res.json()) as { token: string; id: string };
+    const { token, id } = await mint(env, cookie);
     expect(token).toMatch(/^[0-9a-f]{64}$/);
 
     const stored = await env.DB.prepare("SELECT token_hash FROM tap_pairings WHERE id = ?").bind(id).first<{ token_hash: string }>();
@@ -50,16 +83,14 @@ describe("pairing lifecycle", () => {
 
   it("lists pairings without ever returning the token", async () => {
     const cookie = await signIn(env, "list@test.co");
-    await app.request("/api/tap-pairings", { method: "POST", headers: { Cookie: cookie } }, env);
+    await mint(env, cookie);
     const body = await (await app.request("/api/tap-pairings", { headers: { Cookie: cookie } }, env)).json();
     expect(JSON.stringify(body)).not.toMatch(/[0-9a-f]{64}/);
   });
 
   it("revokes, and a revoked token stops working immediately", async () => {
     const cookie = await signIn(env, "revoke@test.co");
-    const { token, id } = (await (
-      await app.request("/api/tap-pairings", { method: "POST", headers: { Cookie: cookie } }, env)
-    ).json()) as { token: string; id: string };
+    const { token, id } = await mint(env, cookie);
     expect(await verifyPairing(env.DB, token, INSTALL, NOW)).toMatchObject({ ok: true });
 
     const del = await app.request(`/api/tap-pairings/${id}`, { method: "DELETE", headers: { Cookie: cookie } }, env);

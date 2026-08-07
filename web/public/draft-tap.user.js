@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Draft Genie draft tap
 // @namespace    https://draft.neelamjai.com/
-// @version      0.1.7
+// @version      0.1.8
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
+// @match        https://draft.neelamjai.com/*
 // @run-at       document-start
 // @sandbox      raw
 // @inject-into  page
@@ -23,7 +24,7 @@
 "use strict";
 (() => {
   // tap/meta.ts
-  var TAP_VERSION = "0.1.7";
+  var TAP_VERSION = "0.1.8";
   var CONTRACT_VERSION = 1;
   var INGEST_ORIGIN = "https://draft.neelamjai.com";
   var DRAFT_HOST = "fantasydraft.espn.com";
@@ -35,6 +36,7 @@
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
+// @match        ${INGEST_ORIGIN}/*
 // @run-at       document-start
 // @sandbox      raw
 // @inject-into  page
@@ -50,6 +52,20 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
 // ==/UserScript==`;
+
+  // tap/enable.ts
+  function evaluateGesture(i) {
+    if (!i.originMatches) return { mint: false, reason: "not_our_origin" };
+    if (!i.topFrame) return { mint: false, reason: "framed" };
+    if (!i.nativesIntact) return { mint: false, reason: "natives_replaced" };
+    if (!i.isTrusted) return { mint: false, reason: "not_trusted" };
+    if (i.button !== 0) return { mint: false, reason: "not_primary_button" };
+    if (!i.activationActive) return { mint: false, reason: "no_user_activation" };
+    if (!i.pathHasTarget) return { mint: false, reason: "not_the_enable_control" };
+    if (!i.inDocument) return { mint: false, reason: "target_not_in_document" };
+    if (!i.hasBox) return { mint: false, reason: "target_not_visible" };
+    return { mint: true };
+  }
 
   // tap/classify.ts
   var KNOWN_NON_DRAFT = /* @__PURE__ */ new Set([
@@ -464,6 +480,7 @@
       if (this.over || this.total <= 0 || this.seen.size < this.total) return;
       this.over = true;
       this.clear();
+      this.ports.announce({ seen: this.seen.size, total: this.total });
       this.ports.render("draft-finished", `${this.seen.size}/${this.total} picks`);
       this.ports.flush();
     }
@@ -517,7 +534,6 @@
       return null;
     }
   }
-  var PAGE_PROMPT = captureNative(W.prompt);
   var PAGE_ALERT = captureNative(W.alert);
   var gmStorage = {
     get: (k) => GM_getValue(k, "") || null,
@@ -709,9 +725,12 @@
     status.buffered = buffer.size();
     flush();
   }
+  var lastTransport = "ws";
   function onFrame(raw, transport) {
+    lastTransport = transport;
     const c = classify(raw);
-    if (!draftEnd.shouldRelay(c.kind === "unrecognised" ? "status" : c.kind)) return;
+    const relayKind = c.kind === "pick" || c.kind === "ledger" ? c.kind : "status";
+    if (!draftEnd.shouldRelay(relayKind)) return;
     switch (c.kind) {
       case "pick": {
         const payload = filterPickFields(c.fields);
@@ -748,6 +767,10 @@
   }
   var draftEnd = new DraftEnd({
     render: (state, detail) => render(state, detail),
+    // 011 T038. `lastTransport` rather than a fixed value: completion is detected
+    // inside frame handling, so the transport that carried the last frame is the
+    // one that carried the evidence.
+    announce: (completion) => enqueue("status", { state: "draft-finished", ...completion }, lastTransport),
     flush: () => flush(),
     currentState: () => status.state,
     setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -757,7 +780,107 @@
     const phase = Number(raw.replace(/\n$/, "").split(" ")[1] ?? NaN);
     if (Number.isFinite(phase)) render(status.state, `draft phase ${phase}`);
   }
+  var pendingNonces = /* @__PURE__ */ new Map();
+  var CLAIM_TTL_MS = 12e4;
+  function announceResult(ok, detail = {}) {
+    try {
+      W.document.dispatchEvent(new CustomEvent("dg:enable-result", { detail: { ok, ...detail } }));
+    } catch {
+    }
+  }
+  async function hashHex(input) {
+    const digest = await W.crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  function enablementMode() {
+    if (W.top !== W.self) return;
+    try {
+      W.document.documentElement.setAttribute("data-dg-tap", TAP_VERSION);
+    } catch {
+    }
+    const nativesIntact = captureNative(W.crypto.getRandomValues) !== null && captureNative(W.JSON.parse) !== null && captureNative(W.EventTarget.prototype.addEventListener) !== null;
+    W.document.addEventListener(
+      "click",
+      (ev) => {
+        const mouse = ev;
+        const path = typeof mouse.composedPath === "function" ? mouse.composedPath() : [];
+        const target = path.find(
+          (n) => n instanceof Element && n.hasAttribute("data-dg-tap-enable")
+        );
+        const box = target?.getBoundingClientRect();
+        const verdict = evaluateGesture({
+          isTrusted: mouse.isTrusted === true,
+          button: typeof mouse.button === "number" ? mouse.button : -1,
+          activationActive: W.navigator.userActivation?.isActive === true,
+          pathHasTarget: target !== void 0,
+          inDocument: target ? W.document.contains(target) : false,
+          hasBox: box ? box.width > 0 && box.height > 0 : false,
+          topFrame: W.top === W.self,
+          originMatches: W.location.origin === INGEST_ORIGIN,
+          nativesIntact
+        });
+        if (!verdict.mint) {
+          if (target) announceResult(false, { reason: verdict.reason });
+          return;
+        }
+        void beginClaim();
+      },
+      true
+    );
+    W.document.addEventListener("dg:enable-claim", (ev) => {
+      const detail = ev.detail;
+      if (!detail?.claimId || !detail?.commit) return;
+      void redeem(detail.claimId, detail.commit);
+    });
+  }
+  async function beginClaim() {
+    try {
+      const bytes = new Uint8Array(32);
+      W.crypto.getRandomValues(bytes);
+      const nonce = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const commit = await hashHex(nonce);
+      const cutoff = clock.now() - CLAIM_TTL_MS;
+      for (const [k, v] of pendingNonces) if (v.at < cutoff) pendingNonces.delete(k);
+      pendingNonces.set(commit, { nonce, at: clock.now() });
+      W.document.dispatchEvent(new CustomEvent("dg:tap-commit", { detail: { commit } }));
+    } catch {
+      announceResult(false, { reason: "natives_replaced" });
+    }
+  }
+  async function redeem(claimId, commit) {
+    const held = pendingNonces.get(commit);
+    if (!held) return announceResult(false, { reason: "no_claim" });
+    pendingNonces.delete(commit);
+    GM_xmlhttpRequest({
+      method: "POST",
+      url: `${INGEST_ORIGIN}/api/tap/enable/redeem`,
+      headers: { "Content-Type": "application/json", "X-Tap-Install": installId() },
+      // No cookies. The claim and the preimage are the whole authorisation, and
+      // this request must not carry the owner's session anywhere.
+      anonymous: true,
+      data: JSON.stringify({ claim: claimId, nonce: held.nonce, v: CONTRACT_VERSION }),
+      onload: (r) => {
+        let body = {};
+        try {
+          body = JSON.parse(r.responseText);
+        } catch {
+          return announceResult(false, { reason: "network" });
+        }
+        if (r.status !== 200) return announceResult(false, { reason: body.error ?? "network" });
+        if (body.status === "enabled" && body.token) {
+          GM_setValue("dg:token", body.token);
+          render("watching");
+        }
+        announceResult(true, { pairingId: body.pairing_id, status: body.status });
+      },
+      onerror: () => announceResult(false, { reason: "network" })
+    });
+  }
   function start() {
+    if (W.location.origin === INGEST_ORIGIN) {
+      enablementMode();
+      return;
+    }
     const result = install(
       W,
       {
@@ -823,21 +946,6 @@ picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}
 version: ${TAP_VERSION}`;
       if (PAGE_ALERT) PAGE_ALERT.call(W, text);
       else render(status.state, "cannot display status \u2014 the page replaced alert()");
-    });
-    GM_registerMenuCommand("Draft Genie: paste pairing token", () => {
-      if (!PAGE_PROMPT) {
-        render(
-          status.state,
-          "cannot accept a token on this page \u2014 prompt() was replaced. Pair from Draft Genie instead."
-        );
-        return;
-      }
-      const t = PAGE_PROMPT.call(W, "Paste the pairing token from Draft Genie settings:");
-      if (t) {
-        GM_setValue("dg:token", String(t).trim());
-        render("watching");
-        flush();
-      }
     });
   }
   start();

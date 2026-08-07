@@ -14,6 +14,7 @@ import { preferredRoutes } from "./preferred";
 import { projectionRoutes } from "./projections";
 import { accountRoutes } from "./account";
 import { pairingRoutes, tapRoutes } from "./tap";
+import { enableClaimRoutes, enableRedeemRoutes } from "./tapEnable";
 
 export type AppContext = {
   Bindings: Env;
@@ -38,6 +39,10 @@ export function createApp() {
   // session cookie, so these routes MUST be mounted before the /api/* session
   // middleware below — that middleware is a bare prefix match and would return
   // 401 first, no matter how correct the tap's token is.
+  // 011 US3 — the redeem is called by the USERSCRIPT, which has no session
+  // cookie and must not have one. Registered BEFORE `/api/tap` because Hono
+  // matches in order and the broader router would swallow it.
+  app.route("/api/tap/enable", enableRedeemRoutes());
   app.route("/api/tap", tapRoutes());
 
   // Everything else under /api requires a session (contracts/api.md).
@@ -62,6 +67,9 @@ export function createApp() {
   app.route("/api/account", accountRoutes());
   // Session-authenticated pairing management (distinct from the tap's own
   // bearer-authenticated ingest above).
+  // The claim half is session-authenticated: the PAGE calls it. More specific
+  // route first, for the same ordering reason as above.
+  app.route("/api/tap-pairings/enable", enableClaimRoutes());
   app.route("/api/tap-pairings", pairingRoutes());
 
   app.notFound((c) => {

@@ -6,7 +6,7 @@
 // would report a version it is not.
 
 /** Bumped on every shipped change. The build fails if the banner disagrees. */
-export const TAP_VERSION = "0.1.7";
+export const TAP_VERSION = "0.1.8";
 
 /** Wire-contract version, sent on every message. 005 rejects what it cannot read. */
 export const CONTRACT_VERSION = 1;
@@ -38,6 +38,19 @@ export const IGNORED_HOSTS = ["espn.connections.edge.bamgrid.com"];
  *
  * The US1 capture confirmed `navigationType: "navigate"` and
  * `isTopFrame: true`, so a document-load hook fires and `@noframes` is safe.
+ *
+ * 011 US3 adds a SECOND `@match`, for Draft Genie's own origin, so the owner can
+ * enable the relay with one click instead of copying a credential into a
+ * `prompt()` on ESPN's page. Three things about it:
+ *
+ *   * origin-wide, not `/draft-tap*`. The app is a single-page router served
+ *     with SPA fallback, so a path match would miss anyone who arrives by
+ *     client-side navigation.
+ *   * `@connect` is NOT widened. Where the script may RUN and where it may SEND
+ *     are different questions, and only the second is a capability.
+ *   * on our origin the script does nothing but the enablement handshake — see
+ *     the branch at the top of `start()`. It must not intercept there, because
+ *     the draft room opens a WebSocket of its own.
  */
 export const META_BLOCK = `// ==UserScript==
 // @name         Draft Genie draft tap
@@ -46,6 +59,7 @@ export const META_BLOCK = `// ==UserScript==
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
+// @match        ${INGEST_ORIGIN}/*
 // @run-at       document-start
 // @sandbox      raw
 // @inject-into  page

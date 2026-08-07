@@ -149,15 +149,15 @@ reported distinctly, with a remedy.
 **Independent test**: from a browser with nothing installed, enable the tap
 without typing or pasting anything, then relay from a draft room.
 
-- [ ] T025 [US3] Write enablement tests FIRST in `tests/tap/enable.test.ts`: enablement requires an authenticated session and a genuine gesture, and **cannot be caused by a page the owner merely visits** (FR-018, SC-012)
-- [ ] T026 [US3] Add the acknowledgement endpoint in `src/api/tapEnable.ts`, issuing enablement for the signed-in account only (FR-016, FR-019)
-- [ ] T027 [US3] Match Draft Genie's own origin in `tap/` so the script can receive enablement from the page, keeping the ESPN match and `document_start` behaviour unchanged
-- [ ] T028 [US3] Make enablement idempotent — re-acknowledging must not interrupt a relay in progress (FR-020)
-- [ ] T029 [US3] Make enablement survive sign-out and session expiry while staying revocable (FR-020a). A draft outlasts a session, and under fan-out a relay dying mid-draft takes a **whole league's** feed with it
-- [ ] T030 [US3] State the reason on a failed enablement and leave any working state intact (FR-021)
-- [ ] T031 [US3] Assert in `tests/tap/enable.test.ts` that **no credential, code or identifier is ever rendered** to the user (FR-017, SC-004)
-- [ ] T032 [US3] Assert the ingest still rejects unattributable frames, and that attribution is **never inferred** from an armed session, a live-draft window or a league id alone (FR-022, FR-022a) — those constraints are weakest exactly when a draft is live
-- [ ] T033 [US3] Re-run `tests/tap/passivity.test.ts` against the changed userscript and confirm it still opens no connection to ESPN and has no send path (FR-041)
+- [X] T025 [US3] Write enablement tests FIRST in `tests/tap/enable.test.ts`: enablement requires an authenticated session and a genuine gesture, and **cannot be caused by a page the owner merely visits** (FR-018, SC-012)
+- [X] T026 [US3] Add the acknowledgement endpoint in `src/api/tapEnable.ts`, issuing enablement for the signed-in account only (FR-016, FR-019)
+- [X] T027 [US3] Match Draft Genie's own origin in `tap/` so the script can receive enablement from the page, keeping the ESPN match and `document_start` behaviour unchanged
+- [X] T028 [US3] Make enablement idempotent — re-acknowledging must not interrupt a relay in progress (FR-020)
+- [X] T029 [US3] Make enablement survive sign-out and session expiry while staying revocable (FR-020a). A draft outlasts a session, and under fan-out a relay dying mid-draft takes a **whole league's** feed with it
+- [X] T030 [US3] State the reason on a failed enablement and leave any working state intact (FR-021)
+- [X] T031 [US3] Assert in `tests/tap/enable.test.ts` that **no credential, code or identifier is ever rendered** to the user (FR-017, SC-004)
+- [X] T032 [US3] Assert the ingest still rejects unattributable frames, and that attribution is **never inferred** from an armed session, a live-draft window or a league id alone (FR-022, FR-022a) — those constraints are weakest exactly when a draft is live
+- [X] T033 [US3] Re-run `tests/tap/passivity.test.ts` against the changed userscript and confirm it still opens no connection to ESPN and has no send path (FR-041)
 
 ---
 

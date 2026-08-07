@@ -2,10 +2,19 @@ import { useEffect, useState } from "react";
 import { tapStateOf } from "../lib/observableState";
 import { apiClient, type TapPairing } from "../api";
 
-// 010 T037/T038/T039 — install, pair, revoke, and verify without a draft.
+// 010 T037/T038/T039 — install, enable, revoke, and verify without a draft.
 //
-// The token is shown ONCE: only its hash is stored, so it cannot be shown
-// again. Revoking is always available, and never touches the ESPN account.
+// 011 US3 replaced pairing with one acknowledgement. The old flow asked the
+// owner to copy a 180-day bearer out of this page and paste it into a prompt()
+// on ESPN's site — which meant rendering a credential into the DOM, where any
+// same-origin script could read it, and making a person responsible for
+// handling it. FR-017 forbids both.
+//
+// Now: the page asks the script for a commitment, sends the HASH to the server
+// under session auth, and hands back an opaque claim. The script redeems it
+// with the preimage the page never had. The credential reaches the extension
+// and nothing else — this page never sees one, and there is nothing here to
+// copy, show or lose.
 
 const TAP_URL = "/draft-tap.user.js";
 
@@ -19,9 +28,14 @@ const TAP_LABEL: Record<string, string> = {
 
 export default function DraftTap() {
   const [pairings, setPairings] = useState<TapPairing[]>([]);
-  const [fresh, setFresh] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [health, setHealth] = useState<"unknown" | "ok" | "failed">("unknown");
+  const [enableMsg, setEnableMsg] = useState<string | null>(null);
+  // The script stamps this at document-start, before React mounts — so there is
+  // no ping, no pong and no race. Read once on mount.
+  const [scriptVersion] = useState<string | null>(() =>
+    document.documentElement.getAttribute("data-dg-tap"),
+  );
 
   const load = () => apiClient.listTapPairings().then((r) => setPairings(r.pairings));
 
@@ -31,7 +45,11 @@ export default function DraftTap() {
   // but never enabled", and guessing between them is what sends someone to
   // re-do setup that was already working.
   const tapState = tapStateOf({
-    scriptDetected: null,
+    // A real answer at last. Before the script matched this origin the page
+    // genuinely could not tell "not installed" from "installed but never
+    // enabled", and guessing between them is what sends someone to re-do setup
+    // that was already working.
+    scriptDetected: scriptVersion !== null,
     enablements: pairings.map((p) => ({ lastUsedAt: p.last_used_at, revoked: p.revoked })),
     nowMs: Date.now(),
   });
@@ -39,15 +57,59 @@ export default function DraftTap() {
     void load();
   }, []);
 
-  async function create() {
-    setBusy(true);
-    try {
-      const r = await apiClient.createTapPairing();
-      setFresh(r.token);
-      await load();
-    } finally {
-      setBusy(false);
+  /**
+   * One acknowledgement (FR-016).
+   *
+   * The page's whole role: relay a hash to the server and an opaque claim back
+   * to the script. It never holds a credential, so there is nothing here for a
+   * same-origin script to steal and nothing for the owner to handle.
+   *
+   * The click itself is not simulated anywhere — the script is listening for a
+   * genuine one on this very button, and refuses anything else (FR-018).
+   */
+  async function enable() {
+    if (scriptVersion === null) {
+      setEnableMsg("Draft Genie can't see the draft tap in this browser. Install it above, then reload.");
+      return;
     }
+    setBusy(true);
+    setEnableMsg(null);
+
+    const done = new Promise<void>((resolve) => {
+      const onCommit = (ev: Event) => {
+        const commit = (ev as CustomEvent).detail?.commit as string | undefined;
+        if (!commit) return;
+        apiClient
+          .enableTapClaim(commit)
+          .then((r) =>
+            document.dispatchEvent(
+              new CustomEvent("dg:enable-claim", { detail: { claimId: r.claim_id, commit } }),
+            ),
+          )
+          .catch(() => setEnableMsg("Draft Genie couldn't start that. Try again."));
+      };
+      const onResult = (ev: Event) => {
+        const d = (ev as CustomEvent).detail as { ok: boolean; reason?: string } | null;
+        setEnableMsg(d?.ok ? null : "That didn't work. Reload the page and try again.");
+        cleanup();
+        void load().then(resolve);
+      };
+      const cleanup = () => {
+        document.removeEventListener("dg:tap-commit", onCommit);
+        document.removeEventListener("dg:enable-result", onResult);
+      };
+      document.addEventListener("dg:tap-commit", onCommit);
+      document.addEventListener("dg:enable-result", onResult);
+      // Bounded: if the extension never answers, say so rather than spinning.
+      window.setTimeout(() => {
+        cleanup();
+        setEnableMsg((m) => m ?? "The draft tap didn't respond. Reload the page and try again.");
+        resolve();
+      }, 8000);
+    });
+
+    await done;
+    setBusy(false);
   }
 
   async function revoke(id: string) {
@@ -107,23 +169,23 @@ export default function DraftTap() {
       </div>
 
       <div className="card">
-        <h2>2. Pair this browser</h2>
-        {fresh ? (
-          <>
-            <p>
-              Copy this token, then in the ESPN draft room open the Tampermonkey menu and choose{" "}
-              <em>Draft Genie: paste pairing token</em>.
-            </p>
-            <pre className="token">{fresh}</pre>
-            <p className="muted small">
-              Shown once — only its hash is stored, so it cannot be displayed again. Create a new one if you
-              lose it.
-            </p>
-          </>
-        ) : (
-          <button onClick={create} disabled={busy}>
-            Create pairing token
-          </button>
+        <h2>2. Turn it on</h2>
+        <p>
+          One click. Nothing to copy, and nothing to keep — the tap and Draft Genie arrange it between
+          themselves.
+        </p>
+        {/* The attribute is what the userscript watches for. It carries no
+            identifier and no secret; the script refuses a click on anything
+            else. */}
+        <button data-dg-tap-enable="" onClick={() => void enable()} disabled={busy}>
+          {busy ? "Turning it on…" : "Turn on the draft tap"}
+        </button>
+        {enableMsg && <p className="muted small">{enableMsg}</p>}
+        {scriptVersion === null && (
+          <p className="muted small">
+            Draft Genie can&apos;t see the draft tap in this browser yet. Install it above, then reload this
+            page.
+          </p>
         )}
       </div>
 
