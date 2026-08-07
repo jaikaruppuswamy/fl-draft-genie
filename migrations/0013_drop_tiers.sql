@@ -1,0 +1,20 @@
+-- 016 — tiering removed at the owner's decision (2026-08-07).
+--
+-- Positional tiers came from Boris Chen's public feeds and were a grouping the
+-- board had to explain rather than one that explained anything. Two things
+-- decided it:
+--
+--   * "worst tier" and "the source has no opinion" looked identical on screen —
+--     a player absent from the feed rendered beneath the last tier heading, so
+--     an untiered Lamar Jackson read as tier 8;
+--   * the QB feed was ranking Philip Rivers, who retired in 2020, while omitting
+--     Lamar Jackson, Patrick Mahomes and Jayden Daniels. Verified against the
+--     live feed on 2026-08-07; the other positions were correct, and the owner's
+--     judgement was that the grouping was confusing even where the data was good.
+--
+-- SAFE TO DROP. Every row here was fetched from a public text feed, keyed by a
+-- normalised player name. There is no user content, nothing derived from an
+-- ESPN credential, and nothing that cannot be re-fetched in one request if the
+-- decision is ever reversed. Recreating the table means restoring
+-- `migrations/0003_tiers.sql`.
+DROP TABLE IF EXISTS tier_entries;

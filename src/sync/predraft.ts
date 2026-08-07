@@ -11,8 +11,6 @@ import { logError, logInfo } from "../api/logging";
 import { dueForDraftDayTopUp, isStale } from "../projections/freshness";
 import { ingestProjections } from "../projections/ingest";
 import { getServingSet, pruneSets } from "../db/projections";
-import { ingestTiers } from "../tiers/borischen";
-import { tierTableEmpty } from "../db/tiers";
 import { computeSignals } from "../signals/compute";
 import { signalsTableEmpty } from "../db/signals";
 import { currentSeason } from "../espn/leagueRef";
@@ -122,7 +120,7 @@ export async function runScheduledMaintenance(env: Env, now: Date): Promise<void
   // not be cancelled by it.
   await stage("draft archive", () => archiveCompletedDrafts(env, now));
 
-  await stage("projections, tiers and signals", () => refreshDerivedData(env, now));
+  await stage("projections and signals", () => refreshDerivedData(env, now));
 }
 
 async function refreshDerivedData(env: Env, now: Date): Promise<void> {
@@ -141,10 +139,6 @@ async function refreshDerivedData(env: Env, now: Date): Promise<void> {
     refreshed = true;
   }
 
-  // Tiers ride the same cadence events; failures never block (003 FR-002).
-  if (refreshed || (await tierTableEmpty(env.DB))) {
-    await ingestTiers(env, now);
-  }
 
   // Signals recompute in lockstep with projections (004 FR-007/FR-008).
   if (refreshed || (await signalsTableEmpty(env.DB))) {

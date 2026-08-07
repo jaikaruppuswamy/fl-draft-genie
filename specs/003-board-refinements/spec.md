@@ -1,3 +1,25 @@
+> ## ⚠️ TIERING REMOVED (2026-08-07)
+>
+> FR-002, FR-003 and FR-004 — positional tiers from Boris Chen's public feeds —
+> were **removed at the owner's decision**. The spec below is kept as the record
+> of what was built and why; it no longer describes the product.
+>
+> Two things decided it. A player absent from the feed rendered beneath the last
+> tier heading, so "the source has no opinion" and "worst tier" were
+> indistinguishable on screen — reported as *"Lamar is in tier 8"* when he was
+> not tiered at all. And the QB feed was ranking Philip Rivers, retired since
+> 2020, while omitting Lamar Jackson, Patrick Mahomes and Jayden Daniels;
+> verified against the live feed, with the other positions correct.
+>
+> The owner's judgement was that the grouping was confusing **even where the
+> data was good**. The board now orders by projected points, which every other
+> surface already uses.
+>
+> Removed in `016`: `src/tiers/`, `src/db/tiers.ts`, the `tier` field on the
+> board response, the board's grouping and column, and the `tier_entries` table
+> (`migrations/0013_drop_tiers.sql`). Restoring it means reverting that commit
+> and re-applying `migrations/0003_tiers.sql`.
+
 # Feature Specification: Board Refinements
 
 **Feature Branch**: `003-board-refinements`
