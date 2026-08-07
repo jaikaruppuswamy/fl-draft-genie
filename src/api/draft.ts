@@ -9,7 +9,8 @@ import { Hono } from "hono";
 import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { getConnectionById } from "../db/leagues";
-import { getSession, latestLeagueHeartbeat, resetSession } from "../db/draft";
+import { getSession, latestLeagueHeartbeat } from "../db/draft";
+import { resetOneSession } from "../draft/reset";
 import { sessionStub } from "../draft/session";
 import { heartbeatLapsed, isLiveDraft, withholdReason, type TapReportedState } from "../draft/liveness";
 import { now } from "../env";
@@ -153,11 +154,9 @@ export function draftRoutes() {
       );
     }
 
-    // The object first: if the row were cleared first and this failed, the
-    // session would report idle while still holding the previous draft — the
-    // 2026-08-06 shape exactly.
-    await sessionStub(c.env, connection.id, row.season).reset();
-    await resetSession(c.env.DB, connection.id, at);
+    // The one reset path, shared with the observed-reset void. Ordering and
+    // the two-store guarantee live there, so neither caller can get half of it.
+    await resetOneSession(c.env, connection.id, row.season, at);
 
     return Response.json({ reset: true, wasLive: live });
   });

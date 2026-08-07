@@ -23,7 +23,7 @@ import { findConnection, getConnectionById, listConnectionsForLeague } from "../
 import { sessionStub } from "../draft/session";
 import { armingScope } from "../draft/arming";
 import { getSnapshot } from "../db/leagues";
-import { getSession, recordHeartbeat, upsertSession } from "../db/draft";
+import { getSession, recordHeartbeat, recordRelayActivity, upsertSession } from "../db/draft";
 import type { Env } from "../env";
 
 /** The tap runs on ESPN's origin; nothing else needs these routes. */
@@ -389,6 +389,16 @@ export function tapRoutes() {
     // frame data; the session pulls from the log it was just written to. A
     // dropped nudge therefore costs latency, never a pick, and the session's
     // 5 s safety alarm bounds that latency inside SC-001's 10 s ceiling.
+    // 013 — RELAYING IS LIVENESS. A tap delivering picks is alive, and counting
+    // only the separate `/status` heartbeat meant a tap relaying every twenty
+    // seconds was judged dead at forty-five, so the room withheld
+    // recommendations while receiving that tap's own picks. Recorded here, on
+    // the relayer's row only, and never touching `heartbeat_hidden` — a batch
+    // says nothing about whether a tab is backgrounded.
+    if (body.messages.length > 0) {
+      await recordRelayActivity(c.env.DB, connection.id, at);
+    }
+
     // FR-007g: any frame arms. Cheap and idempotent (reads 001's snapshot).
     //
     // 011: the nudge used to be scheduled separately, right here. It is now

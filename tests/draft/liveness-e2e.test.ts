@@ -275,3 +275,104 @@ describe("SC-001b's detection bound", () => {
     expect((await status()).withholding).toBe("not_receiving");
   });
 });
+
+describe("013 — a tap that RELAYS is alive, whatever the heartbeat says", () => {
+  /** A relayed pick batch, posted with a real ExecutionContext. */
+  function batchBody(seq: number, playerId: number) {
+    return {
+      v: 1,
+      install: INSTALL,
+      session: "sess-live",
+      league: { espnLeagueId: LEAGUE, season: SEASON },
+      messages: [
+        {
+          v: 1,
+          seq,
+          epoch: 0,
+          observedAt: new Date(1_800_000_000_000 + seq * 1000).toISOString(),
+          transport: "ws",
+          kind: "pick",
+          payload: { teamId: 1, playerId, slot3: 0 },
+        },
+      ],
+    };
+  }
+
+  async function postBatch(body: unknown): Promise<Response> {
+    const ctx = createExecutionContext();
+    const res = await app.request(
+      "/api/tap/batch",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://fantasy.espn.com",
+          Authorization: `Bearer ${token}`,
+          "X-Tap-Install": INSTALL,
+        },
+        body: JSON.stringify(body),
+      },
+      testEnv,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    return res;
+  }
+
+  // The defect that needed a manual workaround to finish a real draft on
+  // 2026-08-07. Liveness counted only the `/status` heartbeat, so a tap
+  // delivering a pick every twenty seconds was judged dead after forty-five
+  // seconds of status silence — and the room withheld recommendations while
+  // receiving that very tap's picks.
+  //
+  // Relaying is stronger evidence than a heartbeat: a heartbeat says the script
+  // is loaded, a pick says it is working.
+
+  /** Arm the session (only a heartbeat or batch creates the row), then backdate. */
+  async function armedAndStale(): Promise<void> {
+    await heartbeat();
+    await testEnv.DB.prepare(`UPDATE draft_sessions SET last_heartbeat_at = ? WHERE connection_id = ?`)
+      .bind("2026-08-01T00:00:00.000Z", CONNECTION)
+      .run();
+  }
+
+  it("records liveness when a batch arrives", async () => {
+    await armedAndStale();
+
+    const res = await postBatch(batchBody(1, 4362628));
+    expect(res.status).toBe(202);
+
+    const row = await getSession(testEnv.DB, CONNECTION);
+    expect(row?.last_heartbeat_at).not.toBe("2026-08-01T00:00:00.000Z");
+    expect(Date.parse(row!.last_heartbeat_at!)).toBeGreaterThan(Date.parse("2026-08-01T00:00:00.000Z"));
+  });
+
+  it("does NOT invent liveness from an empty batch — PROVES it tracks relaying", async () => {
+    // Without this, "a batch is liveness" passes against an implementation that
+    // stamps the clock on every request, including a tap that has connected and
+    // is sending nothing. That is the false-health this whole feature exists to
+    // avoid claiming.
+    await armedAndStale();
+
+    const empty = { ...batchBody(1, 4362628), messages: [] };
+    await postBatch(empty);
+
+    const row = await getSession(testEnv.DB, CONNECTION);
+    expect(row?.last_heartbeat_at).toBe("2026-08-01T00:00:00.000Z");
+  });
+
+  it("leaves `heartbeat_hidden` alone — only the tap can observe its own tab", async () => {
+    // A batch says nothing about whether the tab is backgrounded, and that flag
+    // decides WHICH lapse threshold applies. Guessing it would either declare a
+    // healthy background tap dead or give a foreground one too much rope.
+    await heartbeat();
+    await testEnv.DB.prepare(`UPDATE draft_sessions SET heartbeat_hidden = 1 WHERE connection_id = ?`)
+      .bind(CONNECTION)
+      .run();
+
+    await postBatch(batchBody(2, 4262921));
+
+    const row = await getSession(testEnv.DB, CONNECTION);
+    expect(row?.heartbeat_hidden).toBe(1);
+  });
+});

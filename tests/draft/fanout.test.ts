@@ -357,8 +357,21 @@ describe("the room asks whether ANYONE is relaying (011 T012, FR-006)", () => {
   }
 
   it("reports NO active relay to a manager whose league has none", async () => {
-    // Armed by fan-out, but nobody has heartbeated anywhere in the league.
+    // Armed by fan-out, and NOTHING has relayed since.
+    //
+    // This used to post a batch first and still expect `active: false`, which
+    // was only true because relaying did not count as liveness — the defect that
+    // withheld recommendations through a real draft while picks were arriving.
+    // A batch now proves a tap is alive, so the absence has to be a genuine
+    // absence: arm the sessions, then backdate every heartbeat past the lapse
+    // threshold.
     await postBatch(batchBody(1, 4362628));
+    await testEnv.DB.prepare(
+      `UPDATE draft_sessions SET last_heartbeat_at = ?
+        WHERE connection_id IN (SELECT id FROM league_connections WHERE espn_league_id = ?)`,
+    )
+      .bind("2026-08-01T00:00:00.000Z", LEAGUE)
+      .run();
 
     const body = await draftStatus(QUIET);
     expect(body.armed).toBe(true);

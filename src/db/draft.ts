@@ -451,49 +451,67 @@ export async function setResetSuspicion(
 }
 
 /**
- * 011 T052 (FR-031b) — void EVERY manager's session for this league.
+ * 011 T052 — forget that ESPN ever reported this draft complete.
  *
- * Not only the one whose sync happened to observe the reset. Under fan-out
- * there is more than one session per league, they were all fed the same frames,
- * and leaving the others holding the old draft is the contamination this
- * feature exists to end — arriving by a different door.
+ * The MEMORY half of a void, and deliberately nothing else. It used to clear
+ * the `draft_sessions` rows too and stop there, which left every Durable Object
+ * still holding the previous draft's picks — so the rows read `idle` while the
+ * rooms showed 72 stale picks. Clearing a session is now `resetLeagueSessions`
+ * in `src/draft/reset.ts`, which owns BOTH stores; this function can no longer
+ * be mistaken for it.
  *
- * Clears the completion memory too, so the league leaves the post-draft watch
- * and a genuinely new draft can set it again. Retained frames and archives are
- * untouched (FR-031c): a draft that really happened stays history, and 008's
- * corpus may already depend on it.
+ * Clearing the memory is what takes the league out of the post-draft watch and
+ * lets a genuinely new draft set it again. Retained frames and archives are
+ * untouched (FR-031c) — a draft that really happened stays history.
  */
-export async function voidLeagueSessions(
+export async function clearEspnCompletionMemory(
   db: D1Database,
   espnLeagueId: string,
   season: number,
-  now: Date,
-): Promise<string[]> {
+): Promise<void> {
   const rows = await db
     .prepare(`SELECT id FROM league_connections WHERE espn_league_id = ? AND season = ?`)
     .bind(espnLeagueId, season)
     .all<{ id: string }>();
   const ids = rows.results.map((r) => r.id);
-  if (ids.length === 0) return [];
-
+  if (ids.length === 0) return;
   const marks = ids.map(() => "?").join(", ");
-  await db.batch([
-    // Reuse US5's reset so there is ONE reset path reached two ways: clears the
-    // completion stamp so the latch releases and the session can run again.
-    db
-      .prepare(
-        `UPDATE draft_sessions
-            SET status = 'idle', completed_at = NULL, archived_at = NULL, updated_at = ?
-          WHERE connection_id IN (${marks})`,
-      )
-      .bind(now.toISOString(), ...ids),
-    db
-      .prepare(
-        `UPDATE league_snapshots
-            SET espn_draft_completed_at = NULL, espn_reset_suspected_at = NULL
-          WHERE connection_id IN (${marks})`,
-      )
-      .bind(...ids),
-  ]);
-  return ids;
+  await db
+    .prepare(
+      `UPDATE league_snapshots
+          SET espn_draft_completed_at = NULL, espn_reset_suspected_at = NULL
+        WHERE connection_id IN (${marks})`,
+    )
+    .bind(...ids)
+    .run();
+}
+
+/**
+ * 013 — a tap that RELAYS A PICK is alive. Record that.
+ *
+ * Liveness counted only the separate `/status` heartbeat. So a tap delivering a
+ * pick every twenty seconds was judged dead after forty-five seconds of status
+ * silence, and the room withheld recommendations while receiving that tap's
+ * picks perfectly. It happened during a real draft on 2026-08-07, to both
+ * managers at once, and needed a manual workaround to finish the draft.
+ *
+ * Relaying is the STRONGEST evidence a tap is alive — stronger than a heartbeat,
+ * which only says the script is loaded. Refusing to count it meant the system
+ * held proof of the thing it was reporting as absent.
+ *
+ * Deliberately narrow: only `last_heartbeat_at`, and only for the connection
+ * whose tap actually sent the batch. `heartbeat_hidden` is NOT touched — the tap
+ * is the only party that can observe its own tab, and a batch says nothing about
+ * that. Under fan-out the league-wide read takes the freshest across managers,
+ * so recording the relayer's row is enough for everyone.
+ */
+export async function recordRelayActivity(db: D1Database, connectionId: string, now: Date): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE draft_sessions
+          SET last_heartbeat_at = ?, updated_at = ?
+        WHERE connection_id = ?`,
+    )
+    .bind(now.toISOString(), now.toISOString(), connectionId)
+    .run();
 }

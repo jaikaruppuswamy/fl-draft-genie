@@ -162,7 +162,8 @@ describe("counting filled picks", () => {
 
 import { env } from "cloudflare:test";
 import { beforeEach } from "vitest";
-import { voidLeagueSessions } from "../../src/db/draft";
+import { clearEspnCompletionMemory } from "../../src/db/draft";
+import { resetLeagueSessions } from "../../src/draft/reset";
 import type { Env } from "../../src/env";
 
 const testEnv = env as unknown as Env;
@@ -174,6 +175,13 @@ const MANAGERS = [
 ];
 
 describe("a confirmed reset voids EVERY manager (T052, FR-031b)", () => {
+  // Rewritten in 013. These used to call `voidLeagueSessions`, which cleared the
+  // D1 rows and nothing else — so they passed while every Durable Object went on
+  // serving the previous draft's 72 picks. The tests asserted the half that was
+  // implemented, which is why a manager resetting their draft and syncing still
+  // saw the old board.
+  //
+  // They now drive the real path, which owns BOTH stores.
   beforeEach(async () => {
     for (const m of MANAGERS) {
       await testEnv.DB.prepare("INSERT OR IGNORE INTO accounts (id, email, created_at) VALUES (?, ?, ?)")
@@ -200,7 +208,7 @@ describe("a confirmed reset voids EVERY manager (T052, FR-031b)", () => {
     // Not only the one whose sync noticed. Under fan-out they were all fed the
     // same frames, and leaving the others holding the old draft is the
     // contamination this feature exists to end, arriving by another door.
-    const voided = await voidLeagueSessions(testEnv.DB, V_LEAGUE, V_SEASON, new Date(NOW));
+    const voided = await resetLeagueSessions(testEnv, V_LEAGUE, V_SEASON, new Date(NOW));
     expect(voided.sort()).toEqual(MANAGERS.map((m) => m.conn).sort());
 
     for (const m of MANAGERS) {
@@ -230,7 +238,7 @@ describe("a confirmed reset voids EVERY manager (T052, FR-031b)", () => {
       .bind(MANAGERS[0]!.account, V_SEASON, "2026-08-06T05:00:00.000Z", NOW, NOW)
       .run();
 
-    await voidLeagueSessions(testEnv.DB, V_LEAGUE, V_SEASON, new Date(NOW));
+    await resetLeagueSessions(testEnv, V_LEAGUE, V_SEASON, new Date(NOW));
 
     const other = await testEnv.DB.prepare("SELECT completed_at FROM draft_sessions WHERE connection_id = ?")
       .bind("conn-void-other")
@@ -251,7 +259,7 @@ describe("a confirmed reset voids EVERY manager (T052, FR-031b)", () => {
       .bind(MANAGERS[0]!.account, MANAGERS[0]!.conn, V_LEAGUE, V_SEASON, NOW)
       .run();
 
-    await voidLeagueSessions(testEnv.DB, V_LEAGUE, V_SEASON, new Date(NOW));
+    await resetLeagueSessions(testEnv, V_LEAGUE, V_SEASON, new Date(NOW));
 
     const kept = await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM tap_batches WHERE espn_league_id = ?")
       .bind(V_LEAGUE)
@@ -273,7 +281,7 @@ describe("a confirmed reset voids EVERY manager (T052, FR-031b)", () => {
         .run();
     }
 
-    await voidLeagueSessions(testEnv.DB, V_LEAGUE, V_SEASON, new Date(NOW));
+    await clearEspnCompletionMemory(testEnv.DB, V_LEAGUE, V_SEASON);
 
     for (const m of MANAGERS) {
       const s = await testEnv.DB.prepare(
@@ -284,5 +292,130 @@ describe("a confirmed reset voids EVERY manager (T052, FR-031b)", () => {
       expect(s?.espn_draft_completed_at, m.conn).toBeNull();
       expect(s?.espn_reset_suspected_at, m.conn).toBeNull();
     }
+  });
+});
+
+describe("the void clears what a MANAGER SEES, not just a row (013)", () => {
+  // The test that was missing, and its absence is why a real reset left every
+  // room showing 72 stale picks.
+  //
+  // A session's state lives in two stores. Every assertion above reads D1 — so
+  // they all passed against a void that cleared the rows and left the Durable
+  // Objects untouched, still serving the previous draft. The room reads the
+  // OBJECT. That is what a manager sees, so that is what has to be asserted.
+
+  const SEEN_LEAGUE = "7373737373";
+  const SEEN = { account: "acct-seen", conn: "conn-seen" };
+
+  async function seedWithPicks(): Promise<void> {
+    await testEnv.DB.prepare("INSERT OR IGNORE INTO accounts (id, email, created_at) VALUES (?, ?, ?)")
+      .bind(SEEN.account, "seen@void.test", "2026-08-01T00:00:00.000Z")
+      .run();
+    await testEnv.DB.prepare(
+      `INSERT OR IGNORE INTO league_connections
+         (id, account_id, espn_league_id, season, my_team_id, team_match_source, created_at, last_sync_status)
+       VALUES (?, ?, ?, ?, 1, 'auto', ?, 'ok')`,
+    )
+      .bind(SEEN.conn, SEEN.account, SEEN_LEAGUE, V_SEASON, "2026-08-01T00:00:00.000Z")
+      .run();
+
+    // The row the diagnostic surface reads. `arm()` on the object does not
+    // create it — only the ingest does — so the fixture must.
+    await testEnv.DB.prepare(
+      `INSERT OR REPLACE INTO draft_sessions
+         (connection_id, account_id, season, status, completed_at, updated_at, created_at, heartbeat_hidden)
+       VALUES (?, ?, ?, 'complete', ?, ?, ?, 0)`,
+    )
+      .bind(SEEN.conn, SEEN.account, V_SEASON, "2026-08-07T02:53:11.000Z", NOW, NOW)
+      .run();
+
+    const { DraftSession, sessionIdFor } = await import("../../src/draft/session");
+    const { runInDurableObject } = await import("cloudflare:test");
+    const stub = testEnv.DRAFT_SESSION.get(sessionIdFor(testEnv, SEEN.conn, V_SEASON));
+    await runInDurableObject(stub, async (_i: InstanceType<typeof DraftSession>, st: DurableObjectState) => {
+      await st.storage.deleteAll();
+      await st.storage.deleteAlarm();
+    });
+    await runInDurableObject(stub, (i: InstanceType<typeof DraftSession>) =>
+      i.arm({
+        accountId: SEEN.account,
+        connectionId: SEEN.conn,
+        espnLeagueId: SEEN_LEAGUE,
+        season: V_SEASON,
+        myTeamId: 1,
+        order: [1, 2],
+        totalPicks: 4,
+      }),
+    );
+  }
+
+  it("leaves the SESSION OBJECT with no picks", async () => {
+    await seedWithPicks();
+    const { DraftSession, sessionIdFor } = await import("../../src/draft/session");
+    const { runInDurableObject } = await import("cloudflare:test");
+    const stub = () => testEnv.DRAFT_SESSION.get(sessionIdFor(testEnv, SEEN.conn, V_SEASON));
+
+    // Put a draft in the object, the way frames would.
+    await testEnv.DB.prepare(
+      `INSERT INTO tap_batches
+         (id, account_id, connection_id, espn_league_id, season, install_id, session_id,
+          received_at, first_seq, last_seq, message_count, kinds, messages_json)
+       VALUES ('seen-b1', ?, ?, ?, ?, 'i', 's', ?, 0, 0, 1, 'pick', ?)`,
+    )
+      .bind(
+        SEEN.account,
+        SEEN.conn,
+        SEEN_LEAGUE,
+        V_SEASON,
+        "2026-08-07T02:45:00.000Z",
+        JSON.stringify([
+          {
+            v: 1,
+            seq: 1,
+            epoch: 0,
+            observedAt: "2026-08-07T02:45:00.000Z",
+            transport: "ws",
+            kind: "pick",
+            payload: { teamId: 1, playerId: 4262921, slot3: 0 },
+          },
+        ]),
+      )
+      .run();
+    await runInDurableObject(stub(), (s: InstanceType<typeof DraftSession>) => s.nudge());
+
+    const before = await runInDurableObject(stub(), (s: InstanceType<typeof DraftSession>) => s.snapshot());
+    expect(before!.picks.length, "fixture never got a pick into the object").toBeGreaterThan(0);
+
+    await resetLeagueSessions(testEnv, SEEN_LEAGUE, V_SEASON, new Date(NOW));
+
+    const after = await runInDurableObject(stub(), (s: InstanceType<typeof DraftSession>) => s.snapshot());
+    expect(after?.picks ?? []).toHaveLength(0);
+  });
+
+  it("PROVES the D1-only version would have passed — the row alone is not the answer", async () => {
+    // Kept deliberately. It reproduces the exact defect: clear the row, leave
+    // the object, and every database assertion still reads clean while the
+    // manager's board is unchanged. This is the shape the other tests in this
+    // file had, which is why they missed it.
+    await seedWithPicks();
+    const { resetSession } = await import("../../src/db/draft");
+    const { DraftSession, sessionIdFor } = await import("../../src/draft/session");
+    const { runInDurableObject } = await import("cloudflare:test");
+    const stub = () => testEnv.DRAFT_SESSION.get(sessionIdFor(testEnv, SEEN.conn, V_SEASON));
+
+    await runInDurableObject(stub(), (s: InstanceType<typeof DraftSession>) => s.nudge());
+    await resetSession(testEnv.DB, SEEN.conn, new Date(NOW));
+
+    // The row looks reset...
+    const rowNow = await testEnv.DB.prepare("SELECT completed_at FROM draft_sessions WHERE connection_id = ?")
+      .bind(SEEN.conn)
+      .first<{ completed_at: string | null }>();
+    expect(rowNow?.completed_at).toBeNull();
+
+    // ...and the object still has its scope, because nothing cleared it.
+    const scope = await runInDurableObject(stub(), (_i: InstanceType<typeof DraftSession>, st: DurableObjectState) =>
+      st.storage.get<{ myTeamId: number }>("scope"),
+    );
+    expect(scope, "the object was untouched, which is the whole point").not.toBeUndefined();
   });
 });
