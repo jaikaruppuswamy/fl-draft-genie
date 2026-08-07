@@ -233,6 +233,19 @@ describe("auth contract (contracts/api.md)", () => {
     expect(res.status).toBe(302);
   });
 
+  it("never lets the confirmation page be cached", async () => {
+    // Its body carries a LIVE, unconsumed link token — `peekMagicLink`
+    // deliberately stopped consuming so the page could name the account. A 200
+    // holding both a Set-Cookie and a redeemable credential is the last thing a
+    // shared browser or an intermediary should keep.
+    const env = makeEnv();
+    const path = await magicLinkFor(env, "cache@b.co");
+    const res = await app.request(path, {}, env);
+
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+  });
+
   it("bounces a bad or spent token to /signin", async () => {
     const env = makeEnv();
     const bad = await app.request("/api/auth/magic?token=deadbeef", {}, env);

@@ -867,7 +867,17 @@
     GM_xmlhttpRequest({
       method: "POST",
       url: `${INGEST_ORIGIN}/api/tap/enable/redeem`,
-      headers: { "Content-Type": "application/json", "X-Tap-Install": installId() },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Tap-Install": installId(),
+        // The credential this browser ALREADY holds, when it holds one. Without
+        // it the server cannot tell a first enablement from a second, so
+        // `already_enabled` is unreachable and every click mints another 180-day
+        // pairing while the previous one stays live. FR-020 exists here or
+        // nowhere — the contract tests supplied this header themselves, so they
+        // passed against a script that never sent it.
+        ...token() ? { Authorization: `Bearer ${token()}` } : {}
+      },
       // No cookies. The claim and the preimage are the whole authorisation, and
       // this request must not carry the owner's session anywhere.
       anonymous: true,
@@ -882,7 +892,6 @@
         if (r.status !== 200) return announceResult(false, { reason: body.error ?? "network" });
         if (body.status === "enabled" && body.token) {
           GM_setValue("dg:token", body.token);
-          render("watching");
         }
         announceResult(true, { pairingId: body.pairing_id, status: body.status });
       },

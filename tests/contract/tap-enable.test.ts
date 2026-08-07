@@ -124,6 +124,37 @@ describe("the redeem half requires the preimage the page never had", () => {
   });
 });
 
+describe("the redeem is for the EXTENSION, not the page", () => {
+  it("REFUSES a redeem carrying a session cookie", async () => {
+    // Without this the split is a convention, not a control: same-origin page
+    // JavaScript could generate its own nonce, mint a claim (the cookie rides
+    // along automatically), redeem it, and read the credential out of the JSON
+    // — the exact thing this design is described as preventing, in four files.
+    //
+    // The real caller sends `anonymous: true`, so it has no cookies to lose.
+    const { claim_id } = (await (await claim()).json()) as { claim_id: string };
+    const res = await redeem({ claim: claim_id, nonce: NONCE }, { Cookie: cookie });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("not_the_extension");
+    expect(JSON.stringify(await res.json().catch(() => ({})))).not.toContain("token");
+  });
+
+  it("still accepts the same request WITHOUT the cookie — PROVES it is the cookie being refused", async () => {
+    const { claim_id } = (await (await claim()).json()) as { claim_id: string };
+    expect((await redeem({ claim: claim_id, nonce: NONCE })).status).toBe(200);
+  });
+
+  it("does not consume the claim when it refuses", async () => {
+    // A refusal that burned the claim would turn one stray cookie into a dead
+    // enablement the owner has to start over.
+    const { claim_id } = (await (await claim()).json()) as { claim_id: string };
+    await redeem({ claim: claim_id, nonce: NONCE }, { Cookie: cookie });
+
+    expect((await redeem({ claim: claim_id, nonce: NONCE })).status).toBe(200);
+  });
+});
+
 describe("re-acknowledging is safe (FR-020)", () => {
   it("mints NOTHING when this browser already holds a working credential", async () => {
     // The relay in progress must not be interrupted, and a second click must

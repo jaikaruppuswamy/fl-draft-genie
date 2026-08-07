@@ -298,3 +298,51 @@ describe("a revoked credential is FORGOTTEN, not merely reported", () => {
     expect(code).toMatch(/shouldForgetCredential\(\s*errorCodeOf\(/);
   });
 });
+
+describe("what the redeem actually sends (the header the tests were faking)", () => {
+  // FR-020's `already_enabled` branch was UNREACHABLE from the real script: the
+  // redeem sent no `Authorization`, so the server could never tell a first
+  // enablement from a second, and every click minted another 180-day pairing
+  // while the previous one stayed live.
+  //
+  // The contract tests passed throughout, because they hand-wrote the header
+  // themselves. That is the failure this file has to catch, and only a
+  // structural assertion on the shipped bundle can: the request is built inline
+  // in the shell, where no unit test reaches it.
+
+  /** The redeem request as shipped, comments stripped so the window is code. */
+  function redeemCall(): string {
+    const code = bundle().replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+    return /enable\/redeem[\s\S]{0,600}/.exec(code)?.[0] ?? "";
+  }
+
+  it("sends the held credential on the redeem, so `already_enabled` is reachable", () => {
+    const redeem = redeemCall();
+    expect(redeem, "no redeem call found in the bundle").toBeTruthy();
+    expect(redeem).toMatch(/Authorization/);
+    expect(redeem).toMatch(/X-Tap-Install/);
+  });
+
+  it("still sends NO cookies with it", () => {
+    // The claim and the preimage are the whole authorisation. The owner's
+    // session must not ride along — and the server now refuses it if it does.
+    const redeem = redeemCall();
+    expect(redeem).toMatch(/anonymous:\s*!0|anonymous:\s*true/);
+  });
+
+  it("does NOT report a state change after enabling", () => {
+    // `render()` reports to the server, which touches `last_used_at`, which the
+    // tap page reads as "relaying". Enabling would then paint a green
+    // "Relaying" for 150 seconds with ESPN never opened — on the exact card
+    // that exists because a working tap could not say so on 2026-08-05.
+    const code = bundle().replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+    const afterSet = /GM_setValue\("dg:token",\s*\w+\.token\)[\s\S]{0,200}/.exec(code)?.[0] ?? "";
+    expect(afterSet, "token is never stored in the bundle").toBeTruthy();
+    expect(afterSet).not.toMatch(/render\(/);
+  });
+
+  it("PROVES those checks can fail", () => {
+    expect('{headers:{"Content-Type":"x"}}').not.toMatch(/Authorization/);
+    expect('GM_setValue("dg:token", b.token); render("watching");').toMatch(/render\(/);
+  });
+});

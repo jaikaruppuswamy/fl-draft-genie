@@ -85,6 +85,12 @@ export function authRoutes() {
     const nonce = crypto.randomUUID();
     c.header("Set-Cookie", confirmCookieHeader(nonce, c.req.url));
     c.header("Content-Type", "text/html; charset=utf-8");
+    // The body carries a LIVE, UNCONSUMED link token: `peekMagicLink`
+    // deliberately stopped consuming so this page could name the account. Under
+    // the old design the token was spent before any HTML existed. A 200 that
+    // carries both a Set-Cookie and a redeemable credential is the last
+    // response you want a shared browser or an intermediary holding on to.
+    c.header("Cache-Control", "no-store");
     // No frame may host this: a framed confirmation is a clickjacked one.
     c.header("Content-Security-Policy", "frame-ancestors 'none'");
     c.header("X-Frame-Options", "DENY");

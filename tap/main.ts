@@ -549,7 +549,17 @@ async function redeem(claimId: string, commit: string): Promise<void> {
   GM_xmlhttpRequest({
     method: "POST",
     url: `${INGEST_ORIGIN}/api/tap/enable/redeem`,
-    headers: { "Content-Type": "application/json", "X-Tap-Install": installId() },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Tap-Install": installId(),
+      // The credential this browser ALREADY holds, when it holds one. Without
+      // it the server cannot tell a first enablement from a second, so
+      // `already_enabled` is unreachable and every click mints another 180-day
+      // pairing while the previous one stays live. FR-020 exists here or
+      // nowhere — the contract tests supplied this header themselves, so they
+      // passed against a script that never sent it.
+      ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
+    },
     // No cookies. The claim and the preimage are the whole authorisation, and
     // this request must not carry the owner's session anywhere.
     anonymous: true,
@@ -567,7 +577,18 @@ async function redeem(claimId: string, commit: string): Promise<void> {
       // the reason re-acknowledging cannot interrupt a relay in progress.
       if (body.status === "enabled" && body.token) {
         GM_setValue("dg:token", body.token);
-        render("watching");
+        // DELIBERATELY NO `render()` HERE.
+        //
+        // `render` reports a state change to the server, which touches the
+        // pairing's `last_used_at` — and the tap page reads that as "relaying".
+        // So enabling would paint a green "Relaying" for the next 150 seconds
+        // with ESPN never opened, on the very card that exists because a
+        // working tap could not say so on 2026-08-05. A status signal that
+        // means "you clicked a button" is worse than none.
+        //
+        // Nothing is lost by staying quiet: an ESPN tab already open reads
+        // `dg:token` fresh on its next flush, so it picks the credential up
+        // without a reload.
       }
       announceResult(true, { pairingId: body.pairing_id, status: body.status });
     },

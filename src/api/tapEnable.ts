@@ -21,6 +21,7 @@ import { z } from "zod";
 import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { now } from "../env";
+import { SESSION_COOKIE } from "../auth/session";
 import { SUPPORTED_CONTRACT_VERSIONS } from "./tap";
 import { consumeEnableClaim, createEnableClaim, issuePairing, verifyPairing } from "../db/tap";
 
@@ -81,6 +82,23 @@ export function enableRedeemRoutes() {
     if (!parsed.success) return jsonError(400, "invalid_redeem", "Malformed enablement request.");
     if (parsed.data.v !== undefined && !SUPPORTED_CONTRACT_VERSIONS.has(parsed.data.v)) {
       return jsonError(409, "unsupported_version", "This version of the draft tap is too old. Update it, then try again.");
+    }
+
+    // A SESSION COOKIE HERE MEANS THE CALLER IS THE PAGE, NOT THE EXTENSION.
+    //
+    // Without this the split is a convention rather than a control: same-origin
+    // page JavaScript could generate its own nonce, mint a claim (the cookie
+    // rides along automatically), redeem it, and read the credential straight
+    // out of the JSON — the very thing this design is described as preventing,
+    // in this file and three others.
+    //
+    // The real caller sends `anonymous: true`, so it has no cookies to lose.
+    if ((c.req.header("Cookie") ?? "").includes(`${SESSION_COOKIE}=`)) {
+      return jsonError(
+        400,
+        "not_the_extension",
+        "That enablement request could not be completed.",
+      );
     }
 
     const at = now(c.env);
