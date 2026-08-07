@@ -70,6 +70,25 @@ export async function verifyCode(
   return { ok: false, error: "invalid_code" };
 }
 
+/**
+ * Who a magic link is for, WITHOUT consuming it.
+ *
+ * The link now opens a confirmation page rather than signing anyone in, and
+ * that page has to name the account — so the token must survive being looked
+ * at. Consumption happens on the POST the button makes.
+ *
+ * Returns the email only. Nothing here creates a session, and an invalid or
+ * spent link is indistinguishable from an unknown one to the caller.
+ */
+export async function peekMagicLink(
+  env: Env,
+  linkToken: string,
+  now: Date,
+): Promise<{ ok: true; email: string } | { ok: false }> {
+  const token = await findUsableTokenByLinkHash(env.DB, await sha256Hex(linkToken.trim()), now);
+  return token ? { ok: true, email: token.email } : { ok: false };
+}
+
 export async function verifyMagicLink(
   env: Env,
   linkToken: string,
