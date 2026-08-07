@@ -275,11 +275,11 @@ alone, without asking a question.
 US8, so "record 011 as shipped" would have run before a third of the feature
 existed.
 
-- [ ] T065 Run a mutation sweep over the ledger admission rule, the fan-out audience, the perspective split, the live-draft guard and the duplicate convergence — confirm each is killed by a **named** test, and report the test **count** that ran, not only pass/fail
-- [ ] T066 [P] Assert **no file under `src/engine/` changed** across this feature (FR-040). The one Principle IV boundary here, and the only one otherwise unguarded — 008 asserted its equivalent structurally rather than trusting it
+- [X] T065 Run a mutation sweep over the ledger admission rule, the fan-out audience, the perspective split, the live-draft guard and the duplicate convergence — confirm each is killed by a **named** test, and report the test **count** that ran, not only pass/fail
+- [X] T066 [P] Assert **no file under `src/engine/` changed** across this feature (FR-040). The one Principle IV boundary here, and the only one otherwise unguarded — 008 asserted its equivalent structurally rather than trusting it
 - [ ] T067 [P] Verify SC-001 and SC-013 by measuring delivery latency for both a relaying and a non-relaying manager against T003's baseline
-- [ ] T068 [P] Verify no ESPN credential is read, logged or transmitted anywhere the feature touches (FR-042), and that relayed frames remain numeric-only (FR-043)
-- [ ] T069 Run `npm test`, `npm run typecheck`, `npm run lint` and `npm run privacy` — all clean
+- [X] T068 [P] Verify no ESPN credential is read, logged or transmitted anywhere the feature touches (FR-042), and that relayed frames remain numeric-only (FR-043)
+- [X] T069 Run `npm test`, `npm run typecheck`, `npm run lint` and `npm run privacy` — all clean
 - [ ] T070 Walk [quickstart.md](quickstart.md) end to end with **two accounts and one mock draft**, correcting anything that does not match what was built. This is the configuration every defect in this feature was found in, and the only one that can prove US1 at all
 - [ ] T071 Record 011 in `ROADMAP.md` as shipped, with T001's gate result, the measured latency, what the mutation sweep found, and anything the build learned that the plan did not know
 
