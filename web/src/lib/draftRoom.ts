@@ -289,7 +289,20 @@ function reduceFrame(state: RoomState, frame: DraftFrame, at: number): { state: 
   }
 
   const advanced = { ...state, cursor: frame.seq };
-  const event = (frame.event ?? {}) as {
+  // `payload` — the key the server actually sends, and the one the ratified
+  // stream contract names (005 contracts/api.md: `{type, epoch, seq, revision,
+  // kind, payload}`).
+  //
+  // This read `frame.event`, which nothing has ever set. So EVERY live event
+  // resolved to `{}` and fell through to `default:`: no pick placed, no turn
+  // update, no completion, no refresh requested. The cursor still advanced, so
+  // there was no gap either — the board simply never moved, and only changed
+  // when a reconnect delivered a fresh snapshot. That is the freeze, and it is
+  // why a couple of picks appeared and then nothing.
+  //
+  // `frame.event` is kept as a fallback ONLY so a hand-written fixture from
+  // before this was found still parses. Nothing in `src/` emits it.
+  const event = ((frame as { payload?: unknown }).payload ?? frame.event ?? {}) as {
     kind?: string;
     revision?: number;
     overall?: number;

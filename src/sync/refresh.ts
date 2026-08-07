@@ -15,7 +15,8 @@ import {
   recordSyncSuccess,
   type ConnectionRow,
 } from "../db/leagues";
-import { getSession, rememberEspnCompletion, setResetSuspicion, voidLeagueSessions } from "../db/draft";
+import { clearEspnCompletionMemory, getSession, rememberEspnCompletion, setResetSuspicion } from "../db/draft";
+import { resetLeagueSessions } from "../draft/reset";
 import { isLiveDraft } from "../draft/liveness";
 import { classifyReset } from "./resetObserved";
 import { loadDecryptedCredentials } from "./connect";
@@ -160,7 +161,10 @@ async function observeDraftReset(
     return;
   }
 
-  const voided = await voidLeagueSessions(env.DB, connection.espn_league_id, connection.season, now);
+  // BOTH STORES, through the one reset path. Clearing only the rows is what
+  // left every room serving the previous draft's picks after a real reset.
+  const voided = await resetLeagueSessions(env, connection.espn_league_id, connection.season, now);
+  await clearEspnCompletionMemory(env.DB, connection.espn_league_id, connection.season);
   // FR-031e: the reason AND the observation that triggered it. Counts only —
   // which manager's sync noticed is not part of the record.
   logInfo(

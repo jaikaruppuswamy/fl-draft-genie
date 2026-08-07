@@ -32,7 +32,7 @@ import { Hono } from "hono";
 import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { getConnectionById } from "../db/leagues";
-import { getArchiveKeepers, getSession } from "../db/draft";
+import { getArchiveKeepers, getSession, latestLeagueHeartbeat } from "../db/draft";
 import { loadEngineBundle, NoProjectionsError } from "../db/engineBundle";
 import { sessionStub } from "../draft/session";
 import { withholdReason, type TapReportedState } from "../draft/liveness";
@@ -81,10 +81,24 @@ async function assemble(
 
   // 005's verdict, reused verbatim. A second liveness notion here would be a
   // second thing to keep in step, and they would drift on the day it mattered.
+  //
+  // 013 — and it asks the LEAGUE's question, like the other two call sites.
+  // This was the third copy and the last one still reading the viewer's own
+  // heartbeat: under fan-out most managers run no tap, so their own heartbeat
+  // never arrives and advice was withheld for the whole draft while a leaguemate
+  // relayed perfectly. Falls back to the viewer's row when the league has no
+  // heartbeat at all, so a solo relayer is judged exactly as before.
+  const leagueBeat = row
+    ? await latestLeagueHeartbeat(env.DB, connectionId)
+    : null;
   const withholding = row
     ? withholdReason({
-        lastHeartbeatAt: row.last_heartbeat_at ? Date.parse(row.last_heartbeat_at) : null,
-        hidden: row.heartbeat_hidden === 1,
+        lastHeartbeatAt: leagueBeat
+          ? Date.parse(leagueBeat.lastHeartbeatAt)
+          : row.last_heartbeat_at
+            ? Date.parse(row.last_heartbeat_at)
+            : null,
+        hidden: leagueBeat ? leagueBeat.hidden : row.heartbeat_hidden === 1,
         now: t.getTime(),
         tapState: (row.tap_state as TapReportedState | null) ?? null,
       })
@@ -99,9 +113,13 @@ async function assemble(
   const state = deriveState({
     revision: snap?.revision ?? 0,
     picks: snap?.picks ?? [],
-    // The session holds the order; before arming there is none, and the engine
-    // degrades to "no turn arithmetic" rather than inventing a schedule.
-    order: [],
+    // 013 — THE REAL ORDER. This was `[]`, hardcoded, under a comment that is
+    // true only before arming. During a draft it left `gapToNextTurn` and
+    // `myRemainingPicks` permanently null, which silently disables the survival
+    // rule (FR-022/FR-023) and the roster-crunch override (FR-025) — the two
+    // adjustments that matter most on draft day. Still `[]` before arming,
+    // where the engine correctly degrades to no turn arithmetic.
+    order: snap?.order ?? [],
     myTeamId,
     totalPicks: snap?.totalPicks ?? 0,
     keepers: await getArchiveKeepers(env.DB, accountId, connectionId, season),

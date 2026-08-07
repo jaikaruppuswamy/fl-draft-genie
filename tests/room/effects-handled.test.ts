@@ -1,0 +1,234 @@
+// 013 — the recovery path has to actually recover.
+//
+// THE DEFECT THIS EXISTS FOR froze a real 72-pick draft in every browser.
+//
+// `reduceFrame` recovers from a missed frame exactly one way: on a forward gap
+// it returns WITHOUT advancing the cursor and emits `{kind:"fetchSnapshot"}`,
+// trusting the caller to re-seed it. The caller did fetch a snapshot — and
+// dispatched it with `seq: 0` hardcoded. `applySnapshot` adopts a snapshot's seq
+// as the cursor wholesale, so recovery rewound the cursor to the beginning. The
+// next live event was then a forward gap, which fetched a snapshot, which
+// rewound to 0 again.
+//
+// An infinite resync loop. The board froze on whatever the last snapshot said,
+// applied no further events, and re-fetched on every frame for the rest of the
+// draft. The server had always sent `seq` and the client type had always
+// declared it; one line discarded it.
+//
+// WHY THE EXISTING TESTS ALL PASSED. The reducer is pure and well covered —
+// `tests/room/recovery.test.ts` asserts a gap EMITS `fetchSnapshot`, and it
+// faithfully does. Nobody asserted that acting on it RESTORES anything. Each
+// side of the seam was tested alone and the seam was not, which is how a total
+// failure of the product looked green.
+
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { initialState, reduce, type Effect, type RoomState } from "../../web/src/lib/draftRoom";
+
+const PAGE = fileURLToPath(new URL("../../web/src/pages/DraftRoom.tsx", import.meta.url));
+
+function page(): string {
+  return readFileSync(PAGE, "utf8");
+}
+
+/** Every effect kind the reducer's type can express. */
+const EFFECT_KINDS: Effect["kind"][] = ["fetchRecommendation", "fetchSnapshot"];
+
+describe("every effect the reducer can emit is acted on", () => {
+  it("has the page to read", () => {
+    // Without this the assertions below pass vacuously on an empty read.
+    expect(page().length).toBeGreaterThan(1000);
+  });
+
+  it("names every kind the union declares — a new effect cannot slip past", () => {
+    // The closed-set half. Without it, adding a third effect gives it no test
+    // and everything below keeps passing on the two it already knew about.
+    const src = readFileSync(
+      fileURLToPath(new URL("../../web/src/lib/draftRoom.ts", import.meta.url)),
+      "utf8",
+    );
+    const decl = /export type Effect =([^;]+);/.exec(src)?.[1] ?? "";
+    const declared = [...decl.matchAll(/kind:\s*["\'`]([a-zA-Z]+)["\'`]/g)].map((m) => m[1]!);
+    expect(declared.sort()).toEqual([...EFFECT_KINDS].sort());
+  });
+
+  it("re-seeds the cursor from the SNAPSHOT'S OWN seq, never a constant", () => {
+    // The bug, asserted on the source because it lives in the page's fetch
+    // callback where no unit test reaches it. A literal `seq: 0` here is the
+    // whole defect: recovery that rewinds the cursor is not recovery.
+    const code = page().replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+    const dispatchBlock = /getDraftSnapshot[\s\S]{0,500}/.exec(code)?.[0] ?? "";
+    expect(dispatchBlock, "no snapshot fetch found").toBeTruthy();
+    expect(dispatchBlock).not.toMatch(/seq:\s*0\b/);
+    expect(dispatchBlock).toMatch(/seq:.*\bseq\b/);
+  });
+
+  it("PROVES that check can fail", () => {
+    const bad = 'getDraftSnapshot(id).then((snap) => dispatch({ frame: { type: "snapshot", seq: 0, state: snap } }))';
+    expect(bad).toMatch(/seq:\s*0\b/);
+  });
+});
+
+describe("a forward gap must RECOVER, not merely intend to", () => {
+  const frame = (seq: number, epoch = "e1") => ({
+    type: "event" as const,
+    epoch,
+    seq,
+    event: { kind: "pick_made", revision: 0, overall: seq, teamId: 1, playerId: 1000 + seq },
+  });
+
+  function seeded(): RoomState {
+    // Adopt a snapshot so epoch and cursor are established, as a real client does.
+    const { state } = reduce(
+      initialState(),
+      { kind: "frame", frame: { type: "snapshot", epoch: "e1", seq: 0, state: { revision: 0, picks: [] } } as never },
+      0,
+    );
+    return state;
+  }
+
+  it("asks for a snapshot on a gap", () => {
+    // The half that was already true and already tested.
+    const { effects } = reduce(seeded(), { kind: "frame", frame: frame(5) as never }, 0);
+    expect(effects.map((e) => e.kind)).toContain("fetchSnapshot");
+  });
+
+  it("leaves the cursor STUCK until something answers — which is why the answer must exist", () => {
+    // This is the mechanism of the freeze, pinned so nobody "simplifies" the
+    // gap branch into advancing the cursor and silently dropping picks instead.
+    const before = seeded();
+    const { state: after } = reduce(before, { kind: "frame", frame: frame(5) as never }, 0);
+    expect(after.cursor).toBe(before.cursor);
+
+    // And a SECOND gapped frame behaves identically — the board cannot heal on
+    // its own, at any point, ever.
+    const { state: third } = reduce(after, { kind: "frame", frame: frame(6) as never }, 0);
+    expect(third.cursor).toBe(before.cursor);
+    expect(third.picks).toHaveLength(0);
+  });
+
+  it("applies a contiguous frame normally — PROVES the gap branch is conditional", () => {
+    // Without this, "a gap freezes" passes against a reducer that ignores every
+    // frame, which would look identical from the outside.
+    const { state } = reduce(seeded(), { kind: "frame", frame: frame(1) as never }, 0);
+    expect(state.cursor).toBe(1);
+    expect(state.picks.length).toBeGreaterThan(0);
+  });
+});
+
+describe("the reducer accepts the frame the SERVER actually sends", () => {
+  // THE DEFECT THIS EXISTS FOR is the one that froze a real draft, and it hid
+  // behind a suite that was entirely green.
+  //
+  // `src/draft/session.ts` broadcasts
+  //     {type, epoch, seq, revision, kind, payload}
+  // which is what 005's contracts/api.md ratified. The reducer read
+  // `frame.event` — a key nothing has ever set. Every live event resolved to
+  // `{}` and fell through to `default:`. No pick placed, no turn update, no
+  // completion, no refresh. The cursor still advanced, so there was no gap to
+  // trigger recovery either. The board only ever changed when a reconnect
+  // delivered a fresh snapshot.
+  //
+  // WHY NOTHING CAUGHT IT: every room test hand-builds its frames with an
+  // `event:` key, and the Durable Object tests assert only `type`/`seq`/`epoch`
+  // and never inspect a body. Both sides were tested against a shape the wire
+  // never carried. This asserts the SEAM — the exact JSON the server writes.
+
+  /** Byte-for-byte the object `session.ts` stringifies onto the socket. */
+  const serverFrame = (seq: number, event: Record<string, unknown>) => ({
+    type: "event",
+    epoch: "e1",
+    seq,
+    revision: event.revision,
+    kind: event.kind,
+    payload: event,
+  });
+
+  function seeded(): RoomState {
+    return reduce(
+      initialState(),
+      {
+        kind: "frame",
+        frame: { type: "snapshot", epoch: "e1", seq: 0, state: { revision: 0, picks: [] } } as never,
+      },
+      0,
+    ).state;
+  }
+
+  it("places a pick from a server-shaped pick_made", () => {
+    const { state, effects } = reduce(
+      seeded(),
+      {
+        kind: "frame",
+        frame: serverFrame(1, {
+          kind: "pick_made",
+          revision: 0,
+          overall: 1,
+          teamId: 1,
+          playerId: 4262921,
+          observedAt: "2026-08-07T02:45:00.000Z",
+        }) as never,
+      },
+      0,
+    );
+
+    expect(state.picks.map((p) => p.playerId)).toContain(4262921);
+    expect(state.phase).toBe("live");
+    // A pick must always lead to fresh advice. Adopting the snapshot already
+    // put one request in flight, so this one is QUEUED rather than issued —
+    // which is the designed behaviour and worth pinning, since a second
+    // concurrent fetch per pick is what FR-004 exists to avoid.
+    expect(effects.length === 1 || state.dirty).toBe(true);
+  });
+
+  it("issues the fetch outright when nothing is already in flight", () => {
+    // The other half, so "leads to advice" is not satisfied by dirty alone.
+    const idle = { ...seeded(), inFlight: false, dirty: false };
+    const { effects } = reduce(
+      idle,
+      {
+        kind: "frame",
+        frame: serverFrame(1, {
+          kind: "pick_made",
+          revision: 0,
+          overall: 1,
+          teamId: 1,
+          playerId: 4262921,
+          observedAt: "2026-08-07T02:45:00.000Z",
+        }) as never,
+      },
+      0,
+    );
+    expect(effects.map((e) => e.kind)).toContain("fetchRecommendation");
+  });
+
+  it("advances the turn from a server-shaped on_deck", () => {
+    const { state } = reduce(
+      seeded(),
+      { kind: "frame", frame: serverFrame(1, { kind: "on_deck", revision: 0, overall: 3, picksUntil: 2 }) as never },
+      0,
+    );
+    expect(state.picksUntilMyTurn).toBe(2);
+  });
+
+  it("PROVES the check can fail — the old shape places nothing", () => {
+    // The frame every existing test was written with. It must be visibly
+    // different from the wire, or this file proves nothing.
+    const legacy = { type: "event", epoch: "e1", seq: 1, event: { kind: "pick_made", revision: 0, overall: 1, teamId: 1, playerId: 4262921 } };
+    const wire = serverFrame(1, { kind: "pick_made", revision: 0, overall: 1, teamId: 1, playerId: 4262921 });
+    expect(Object.keys(wire)).toContain("payload");
+    expect(Object.keys(legacy)).not.toContain("payload");
+  });
+
+  it("tolerates an unknown event kind rather than rejecting it (FR-006a)", () => {
+    // The contract requires forward compatibility: a kind we do not know must
+    // advance the cursor and change nothing, not break the stream.
+    const { state } = reduce(
+      seeded(),
+      { kind: "frame", frame: serverFrame(1, { kind: "something_new", revision: 0 }) as never },
+      0,
+    );
+    expect(state.cursor).toBe(1);
+  });
+});

@@ -269,6 +269,19 @@ export const apiClient = {
   // that consumes these wholesale, so the shapes are deliberately minimal.
   getDraftStatus: (id: string) => request<DraftStatus>("GET", `/api/leagues/${id}/draft`),
   getDraftSnapshot: (id: string) => request<DraftSnapshot>("GET", `/api/leagues/${id}/draft/snapshot`),
+  /**
+   * 013 — start this league's draft over.
+   *
+   * `confirm` is required only while the draft looks live; the server decides,
+   * and refuses without it. Existed as an endpoint from 011 with no way to
+   * reach it, which is why a stuck session had to be cleared by pasting a fetch
+   * call into a browser console ten minutes before a real draft.
+   */
+  resetDraft: (id: string, confirm = false) =>
+    request<{ reset: boolean; wasLive: boolean }>(
+      "POST",
+      `/api/leagues/${id}/draft/reset${confirm ? "?confirm=true" : ""}`,
+    ),
   getLeague: (id: string) => request<LeagueDetail>("GET", `/api/leagues/${id}`),
   connectLeague: (league_ref: string) => request<LeagueDetail>("POST", "/api/leagues", { league_ref }),
   completeConnect: (connect_token: string, espn_team_id: number) =>

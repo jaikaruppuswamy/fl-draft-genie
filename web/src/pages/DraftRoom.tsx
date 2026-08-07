@@ -143,6 +143,8 @@ export default function DraftRoom() {
   }, []);
 
   const [status, setStatus] = useState<DraftStatus | null>(null);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
   const [board, setBoard] = useState<BoardResponse | null>(null);
   const [league, setLeague] = useState<LeagueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -194,12 +196,29 @@ export default function DraftRoom() {
           )
           .catch(() => dispatch({ kind: "recommendation", board: null, forRevision }));
       } else {
+        // THE SNAPSHOT'S OWN SEQ, not zero.
+        //
+        // This said `seq: 0`, and `applySnapshot` adopts the frame's seq as the
+        // cursor wholesale — so the one path that recovers from a missed frame
+        // rewound the cursor to the beginning. The next live event was then a
+        // forward gap, which fetched a snapshot, which rewound to 0 again. An
+        // infinite resync loop: the board froze on whatever the last snapshot
+        // said, applied no further events, and re-fetched on every frame.
+        //
+        // It froze a real 72-pick draft in every browser on 2026-08-07, after
+        // the first few contiguous frames. The server has always sent `seq` and
+        // the client type has always declared it; only this line discarded it.
         apiClient
           .getDraftSnapshot(id)
           .then((snap) =>
             dispatch({
               kind: "frame",
-              frame: { type: "snapshot", epoch: state.epoch ?? "", seq: 0, state: snap } as DraftFrame,
+              frame: {
+                type: "snapshot",
+                epoch: state.epoch ?? "",
+                seq: (snap as { seq?: number }).seq ?? 0,
+                state: snap,
+              } as DraftFrame,
             }),
           )
           .catch(() => {});
@@ -358,6 +377,48 @@ export default function DraftRoom() {
         <div className="banner warn">
           <strong>{ROOM_LABEL[room.state]}.</strong> {room.remedy}
         </div>
+      )}
+      {/* 013 — START OVER, reachable.
+          This existed as an endpoint from 011 and nothing could call it, so
+          clearing a stuck session meant pasting a fetch into a browser console
+          — which is what a manager had to do ten minutes before a real draft.
+          The server refuses while the draft is live unless confirmed, so the
+          decision about what is safe stays in one place; this only asks. */}
+      {(state.phase === "complete" || state.picks.length > 0) && (
+        <details className="card">
+          <summary>Start this draft over</summary>
+          <p className="muted small">
+            Clears the picks for <strong>everyone in this league</strong> and lets a new draft be captured.
+            It does not touch your ESPN account, your preferred list, your settings, or any draft already
+            saved.
+          </p>
+          <button
+            disabled={resetBusy}
+            onClick={() => {
+              setResetBusy(true);
+              setResetMsg(null);
+              apiClient
+                .resetDraft(id!)
+                .then(() => {
+                  setResetMsg("Cleared. Waiting for the next draft.");
+                  // Re-read rather than guessing: the server owns what the
+                  // session now is.
+                  dispatch({ kind: "frame", frame: { type: "snapshot", epoch: "", seq: 0, state: { revision: 0, picks: [] } } as DraftFrame });
+                })
+                .catch((e: { error?: string }) =>
+                  setResetMsg(
+                    e?.error === "draft_is_live"
+                      ? "That draft looks like it is running right now. Reload and try again once it has finished."
+                      : "That didn't work. Reload and try again.",
+                  ),
+                )
+                .finally(() => setResetBusy(false));
+            }}
+          >
+            {resetBusy ? "Clearing…" : "Clear this draft"}
+          </button>
+          {resetMsg && <p className="muted small">{resetMsg}</p>}
+        </details>
       )}
       {state.phase === "complete" && state.completion && (
         <div className="banner ok">

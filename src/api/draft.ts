@@ -9,7 +9,8 @@ import { Hono } from "hono";
 import type { AppContext } from "./app";
 import { jsonError } from "./app";
 import { getConnectionById } from "../db/leagues";
-import { getSession, latestLeagueHeartbeat, resetSession } from "../db/draft";
+import { getSession, latestLeagueHeartbeat } from "../db/draft";
+import { resetOneSession } from "../draft/reset";
 import { sessionStub } from "../draft/session";
 import { heartbeatLapsed, isLiveDraft, withholdReason, type TapReportedState } from "../draft/liveness";
 import { now } from "../env";
@@ -43,23 +44,32 @@ export function draftRoutes() {
     const at = now(c.env).getTime();
     const lastHeartbeatAt = row.last_heartbeat_at ? Date.parse(row.last_heartbeat_at) : null;
     const hidden = row.heartbeat_hidden === 1;
+    // 011 — WITHHOLDING ASKS THE LEAGUE'S QUESTION, not the viewer's.
+    //
+    // The twin of the room-state bug, missed when that one was fixed. This
+    // gates RECOMMENDATIONS, and it read the viewer's own heartbeat — so a
+    // manager who runs no tap, which after fan-out is most of them, is judged
+    // by a heartbeat that will never arrive and gets no advice for the whole
+    // draft while a leaguemate relays perfectly.
+    //
+    // Falls back to the viewer's own row when the league has no heartbeat at
+    // all, so a solo relayer is judged exactly as before.
+    const leagueBeat = await latestLeagueHeartbeat(c.env.DB, connection.id);
     const withhold = withholdReason({
-      lastHeartbeatAt,
-      hidden,
+      lastHeartbeatAt: leagueBeat ? Date.parse(leagueBeat.lastHeartbeatAt) : lastHeartbeatAt,
+      hidden: leagueBeat ? leagueBeat.hidden : hidden,
       now: at,
+      // Still the viewer's own tap state: `incompatible` and `version_rejected`
+      // are about a SCRIPT, and the league's freshest relay is the one that
+      // matters for whether picks are arriving at all.
       tapState: (row.tap_state as TapReportedState | null) ?? null,
     });
 
-    // 011 T012 — LEAGUE-wide relay liveness, alongside (never instead of) the
-    // per-connection tap block below. The room asks "is anyone relaying?"; the
-    // tap page asks "is MY tap alive?". Merging them is how the two surfaces
-    // drift, and telling them apart is the whole argument of observableState.
-    const leagueBeat = await latestLeagueHeartbeat(
-      c.env.DB,
-      connection.id,
-      connection.espn_league_id,
-      connection.season,
-    );
+    // 011 T012 — LEAGUE-wide relay liveness, from the same single read above.
+    // The room asks "is anyone relaying?"; the tap page asks "is MY tap alive?".
+    // Merging those two questions is how the surfaces drift — but they share one
+    // fact, and reading it twice per request would be waste on the draft-day
+    // path.
     const relayActive =
       leagueBeat !== null &&
       !heartbeatLapsed({ lastHeartbeatAt: Date.parse(leagueBeat.lastHeartbeatAt), hidden: leagueBeat.hidden, now: at });
@@ -139,11 +149,9 @@ export function draftRoutes() {
       );
     }
 
-    // The object first: if the row were cleared first and this failed, the
-    // session would report idle while still holding the previous draft — the
-    // 2026-08-06 shape exactly.
-    await sessionStub(c.env, connection.id, row.season).reset();
-    await resetSession(c.env.DB, connection.id, at);
+    // The one reset path, shared with the observed-reset void. Ordering and
+    // the two-store guarantee live there, so neither caller can get half of it.
+    await resetOneSession(c.env, connection.id, row.season, at);
 
     return Response.json({ reset: true, wasLive: live });
   });
