@@ -1,5 +1,21 @@
 import { useEffect, useState } from "react";
 import { tapStateOf } from "../lib/observableState";
+import { REDEEM_COPY, REFUSAL_COPY, type RedeemFailure, type RefusalReason } from "../../../tap/enable";
+
+/**
+ * The reason the tap gave, in words. Both maps live with the gate that produces
+ * the reasons, so a new reason cannot be added without copy — and this is the
+ * only surface that can show them: on Draft Genie's own origin the script
+ * mounts no badge and registers no menu.
+ */
+function refusalCopy(reason: string | undefined): string {
+  if (!reason) return "That didn't work. Reload the page and try again.";
+  return (
+    REFUSAL_COPY[reason as RefusalReason] ??
+    REDEEM_COPY[reason as RedeemFailure] ??
+    "That didn't work. Reload the page and try again."
+  );
+}
 import { apiClient, type TapPairing } from "../api";
 
 // 010 T037/T038/T039 — install, enable, revoke, and verify without a draft.
@@ -96,7 +112,11 @@ export default function DraftTap() {
       };
       const onResult = (ev: Event) => {
         const d = (ev as CustomEvent).detail as { ok: boolean; reason?: string } | null;
-        setEnableMsg(d?.ok ? null : "That didn't work. Reload the page and try again.");
+        // FR-021: say WHY, and what to do about it. Fifteen reasons are computed
+        // in `tap/enable.ts` and every one of them was being collapsed into
+        // "that didn't work" — on the one surface that can show them, since the
+        // script mounts no badge and no menu on this origin.
+        setEnableMsg(d?.ok ? null : refusalCopy(d?.reason));
         cleanup();
         void load().then(resolve);
       };

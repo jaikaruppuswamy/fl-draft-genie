@@ -49,7 +49,7 @@ describe("every effect the reducer can emit is acted on", () => {
       "utf8",
     );
     const decl = /export type Effect =([^;]+);/.exec(src)?.[1] ?? "";
-    const declared = [...decl.matchAll(/kind:\s*["\'`]([a-zA-Z]+)["\'`]/g)].map((m) => m[1]!);
+    const declared = [...decl.matchAll(/kind:\s*["'`]([a-zA-Z]+)["'`]/g)].map((m) => m[1]!);
     expect(declared.sort()).toEqual([...EFFECT_KINDS].sort());
   });
 
@@ -230,5 +230,85 @@ describe("the reducer accepts the frame the SERVER actually sends", () => {
       0,
     );
     expect(state.cursor).toBe(1);
+  });
+});
+
+describe("014 — the turn countdown is always current", () => {
+  // Observed live on 2026-08-07: after a manager's own turn the room read
+  // "your pick — now" for the rest of the draft, correcting itself only on a
+  // reload. `picksUntilMyTurn` reached a client ONLY via `on_deck`, which the
+  // reconciler fires sparsely — once as a turn approaches, not per pick. So it
+  // hit 0 and stayed, and `myTurnState` derives `on_the_clock` from exactly 0.
+  //
+  // A reload looked correct because a snapshot recomputes it, which is what
+  // made the live path's silence so easy to miss.
+
+  const withTurn = (seq: number, picksUntilMyTurn: number | null, kind = "pick_made") => ({
+    type: "event",
+    epoch: "e1",
+    seq,
+    revision: 0,
+    kind,
+    payload: { kind, revision: 0, overall: seq, teamId: 1, playerId: 1000 + seq },
+    picksUntilMyTurn,
+  });
+
+  function seeded(): RoomState {
+    return reduce(
+      initialState(),
+      {
+        kind: "frame",
+        frame: { type: "snapshot", epoch: "e1", seq: 0, state: { revision: 0, picks: [] } } as never,
+      },
+      0,
+    ).state;
+  }
+
+  it("updates from a pick_made frame, not only from on_deck", () => {
+    const { state } = reduce(seeded(), { kind: "frame", frame: withTurn(1, 7) as never }, 0);
+    expect(state.picksUntilMyTurn).toBe(7);
+    expect(state.myTurnState).toBe("idle");
+  });
+
+  it("counts DOWN across successive picks", () => {
+    // The behaviour asked for: always show how many picks away I am.
+    let s = seeded();
+    for (const [seq, until] of [
+      [1, 5],
+      [2, 4],
+      [3, 3],
+    ] as const) {
+      s = reduce(s, { kind: "frame", frame: withTurn(seq, until) as never }, 0).state;
+    }
+    expect(s.picksUntilMyTurn).toBe(3);
+  });
+
+  it("LEAVES `now` once the turn has passed — the exact stuck state", () => {
+    // 0 is my turn; the very next frame must move off it. This is the assertion
+    // that fails against the shipped behaviour.
+    let s = reduce(seeded(), { kind: "frame", frame: withTurn(1, 0) as never }, 0).state;
+    expect(s.myTurnState).toBe("on_the_clock");
+
+    s = reduce(s, { kind: "frame", frame: withTurn(2, 11) as never }, 0).state;
+    expect(s.picksUntilMyTurn).toBe(11);
+    expect(s.myTurnState).toBe("idle");
+  });
+
+  it("keeps the last known value when a frame carries none", () => {
+    // An older server, or a session with no team to reason about. Blanking the
+    // indicator would be worse than holding the last honest answer.
+    let s = reduce(seeded(), { kind: "frame", frame: withTurn(1, 4) as never }, 0).state;
+    const noField = { type: "event", epoch: "e1", seq: 2, revision: 0, kind: "pick_made", payload: { kind: "pick_made", revision: 0, overall: 2, teamId: 1, playerId: 2 } };
+    s = reduce(s, { kind: "frame", frame: noField as never }, 0).state;
+    expect(s.picksUntilMyTurn).toBe(4);
+  });
+
+  it("PROVES the check can fail — on_deck alone would leave it stuck", () => {
+    // Without the per-frame value, a pick_made after my turn changes nothing,
+    // which is precisely what shipped.
+    let s = reduce(seeded(), { kind: "frame", frame: withTurn(1, 0) as never }, 0).state;
+    const legacy = { type: "event", epoch: "e1", seq: 2, revision: 0, kind: "pick_made", payload: { kind: "pick_made", revision: 0, overall: 2, teamId: 1, playerId: 2 } };
+    s = reduce(s, { kind: "frame", frame: legacy as never }, 0).state;
+    expect(s.myTurnState).toBe("on_the_clock");
   });
 });

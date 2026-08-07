@@ -329,14 +329,15 @@ describe("the void clears what a MANAGER SEES, not just a row (013)", () => {
       .bind(SEEN.conn, SEEN.account, V_SEASON, "2026-08-07T02:53:11.000Z", NOW, NOW)
       .run();
 
-    const { DraftSession, sessionIdFor } = await import("../../src/draft/session");
+    const { sessionIdFor } = await import("../../src/draft/session");
+    type DraftSession = import("../../src/draft/session").DraftSession;
     const { runInDurableObject } = await import("cloudflare:test");
     const stub = testEnv.DRAFT_SESSION.get(sessionIdFor(testEnv, SEEN.conn, V_SEASON));
-    await runInDurableObject(stub, async (_i: InstanceType<typeof DraftSession>, st: DurableObjectState) => {
+    await runInDurableObject(stub, async (_i: DraftSession, st: DurableObjectState) => {
       await st.storage.deleteAll();
       await st.storage.deleteAlarm();
     });
-    await runInDurableObject(stub, (i: InstanceType<typeof DraftSession>) =>
+    await runInDurableObject(stub, (i: DraftSession) =>
       i.arm({
         accountId: SEEN.account,
         connectionId: SEEN.conn,
@@ -351,7 +352,8 @@ describe("the void clears what a MANAGER SEES, not just a row (013)", () => {
 
   it("leaves the SESSION OBJECT with no picks", async () => {
     await seedWithPicks();
-    const { DraftSession, sessionIdFor } = await import("../../src/draft/session");
+    const { sessionIdFor } = await import("../../src/draft/session");
+    type DraftSession = import("../../src/draft/session").DraftSession;
     const { runInDurableObject } = await import("cloudflare:test");
     const stub = () => testEnv.DRAFT_SESSION.get(sessionIdFor(testEnv, SEEN.conn, V_SEASON));
 
@@ -381,14 +383,14 @@ describe("the void clears what a MANAGER SEES, not just a row (013)", () => {
         ]),
       )
       .run();
-    await runInDurableObject(stub(), (s: InstanceType<typeof DraftSession>) => s.nudge());
+    await runInDurableObject(stub(), (s: DraftSession) => s.nudge());
 
-    const before = await runInDurableObject(stub(), (s: InstanceType<typeof DraftSession>) => s.snapshot());
+    const before = await runInDurableObject(stub(), (s: DraftSession) => s.snapshot());
     expect(before!.picks.length, "fixture never got a pick into the object").toBeGreaterThan(0);
 
     await resetLeagueSessions(testEnv, SEEN_LEAGUE, V_SEASON, new Date(NOW));
 
-    const after = await runInDurableObject(stub(), (s: InstanceType<typeof DraftSession>) => s.snapshot());
+    const after = await runInDurableObject(stub(), (s: DraftSession) => s.snapshot());
     expect(after?.picks ?? []).toHaveLength(0);
   });
 
@@ -399,11 +401,12 @@ describe("the void clears what a MANAGER SEES, not just a row (013)", () => {
     // file had, which is why they missed it.
     await seedWithPicks();
     const { resetSession } = await import("../../src/db/draft");
-    const { DraftSession, sessionIdFor } = await import("../../src/draft/session");
+    const { sessionIdFor } = await import("../../src/draft/session");
+    type DraftSession = import("../../src/draft/session").DraftSession;
     const { runInDurableObject } = await import("cloudflare:test");
     const stub = () => testEnv.DRAFT_SESSION.get(sessionIdFor(testEnv, SEEN.conn, V_SEASON));
 
-    await runInDurableObject(stub(), (s: InstanceType<typeof DraftSession>) => s.nudge());
+    await runInDurableObject(stub(), (s: DraftSession) => s.nudge());
     await resetSession(testEnv.DB, SEEN.conn, new Date(NOW));
 
     // The row looks reset...
@@ -413,7 +416,7 @@ describe("the void clears what a MANAGER SEES, not just a row (013)", () => {
     expect(rowNow?.completed_at).toBeNull();
 
     // ...and the object still has its scope, because nothing cleared it.
-    const scope = await runInDurableObject(stub(), (_i: InstanceType<typeof DraftSession>, st: DurableObjectState) =>
+    const scope = await runInDurableObject(stub(), (_i: DraftSession, st: DurableObjectState) =>
       st.storage.get<{ myTeamId: number }>("scope"),
     );
     expect(scope, "the object was untouched, which is the whole point").not.toBeUndefined();
