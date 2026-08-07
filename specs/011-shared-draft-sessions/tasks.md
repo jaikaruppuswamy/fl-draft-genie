@@ -229,14 +229,14 @@ is captured cleanly without the owner doing anything.
 **Independent test**: complete a draft, reset it in ESPN, sync, and confirm the
 next draft is captured with none of the previous one's picks.
 
-- [ ] T048 [US8] Write the detection tests FIRST in `tests/draft/reset-observed.test.ts`: a sync observing a previously completed draft no longer reported as completed voids the session; a **live** session is never voided; an unavailable or ambiguous report voids nothing (FR-031f)
-- [ ] T049 [US8] Key detection on a **change in ESPN's own report**, never on a disagreement between the session and ESPN (FR-031a1). Two verified reasons: mocks never appear in ESPN's league record at all (`started=0, completed=0` measured against two captured 72-pick drafts), so a disagreement rule fires endlessly for them; and the tap sees a real draft finish seconds before ESPN's flush lands, so a disagreement rule would void a genuinely finished draft inside that window, before it is archived
-- [ ] T050 [US8] Compare stored against freshly parsed draft completion in `src/sync/refresh.ts` — the snapshot already carries it, so this is a comparison that does not exist rather than data that is missing
-- [ ] T051 [US8] Void the session on a confirmed reset in `src/db/draft.ts`, clearing `completed_at` so the latch releases, and reuse US5's `reset()` so there is one reset path reached two ways (FR-031a)
-- [ ] T052 [US8] Void **every** manager's session for that league and season, not only the one whose sync observed it (FR-031b) — under fan-out there is more than one
-- [ ] T053 [US8] Assert retained frames and any archived record of the reset draft **survive** the void (FR-031c). A draft that really happened stays history, and 008's corpus may already depend on it
-- [ ] T054 [US8] Record the reason and the triggering observation on every void (FR-031e), and prove in test that a live draft cannot be voided by any sync result, using T043's shared guard (FR-031d, SC-009b)
-- [ ] T055 [US8] Verify SC-009a end to end: a draft reset in ESPN is noticed at the next sync and the next draft is captured with none of the previous one's picks, **with no action by the owner**
+- [X] T048 [US8] Write the detection tests FIRST in `tests/draft/reset-observed.test.ts`: a sync observing a previously completed draft no longer reported as completed voids the session; a **live** session is never voided; an unavailable or ambiguous report voids nothing (FR-031f)
+- [X] T049 [US8] Key detection on a **change in ESPN's own report**, never on a disagreement between the session and ESPN (FR-031a1). Two verified reasons: mocks never appear in ESPN's league record at all (`started=0, completed=0` measured against two captured 72-pick drafts), so a disagreement rule fires endlessly for them; and the tap sees a real draft finish seconds before ESPN's flush lands, so a disagreement rule would void a genuinely finished draft inside that window, before it is archived
+- [X] T050 [US8] Compare stored against freshly parsed draft completion in `src/sync/refresh.ts` — the snapshot already carries it, so this is a comparison that does not exist rather than data that is missing
+- [X] T051 [US8] Void the session on a confirmed reset in `src/db/draft.ts`, clearing `completed_at` so the latch releases, and reuse US5's `reset()` so there is one reset path reached two ways (FR-031a)
+- [X] T052 [US8] Void **every** manager's session for that league and season, not only the one whose sync observed it (FR-031b) — under fan-out there is more than one
+- [X] T053 [US8] Assert retained frames and any archived record of the reset draft **survive** the void (FR-031c). A draft that really happened stays history, and 008's corpus may already depend on it
+- [X] T054 [US8] Record the reason and the triggering observation on every void (FR-031e), and prove in test that a live draft cannot be voided by any sync result, using T043's shared guard (FR-031d, SC-009b)
+- [X] T055 [US8] Verify SC-009a end to end: a draft reset in ESPN is noticed at the next sync and the next draft is captured with none of the previous one's picks, **with no action by the owner**
   - **T001 found that no sync arrives on its own.** A completed draft is excluded from the pre-draft scan by both its `completed` flag and its now-null `draft_at`, and nothing else refreshes a connection automatically — the only other callers of `refreshConnection` are the league API and the credential API, both user-triggered. So "the next sync" is today an owner opening the app, and SC-009a's "with no action by the owner" is **not currently satisfiable**. Decide before writing this test: either widen the automatic scan so a recently-completed league is re-read for some period after its draft (the smaller change, and it makes the void reachable), or amend SC-009a to say the reset is noticed at the next sync *whenever one occurs*. Do not write a test that passes only because the test harness called the sync itself — that would assert the mechanism into existence
 
 ---
@@ -248,10 +248,10 @@ next draft is captured with none of the previous one's picks.
 **Independent test**: someone who has never set the tap up succeeds from the page
 alone, without asking a question.
 
-- [ ] T056 [US6] Remove the pairing instructions from `web/src/pages/DraftTap.tsx`, leaving install / enable / state (FR-032)
-- [ ] T057 [US6] Keep a way to stop relaying, stating what stops — **including that ESPN is unaffected** (FR-033)
-- [ ] T058 [P] [US6] List enabled browsers and allow each to be revoked individually (FR-034)
-- [ ] T059 [US6] State that live relaying requires desktop Chrome (FR-035) — 010's permanent limitation, and the reason US1 matters
+- [X] T056 [US6] Remove the pairing instructions from `web/src/pages/DraftTap.tsx`, leaving install / enable / state (FR-032)
+- [X] T057 [US6] Keep a way to stop relaying, stating what stops — **including that ESPN is unaffected** (FR-033)
+- [X] T058 [P] [US6] List enabled browsers and allow each to be revoked individually (FR-034)
+- [X] T059 [US6] State that live relaying requires desktop Chrome (FR-035) — 010's permanent limitation, and the reason US1 matters
 
 ---
 
@@ -261,10 +261,10 @@ alone, without asking a question.
 
 **Independent test**: reconnect a league, then admit a draft captured beforehand.
 
-- [ ] T060 [US7] Scope frames by `account_id` rather than `connection_id` in `scripts/lab-admit.ts` (FR-036) — the column is already on `tap_batches`, so this is a change of predicate, not of schema
-- [ ] T061 [US7] Allow a leaguemate's frames while taking perspective from the operator's own account (FR-037), which is the narrower and correct version of the over-correction shipped in 008 T031
-- [ ] T062 [P] [US7] Record `relayedByAnotherManager` on the corpus entry (FR-038) per [data-model.md](data-model.md) §6
-- [ ] T063 [US7] Assert in `tests/lab/boundary.test.ts` that it remains **impossible** to build an entry carrying another account's team, settings or preferred list (FR-039, SC-011)
+- [X] T060 [US7] Scope frames by `account_id` rather than `connection_id` in `scripts/lab-admit.ts` (FR-036) — the column is already on `tap_batches`, so this is a change of predicate, not of schema
+- [X] T061 [US7] Allow a leaguemate's frames while taking perspective from the operator's own account (FR-037), which is the narrower and correct version of the over-correction shipped in 008 T031
+- [X] T062 [P] [US7] Record `relayedByAnotherManager` on the corpus entry (FR-038) per [data-model.md](data-model.md) §6
+- [X] T063 [US7] Assert in `tests/lab/boundary.test.ts` that it remains **impossible** to build an entry carrying another account's team, settings or preferred list (FR-039, SC-011)
 - [ ] T064 [US7] Re-admit the frames orphaned by the 2026-08-06 reconnect and confirm they load (SC-010)
 
 ---
@@ -275,11 +275,11 @@ alone, without asking a question.
 US8, so "record 011 as shipped" would have run before a third of the feature
 existed.
 
-- [ ] T065 Run a mutation sweep over the ledger admission rule, the fan-out audience, the perspective split, the live-draft guard and the duplicate convergence — confirm each is killed by a **named** test, and report the test **count** that ran, not only pass/fail
-- [ ] T066 [P] Assert **no file under `src/engine/` changed** across this feature (FR-040). The one Principle IV boundary here, and the only one otherwise unguarded — 008 asserted its equivalent structurally rather than trusting it
+- [X] T065 Run a mutation sweep over the ledger admission rule, the fan-out audience, the perspective split, the live-draft guard and the duplicate convergence — confirm each is killed by a **named** test, and report the test **count** that ran, not only pass/fail
+- [X] T066 [P] Assert **no file under `src/engine/` changed** across this feature (FR-040). The one Principle IV boundary here, and the only one otherwise unguarded — 008 asserted its equivalent structurally rather than trusting it
 - [ ] T067 [P] Verify SC-001 and SC-013 by measuring delivery latency for both a relaying and a non-relaying manager against T003's baseline
-- [ ] T068 [P] Verify no ESPN credential is read, logged or transmitted anywhere the feature touches (FR-042), and that relayed frames remain numeric-only (FR-043)
-- [ ] T069 Run `npm test`, `npm run typecheck`, `npm run lint` and `npm run privacy` — all clean
+- [X] T068 [P] Verify no ESPN credential is read, logged or transmitted anywhere the feature touches (FR-042), and that relayed frames remain numeric-only (FR-043)
+- [X] T069 Run `npm test`, `npm run typecheck`, `npm run lint` and `npm run privacy` — all clean
 - [ ] T070 Walk [quickstart.md](quickstart.md) end to end with **two accounts and one mock draft**, correcting anything that does not match what was built. This is the configuration every defect in this feature was found in, and the only one that can prove US1 at all
 - [ ] T071 Record 011 in `ROADMAP.md` as shipped, with T001's gate result, the measured latency, what the mutation sweep found, and anything the build learned that the plan did not know
 

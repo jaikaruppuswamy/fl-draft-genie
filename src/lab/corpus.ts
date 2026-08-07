@@ -68,6 +68,22 @@ export interface CorpusEntry {
   useClass: UseClass;
   /** Required non-null when `useClass` is `pick_sequence_only`. */
   unreplayableReason: string | null;
+  /**
+   * 011 T062 (FR-038) — a LEAGUEMATE relayed these frames, not the admitting
+   * operator.
+   *
+   * Recorded because it is the one thing about an entry's provenance that
+   * cannot be recovered later: the frames are numeric and identical either way.
+   * 008 banned this outright after an entry was built carrying another
+   * manager's team; 011 allows it, because the mistake was inferring OWNERSHIP
+   * from relay volume rather than reading a leaguemate's picks. Marking it is
+   * what keeps the narrower rule honest.
+   *
+   * PERSPECTIVE is unaffected and always the operator's own — see
+   * `tests/lab/boundary.test.ts`. Optional so every entry admitted before this
+   * existed stays valid.
+   */
+  relayedByAnotherManager?: boolean;
   teamCount: number;
   roundCount: number;
   /**

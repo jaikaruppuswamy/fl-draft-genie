@@ -5,7 +5,7 @@
 // just-published draft time can inform the top-up check on the same tick.
 
 import type { Env } from "../env";
-import { findPreDraftWindowConnections } from "../db/leagues";
+import { findPostDraftWatchConnections, findPreDraftWindowConnections } from "../db/leagues";
 import { refreshConnection } from "./refresh";
 import { logError, logInfo } from "../api/logging";
 import { dueForDraftDayTopUp, isStale } from "../projections/freshness";
@@ -27,6 +27,28 @@ export async function scanPreDraftWindow(env: Env, now: Date): Promise<number> {
     await refreshConnection(env, connection, now, { force: true });
   }
   if (due.length > 0) logInfo(`pre-draft scan refreshed ${due.length} league(s)`);
+  return due.length;
+}
+
+/**
+ * 011 T055 (SC-009a) — keep reading a league AFTER its draft finished, so a
+ * reset in ESPN is noticed with no action by the owner.
+ *
+ * The pre-draft scan cannot do it. A reset clears ESPN's draft date, and a
+ * completed league is excluded by that AND by its completed flag — an exclusion
+ * that never lifts by itself. Without this stage, "the next sync" means the
+ * owner opening the app, and SC-009a is unsatisfiable rather than merely unmet.
+ *
+ * The refresh itself does the noticing; this only decides who gets read. Costs
+ * roughly four extra ESPN reads a day per recently-completed league, bounded by
+ * a 30-day window and a page per tick.
+ */
+export async function scanPostDraftWatch(env: Env, now: Date): Promise<number> {
+  const due = await findPostDraftWatchConnections(env.DB, now);
+  for (const { connection } of due) {
+    await refreshConnection(env, connection, now, { force: true });
+  }
+  if (due.length > 0) logInfo(`post-draft watch refreshed ${due.length} league(s)`);
   return due.length;
 }
 
@@ -88,6 +110,9 @@ async function stage(name: string, run: () => Promise<unknown>): Promise<void> {
 
 export async function runScheduledMaintenance(env: Env, now: Date): Promise<void> {
   await stage("pre-draft scan", () => scanPreDraftWindow(env, now));
+  // Its own stage: a failure here must not cancel the sweep below, and a
+  // reset noticed late is far better than a session sweep that did not run.
+  await stage("post-draft watch", () => scanPostDraftWatch(env, now));
   await stage("draft session sweep", () => sweepDraftSessions(env, now));
 
   // Archiving runs in the cron rather than the Durable Object because the

@@ -23,6 +23,16 @@ export interface SnapshotRow {
   draft_json: string;
   teams_json: string;
   draft_at: string | null;
+  /**
+   * 011 US8 — when ESPN itself first reported this draft complete.
+   *
+   * Monotonic: set once, never cleared by a sync, cleared only by a confirmed
+   * void. The snapshot around it is overwritten on every refresh, which is
+   * exactly why this cannot live inside `draft_json`.
+   */
+  espn_draft_completed_at: string | null;
+  /** A qualifying reset observation is standing, awaiting a second one. */
+  espn_reset_suspected_at: string | null;
 }
 
 export async function findConnection(
@@ -279,6 +289,52 @@ function splitJoinedRow(r: Record<string, unknown>): ConnectionWithSnapshot {
       draft_json: r.draft_json as string,
       teams_json: r.teams_json as string,
       draft_at: r.draft_at as string | null,
+      espn_draft_completed_at: (r.espn_draft_completed_at as string | null) ?? null,
+      espn_reset_suspected_at: (r.espn_reset_suspected_at as string | null) ?? null,
     },
   };
+}
+
+/**
+ * 011 T055 (SC-009a) — leagues to keep watching AFTER their draft finished.
+ *
+ * `findPreDraftWindowConnections` can never do this. It selects on
+ * `draft_at IS NOT NULL` inside a window, and a reset CLEARS ESPN's draft date
+ * (measured, 011 T001) — which the very sync that would notice writes back. So
+ * `draft_at` is an absorbing state: a completed league is excluded by that and
+ * by its `completed` flag, and the exclusion never lifts by itself. Without
+ * this, "the next sync" means an owner opening the app, and SC-009a's "with no
+ * action by the owner" is not satisfiable at all.
+ *
+ * The selector is the completion MEMORY, which is the one thing a reset does
+ * not erase and a sync does not overwrite. A league leaves the watch the moment
+ * it is voided, and re-enters if ESPN reports a new draft complete.
+ *
+ * Bounded on three axes so this cannot grow across a season: only leagues whose
+ * draft finished inside the window, only those not synced recently, and only a
+ * page of them per tick.
+ */
+export const POST_DRAFT_WATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+export const POST_DRAFT_WATCH_INTERVAL_MS = 15 * 60 * 1000;
+const POST_DRAFT_WATCH_PAGE = 25;
+
+export async function findPostDraftWatchConnections(
+  db: D1Database,
+  now: Date,
+): Promise<ConnectionWithSnapshot[]> {
+  const windowFloor = iso(new Date(now.getTime() - POST_DRAFT_WATCH_WINDOW_MS));
+  const cadenceFloor = iso(new Date(now.getTime() - POST_DRAFT_WATCH_INTERVAL_MS));
+  const res = await db
+    .prepare(
+      `SELECT c.id AS c_id, c.*, s.*
+         FROM league_connections c JOIN league_snapshots s ON s.connection_id = c.id
+        WHERE s.espn_draft_completed_at IS NOT NULL
+          AND s.espn_draft_completed_at >= ?
+          AND (c.last_sync_at IS NULL OR c.last_sync_at <= ?)
+        ORDER BY c.last_sync_at ASC
+        LIMIT ${POST_DRAFT_WATCH_PAGE}`,
+    )
+    .bind(windowFloor, cadenceFloor)
+    .all<Record<string, unknown>>();
+  return res.results.map(splitJoinedRow);
 }
