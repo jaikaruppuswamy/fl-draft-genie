@@ -148,6 +148,11 @@ function main(): void {
   // out loud — not because reading them is wrong, but because the corpus lands
   // in a PUBLIC repository and "I meant to" should be recorded in the command,
   // not inferred afterwards from what got committed.
+  // ONE scope, used by BOTH queries. They were allowed to differ once — the
+  // session listing was widened to account scope and this was left on
+  // connection scope — so the script listed a session and then reported "no
+  // retained frames" for the very session it had just offered. Two predicates
+  // for one question is the bug; one constant is the fix.
   const frameScope = allowLeaguemate
     ? `(account_id = ${q(me.id)} OR connection_id IN (${mineSql}) OR 1 = 1)`
     : `(account_id = ${q(me.id)} OR connection_id IN (${mineSql}))`;
@@ -213,7 +218,7 @@ function main(): void {
   }>(
     `SELECT id, account_id, connection_id, received_at, install_id, session_id, first_seq, last_seq, messages_json
      FROM tap_batches WHERE espn_league_id = ${q(league)} AND season = ${season}
-       AND connection_id IN (${mineSql})
+       AND ${frameScope}
      ORDER BY received_at, id`,
   ).filter((b) => inSet.has(b.session_id));
 
@@ -254,9 +259,23 @@ function main(): void {
     process.exit(2);
   }
 
-  const accountId = scoped[0]!.account_id;
-  const connectionId = scoped[0]!.connection_id;
-  if (scoped.some((b) => b.account_id !== accountId)) {
+  // 011 T061 (FR-037) — PERSPECTIVE COMES FROM THE OPERATOR, NOT FROM THE
+  // FRAMES.
+  //
+  // This used to read `scoped[0].connection_id`: whichever connection relayed
+  // the batch. That is wrong in both directions now. For frames captured before
+  // a reconnect it names a connection that no longer exists — no snapshot, no
+  // team, and the admission dies on the very frames T060 exists to recover. For
+  // a leaguemate's frames it would name THEIR connection, which is the 008
+  // defect exactly: another manager's team in your fixture.
+  //
+  // `myConnections` is the operator's own connection for this league and
+  // season, and `league_connections` is UNIQUE on
+  // (account_id, espn_league_id, season), so there is exactly one and it needs
+  // no disambiguation. The script has already exited if there is none.
+  const accountId = me.id;
+  const connectionId = myConnections[0]!;
+  if (!allowLeaguemate && scoped.some((b) => b.account_id !== accountId)) {
     throw new Error("frames span more than one account — refusing to mix them");
   }
 

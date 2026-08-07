@@ -236,6 +236,19 @@ describe("perspective is the operator's own, whoever relayed the frames", () => 
     expect(code).not.toMatch(/sort\([^)]*\b(n|msgs|batches)\b[^)]*\)[\s\S]{0,60}\[0\]/);
   });
 
+  it("uses ONE frame scope for BOTH queries", () => {
+    // The bug this exists to stop recurring: the session listing was widened to
+    // account scope and the batch fetch was left on connection scope, so the
+    // script offered a session and then reported "no retained frames" for the
+    // one it had just offered. Both reads must reference the same constant.
+    const code = admit();
+    const reads = code.match(/FROM tap_batches[\s\S]{0,260}/g) ?? [];
+    expect(reads.length, "expected two reads of tap_batches").toBeGreaterThanOrEqual(2);
+    for (const r of reads) {
+      expect(r, "a tap_batches read that does not use frameScope").toMatch(/\$\{frameScope\}/);
+    }
+  });
+
   it("PROVES these checks can fail", () => {
     // Each pattern above must actually fire on the shape it bans, or the guard
     // is decoration — the companion 007 shipped SC-003 without.
