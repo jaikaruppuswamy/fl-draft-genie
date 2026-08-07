@@ -41,7 +41,6 @@ import type { Env } from "../src/env";
 import { EspnError, type EspnLeagueResponse } from "../src/espn/types";
 
 const VIEWS: EspnView[] = ["mSettings", "mDraftDetail"];
-const DEFAULT_STATE = ".gate/011-draft-reset.json";
 const DEFAULT_READS = 3;
 const SPACING_MS = 2500; // stay polite (FR-008)
 
@@ -50,6 +49,14 @@ const SPACING_MS = 2500; // stay polite (FR-008)
  *  on sign is what made 010's capture script report 66 of 72 picks for a
  *  complete draft, so this compares against the skeleton value and nothing else. */
 const SKELETON_PLAYER_ID = -1;
+
+/** One baseline PER LEAGUE AND SEASON, because the first version kept a single
+ *  file and a mistyped league id then locked the correct one out behind a flag
+ *  the operator had no reason to know about. A baseline is only ever comparable
+ *  to its own league, so the league belongs in the filename rather than in a
+ *  guard. The id is scrubbed because it reaches a path. */
+const defaultStatePath = (league: string, season: number) =>
+  `.gate/011-draft-reset-${league.replace(/[^A-Za-z0-9]/g, "_")}-${season}.json`;
 
 type Tri = "true" | "false" | "absent";
 
@@ -281,7 +288,6 @@ function verdict(before: Observation, after: Observation): { pass: boolean; line
 async function main() {
   const league = arg("league");
   const season = Number(arg("season", String(new Date().getFullYear())));
-  const statePath = arg("state", DEFAULT_STATE)!;
   const reads = Math.max(1, Number(arg("reads", String(DEFAULT_READS))));
   const espnS2 = process.env.ESPN_S2;
   const swid = process.env.SWID;
@@ -294,10 +300,14 @@ async function main() {
         "  … reset the draft in ESPN …\n" +
         "  run 2 (same flags)      compares and prints the verdict\n\n" +
         "  --rebaseline  discard the stored baseline and start the experiment over\n" +
-        "  --show        read and print current state without touching the baseline",
+        "  --show        read and print current state without touching the baseline\n\n" +
+        "  Each league and season keeps its own baseline under .gate/, so running\n" +
+        "  the wrong id costs one read and nothing else — just run the right one.",
     );
     process.exit(2);
   }
+
+  const statePath = arg("state") ?? defaultStatePath(league, season);
 
   // ESPN_BASE_URL exists so the two-run protocol can be REHEARSED against a
   // local stub before a real reset is spent on it — a gate you only find out is
@@ -321,10 +331,14 @@ async function main() {
     /* no baseline yet — first run */
   }
 
+  // Only reachable via an explicit --state, since the default path carries the
+  // league and season. A baseline from another league cannot answer this
+  // question, so this refuses rather than comparing.
   if (state && !flag("rebaseline") && (state.league !== league || state.season !== season)) {
     console.error(
-      `baseline in ${statePath} is for league ${state.league} (${state.season}), not ${league} (${season}).\n` +
-        "Comparing across leagues would prove nothing. Use --state <other path>, or --rebaseline to start over.",
+      `the --state file ${statePath} holds a baseline for league ${state.league} (${state.season}), not ${league} (${season}).\n` +
+        "Comparing across leagues would prove nothing. Drop --state to use this league's own\n" +
+        "baseline, or add --rebaseline to overwrite that file and start over.",
     );
     process.exit(2);
   }

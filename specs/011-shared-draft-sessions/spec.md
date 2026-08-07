@@ -499,7 +499,11 @@ reconnect.
 
 - **FR-031a**: A sync that observes ESPN reporting a draft as **no longer
   completed, having previously reported it completed**, MUST void the
-  corresponding session so it can arm again.
+  corresponding session so it can arm again. **Premise verified 2026-08-07**
+  (011 T001, `scripts/gate-draft-reset.ts`): a real reset of a completed 72-pick
+  draft returned `draftDetail.drafted` to `false`, stable across three reads,
+  with the pick record emptying alongside it (72 filled picks → 0, the `-1`
+  skeleton restored in their place). The reset also cleared ESPN's draft date.
 - **FR-031a1**: The trigger MUST be a change in **ESPN's own** report, never a
   disagreement between Draft Genie's session and ESPN. Two verified reasons:
   **(a)** mock drafts never appear in ESPN's league draft record at all —
