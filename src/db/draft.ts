@@ -424,3 +424,76 @@ export async function latestLeagueHeartbeat(
     .first<{ last_heartbeat_at: string; heartbeat_hidden: number }>();
   return row ? { lastHeartbeatAt: row.last_heartbeat_at, hidden: row.heartbeat_hidden === 1 } : null;
 }
+
+// --- 011 US8: remembering, and forgetting, what ESPN said -------------------
+
+/** Set the first time ESPN reports this draft complete. Never overwritten. */
+export async function rememberEspnCompletion(db: D1Database, connectionId: string, at: Date): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE league_snapshots SET espn_draft_completed_at = COALESCE(espn_draft_completed_at, ?)
+        WHERE connection_id = ?`,
+    )
+    .bind(at.toISOString(), connectionId)
+    .run();
+}
+
+/** Raise or clear the suspicion that a reset has happened. */
+export async function setResetSuspicion(
+  db: D1Database,
+  connectionId: string,
+  at: Date | null,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE league_snapshots SET espn_reset_suspected_at = ? WHERE connection_id = ?`)
+    .bind(at ? at.toISOString() : null, connectionId)
+    .run();
+}
+
+/**
+ * 011 T052 (FR-031b) — void EVERY manager's session for this league.
+ *
+ * Not only the one whose sync happened to observe the reset. Under fan-out
+ * there is more than one session per league, they were all fed the same frames,
+ * and leaving the others holding the old draft is the contamination this
+ * feature exists to end — arriving by a different door.
+ *
+ * Clears the completion memory too, so the league leaves the post-draft watch
+ * and a genuinely new draft can set it again. Retained frames and archives are
+ * untouched (FR-031c): a draft that really happened stays history, and 008's
+ * corpus may already depend on it.
+ */
+export async function voidLeagueSessions(
+  db: D1Database,
+  espnLeagueId: string,
+  season: number,
+  now: Date,
+): Promise<string[]> {
+  const rows = await db
+    .prepare(`SELECT id FROM league_connections WHERE espn_league_id = ? AND season = ?`)
+    .bind(espnLeagueId, season)
+    .all<{ id: string }>();
+  const ids = rows.results.map((r) => r.id);
+  if (ids.length === 0) return [];
+
+  const marks = ids.map(() => "?").join(", ");
+  await db.batch([
+    // Reuse US5's reset so there is ONE reset path reached two ways: clears the
+    // completion stamp so the latch releases and the session can run again.
+    db
+      .prepare(
+        `UPDATE draft_sessions
+            SET status = 'idle', completed_at = NULL, archived_at = NULL, updated_at = ?
+          WHERE connection_id IN (${marks})`,
+      )
+      .bind(now.toISOString(), ...ids),
+    db
+      .prepare(
+        `UPDATE league_snapshots
+            SET espn_draft_completed_at = NULL, espn_reset_suspected_at = NULL
+          WHERE connection_id IN (${marks})`,
+      )
+      .bind(...ids),
+  ]);
+  return ids;
+}
