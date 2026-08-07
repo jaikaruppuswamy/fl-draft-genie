@@ -551,6 +551,69 @@ app's session (plan-level).
 Constraints do not contemplate ("responsive web app … No native app").
 Requires an explicit `/speckit-constitution` amendment before implementation.
 
+## 011 — shared-draft-sessions ✅ SHIPPED (2026-08-07)
+
+**All 71 tasks. Proved on a real two-account draft the night it shipped**: one
+tap running in one manager's account, the other watching on an iPad with no tap
+at all, all 72 picks delivered to both.
+
+**T001's gate passed.** `draftDetail.drafted` does return to `false` after a real
+reset, stable across three reads. Two measurements from it changed how US8 was
+built: a reset REBUILDS the pick skeleton rather than shortening it (72 rows, 0
+filled, every `playerId` back to `-1`), so corroboration counts non-skeleton ids
+and never filters on sign; and a reset CLEARS ESPN's draft date, so no cron would
+ever have observed it — which is why the post-draft watch exists.
+
+**Latency (SC-001).** 72/72 picks, tap `observedAt` → server acknowledged:
+p50 0.230 s, p95 0.265 s, max 0.333 s, against a p95 budget of 2 s and a 10 s
+ceiling. Fan-out to a non-relaying manager adds ~6 ms server-side.
+
+**Mutation sweep.** Nine mutations, every one killed by a named test. One
+"survivor" was a bad mutation, not a hole — it renamed an identifier without
+changing behaviour, and reporting it would have sent someone hunting nothing.
+
+### What the build learned that the plan did not know
+
+1. **Fan-out is not the visible half.** Arming and nudging every manager delivers
+   NOTHING on its own: the session pulls frames from a log that was account-
+   scoped, and a non-relaying manager's rows carry the relayer's account. The
+   task list never named this. Without it, T008 and T009 land, their tests go
+   green, and a real manager's board stays empty.
+
+2. **Entitlement had to be invented.** Making the read league-scoped meant
+   "holds a `league_connections` row" became the entire access control for a
+   league's live frames — and `completeConnect` never verified membership. The
+   gate is now verified ownership (`team_match_source = 'auto'`), enforced in the
+   query, with an OR for one's own rows so manual matchers keep their own frames.
+
+3. **A live draft and a reset draft are byte-identical except `inProgress`.**
+   `tests/fixtures/espn/draft/open.json` is `drafted: false`, 72 rows, 0 filled —
+   exactly a post-reset body. The obvious US8 rule would void a LIVE draft, for
+   every manager at once, irreversibly. Memory of a prior completion is what
+   separates them, and it had to be a monotonic column because the snapshot is
+   overwritten by the very sync that would notice.
+
+4. **THE LIVE EVENT PATH HAD NEVER RUN.** The server sends `payload`; the client
+   read `frame.event`, a key nothing ever set. Every event resolved to `{}` and
+   the board only changed when a reconnect delivered a snapshot. Behind it sat a
+   `seq: 0` resync loop, a turn countdown that only moved inside the `on_deck`
+   window, and an engine receiving `order: []` — so the survival rule and the
+   roster-crunch override had never executed in production either.
+
+5. **The lesson worth carrying forward.** Every one of those survived a large,
+   careful suite because **each side of a seam was tested against its own idea of
+   the other**. The reducer's tests hand-built frames; the session's tests never
+   inspected a body. Both passed for months against a shape the wire never
+   carried. Tests that assert an intention — "a gap emits `fetchSnapshot`" —
+   prove nothing about whether anybody acts on it. 013/014/015 replace those with
+   seam tests built from the server's own broadcast object.
+
+6. **Five defects in one evening were all one shape**: two things that must
+   change together, and only one did. D1 written and the Durable Object not; one
+   query widened and its sibling not; a reason computed and never rendered; copy
+   promising what the endpoint does not do. Worth sweeping for deliberately —
+   doing so found seven more.
+
 ## 011 — shared-draft-sessions
 
 **Added 2026-08-06**, from five defects found in one evening while preparing a

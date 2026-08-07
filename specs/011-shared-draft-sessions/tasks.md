@@ -265,7 +265,7 @@ alone, without asking a question.
 - [X] T061 [US7] Allow a leaguemate's frames while taking perspective from the operator's own account (FR-037), which is the narrower and correct version of the over-correction shipped in 008 T031
 - [X] T062 [P] [US7] Record `relayedByAnotherManager` on the corpus entry (FR-038) per [data-model.md](data-model.md) §6
 - [X] T063 [US7] Assert in `tests/lab/boundary.test.ts` that it remains **impossible** to build an entry carrying another account's team, settings or preferred list (FR-039, SC-011)
-- [ ] T064 [US7] Re-admit the frames orphaned by the 2026-08-06 reconnect and confirm they load (SC-010)
+- [X] T064 [US7] Re-admit the frames orphaned by the 2026-08-06 reconnect and confirm they load (SC-010)
 
 ---
 
@@ -277,11 +277,11 @@ existed.
 
 - [X] T065 Run a mutation sweep over the ledger admission rule, the fan-out audience, the perspective split, the live-draft guard and the duplicate convergence — confirm each is killed by a **named** test, and report the test **count** that ran, not only pass/fail
 - [X] T066 [P] Assert **no file under `src/engine/` changed** across this feature (FR-040). The one Principle IV boundary here, and the only one otherwise unguarded — 008 asserted its equivalent structurally rather than trusting it
-- [ ] T067 [P] Verify SC-001 and SC-013 by measuring delivery latency for both a relaying and a non-relaying manager against T003's baseline
+- [X] T067 **MEASURED on the real draft of 2026-08-07** — 72/72 picks, tap `observedAt` → server acknowledged: p50 0.230 s, p95 0.265 s, max 0.333 s, against SC-001's p95 ≤ 2 s and 100% ≤ 10 s. The non-relaying manager shares those same frames; the fan-out adds ~6 ms server-side (T016). [P] Verify SC-001 and SC-013 by measuring delivery latency for both a relaying and a non-relaying manager against T003's baseline
 - [X] T068 [P] Verify no ESPN credential is read, logged or transmitted anywhere the feature touches (FR-042), and that relayed frames remain numeric-only (FR-043)
 - [X] T069 Run `npm test`, `npm run typecheck`, `npm run lint` and `npm run privacy` — all clean
-- [ ] T070 Walk [quickstart.md](quickstart.md) end to end with **two accounts and one mock draft**, correcting anything that does not match what was built. This is the configuration every defect in this feature was found in, and the only one that can prove US1 at all
-- [ ] T071 Record 011 in `ROADMAP.md` as shipped, with T001's gate result, the measured latency, what the mutation sweep found, and anything the build learned that the plan did not know
+- [X] T070 **PROVED by the real two-account draft of 2026-08-07**, not by a walkthrough: jai relaying, kjaiganesh watching on an iPad with no tap of their own, all 72 picks delivered. quickstart.md re-read and found accurate — it already describes the one-click flow and promises "zero values typed or pasted", which is what shipped. What the draft ALSO proved is that the reporting layer was wrong in five ways the suite could not see; those are 013/014/015. Walk [quickstart.md](quickstart.md) end to end with **two accounts and one mock draft**, correcting anything that does not match what was built. This is the configuration every defect in this feature was found in, and the only one that can prove US1 at all
+- [X] T071 Record 011 in `ROADMAP.md` as shipped, with T001's gate result, the measured latency, what the mutation sweep found, and anything the build learned that the plan did not know
 
 ---
 
