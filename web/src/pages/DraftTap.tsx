@@ -225,27 +225,47 @@ export default function DraftTap() {
         </p>
       </div>
 
+      {/* 011 T057/T058 — "paired" is gone from the product, so it is gone from
+          here. Nothing is paired any more; browsers are ENABLED, one at a time,
+          and each can be turned off on its own. */}
       <div className="card">
-        <h2>Paired browsers</h2>
+        <h2>Enabled browsers</h2>
         {pairings.length === 0 && <p className="muted">None yet.</p>}
         <ul className="plain">
-          {pairings.map((p) => (
-            <li key={p.id}>
-              <span>
-                created {new Date(p.created_at).toLocaleDateString()}
-                {p.last_used_at ? ` · last used ${new Date(p.last_used_at).toLocaleString()}` : " · never used"}
-                {p.bound ? " · bound to one browser" : ""}
-                {p.revoked ? " · revoked" : ""}
-              </span>{" "}
-              {!p.revoked && (
-                <button onClick={() => revoke(p.id)} disabled={busy}>
-                  Revoke
-                </button>
-              )}
-            </li>
-          ))}
+          {pairings.map((p) => {
+            const expired = Date.parse(p.expires_at) <= Date.now();
+            return (
+              <li key={p.id}>
+                <span>
+                  enabled {new Date(p.created_at).toLocaleDateString()}
+                  {p.last_used_at ? ` · last relayed ${new Date(p.last_used_at).toLocaleString()}` : " · never relayed"}
+                  {p.bound ? " · bound to one browser" : ""}
+                  {/* Shown because it ends things silently: an enablement lasts
+                      180 days and a season is longer, so expiry is the ordinary
+                      way one finishes rather than an edge case. */}
+                  {p.revoked ? " · turned off" : expired ? " · expired" : ""}
+                </span>{" "}
+                {!p.revoked && !expired && (
+                  <button onClick={() => revoke(p.id)} disabled={busy}>
+                    Turn off
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
-        <p className="muted small">Revoking stops the relay immediately. It does not affect your ESPN account.</p>
+        <p className="muted small">
+          Turning a browser off stops its relay immediately. <strong>It does not affect your ESPN
+          account</strong> — nothing about your team, your league or your draft changes.
+        </p>
+        {/* 011 changed what this costs. Frames are league-shared now, so the
+            manager who turns off the only running relay takes the whole
+            league's feed down with it — including for people who never ran a
+            tap and have no way to notice why. */}
+        <p className="muted small">
+          If yours is the only browser relaying, turning it off leaves everyone in that league without
+          live picks — not just you.
+        </p>
       </div>
     </div>
   );

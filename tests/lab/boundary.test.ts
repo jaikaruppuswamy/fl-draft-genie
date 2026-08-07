@@ -175,3 +175,73 @@ describe("snapshotting is ADDITIVE — it never writes the live tables (FR-019c)
     expect(/DELETE[\s\S]{0,60}projection_sets/i.test(sample)).toBe(true);
   });
 });
+
+// 011 T063 (FR-039, SC-011) — the widened frame scope is safe ONLY because
+// perspective is not widened with it.
+//
+// 008 banned a leaguemate's frames outright, after an entry was built carrying
+// another manager's team. The ban was an over-correction: the mistake was not
+// reading someone else's picks — a relayed pick is four integers, and since 011
+// a league's picks are shared among its managers by ratified principle. The
+// mistake was inferring OWNERSHIP from relay volume, picking the connection
+// with 71 batches over the one with 1.
+//
+// So the rule that replaces the ban is narrow: FRAMES may be league-wide,
+// PERSPECTIVE may not. Everything that says whose draft this is — the team,
+// the settings, the roster, the preferred list — is read from the operator's
+// own connection, and this asserts there is no other path.
+
+const admitSource = import.meta.glob("../../scripts/lab-admit.ts", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+function admit(): string {
+  const src = Object.values(admitSource)[0] ?? "";
+  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+}
+
+describe("perspective is the operator's own, whoever relayed the frames", () => {
+  it("has the admitting script to check", () => {
+    expect(admit().length).toBeGreaterThan(1000);
+  });
+
+  it("reads the snapshot and team by CONNECTION, never by league alone", () => {
+    // `my_team_id` lives on `league_connections`. Selecting it by league would
+    // return a row per manager and pick one arbitrarily — which is precisely
+    // how another manager's team reached an entry the first time.
+    const code = admit();
+    const snapshotRead = /FROM league_snapshots[\s\S]{0,320}/.exec(code)?.[0] ?? "";
+    expect(snapshotRead, "no snapshot read found").toBeTruthy();
+    expect(snapshotRead).toMatch(/s\.connection_id\s*=\s*\$\{q\(connectionId\)\}/);
+    expect(snapshotRead).not.toMatch(/espn_league_id/);
+  });
+
+  it("takes the preferred list by connection too, or not at all", () => {
+    // A preferred list is named in the constitution's isolation clause, so it
+    // may never cross an account under any circumstances.
+    const code = admit();
+    for (const read of code.match(/FROM preferred_players[\s\S]{0,240}/g) ?? []) {
+      expect(read).toMatch(/connection_id/);
+    }
+  });
+
+  it("never derives ownership from how much a connection relayed", () => {
+    // The 2026-08-06 defect in one line: ordering or picking by batch volume.
+    // Recorded as a standing rule — scope by account in the query, never by row
+    // count.
+    const code = admit();
+    expect(code).not.toMatch(/ORDER BY\s+(COUNT|n|msgs|batches)\b[\s\S]{0,40}DESC/i);
+    expect(code).not.toMatch(/sort\([^)]*\b(n|msgs|batches)\b[^)]*\)[\s\S]{0,60}\[0\]/);
+  });
+
+  it("PROVES these checks can fail", () => {
+    // Each pattern above must actually fire on the shape it bans, or the guard
+    // is decoration — the companion 007 shipped SC-003 without.
+    const byLeague = "FROM league_snapshots s JOIN c WHERE s.espn_league_id = ${q(league)}";
+    expect(byLeague).toMatch(/espn_league_id/);
+    const byVolume = "ORDER BY COUNT(*) DESC LIMIT 1";
+    expect(byVolume).toMatch(/ORDER BY\s+(COUNT|n|msgs|batches)\b[\s\S]{0,40}DESC/i);
+  });
+});

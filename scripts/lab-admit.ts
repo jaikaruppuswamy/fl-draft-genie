@@ -43,6 +43,18 @@ function arg(name: string): string | undefined {
 }
 const remote = process.argv.includes("--local") ? [] : ["--remote"];
 
+/**
+ * 011 T061 — admit frames a LEAGUEMATE relayed.
+ *
+ * Off by default. Since 011 a league's picks are shared among its managers and a
+ * relayed pick is four integers, so this is legitimate — but the corpus is
+ * committed to a public repository, and the one time this went wrong the entry
+ * carried another manager's team because ownership was INFERRED. Requiring the
+ * flag makes the intent part of the command rather than something to reconstruct
+ * from the diff. Perspective is never affected by it.
+ */
+const allowLeaguemate = process.argv.includes("--allow-leaguemate");
+
 /** One read against D1 via wrangler, same shape `export-tap-corpus.ts` uses. */
 function query<T>(sql: string): T[] {
   const raw = execFileSync(
@@ -111,15 +123,48 @@ function main(): void {
   // full-looking pick list and a complete ledger. Nothing downstream could
   // detect it. So the selection is explicit, and ambiguity is refused rather
   // than guessed.
-  // `connection_id IN (mine)` is the FR-027 boundary, and it is in the query so
-  // no later filtering step can be forgotten. Another manager's frames for this
-  // same league are never fetched, never listed, and never selectable.
+  // 011 T060/T061 — SCOPED BY ACCOUNT, NOT BY CONNECTION.
+  //
+  // `connection_id IN (mine)` was the 008 over-correction, and it over-shot in a
+  // way that only showed up later: a RECONNECT mints a new connection id, so
+  // every frame captured before it became unreachable. The 2026-08-06 reconnect
+  // orphaned a whole draft's capture that way. `account_id` is already on
+  // `tap_batches`, so this is a change of predicate and not of schema.
+  //
+  // It also admits a LEAGUEMATE's frames, which is the narrower and correct
+  // version of what 008 banned. The mistake that caused the ban was not reading
+  // someone else's frames — it was inferring OWNERSHIP from volume, picking the
+  // connection with 71 batches over the one with 1, and building an entry that
+  // carried another manager's team. Since 011, a league's picks are shared among
+  // its managers by ratified principle, and a relayed pick is four integers.
+  //
+  // What stays absolute is PERSPECTIVE. Every field that says whose draft this
+  // is — team, settings, roster, preferred list — is read from
+  // `perspectiveConnectionId` below, which is always one of the operator's own.
+  // `tests/lab/boundary.test.ts` asserts that no other path exists.
   const mineSql = myConnections.map(q).join(", ");
-  const sessionRows = query<{ session_id: string; n: number; t0: string; t1: string; msgs: number }>(
+
+  // Mine by default, across reconnects. A leaguemate's frames need saying so
+  // out loud — not because reading them is wrong, but because the corpus lands
+  // in a PUBLIC repository and "I meant to" should be recorded in the command,
+  // not inferred afterwards from what got committed.
+  const frameScope = allowLeaguemate
+    ? `(account_id = ${q(me.id)} OR connection_id IN (${mineSql}) OR 1 = 1)`
+    : `(account_id = ${q(me.id)} OR connection_id IN (${mineSql}))`;
+
+  const sessionRows = query<{
+    session_id: string;
+    n: number;
+    t0: string;
+    t1: string;
+    msgs: number;
+    mine: number;
+  }>(
     `SELECT session_id, COUNT(*) AS n, MIN(received_at) AS t0, MAX(received_at) AS t1,
-            SUM(message_count) AS msgs
+            SUM(message_count) AS msgs,
+            MIN(CASE WHEN account_id = ${q(me.id)} THEN 1 ELSE 0 END) AS mine
      FROM tap_batches WHERE espn_league_id = ${q(league)} AND season = ${season}
-       AND connection_id IN (${mineSql})
+       AND ${frameScope}
      GROUP BY session_id ORDER BY t0`,
   );
 
@@ -422,6 +467,12 @@ function main(): void {
     provenanceClass: cls,
     useClass: bundle ? "replayable" : "pick_sequence_only",
     unreplayableReason: unreplayable,
+    // 011 T062 — true when any admitted session's frames were relayed by
+    // someone else. Written only when true, so entries admitted before this
+    // field existed keep comparing equal.
+    ...(sessionRows.some((r) => sessions.includes(r.session_id) && r.mine === 0)
+      ? { relayedByAnotherManager: true }
+      : {}),
     teamCount,
     roundCount,
     totalPicks,

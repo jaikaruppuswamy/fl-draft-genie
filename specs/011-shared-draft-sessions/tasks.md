@@ -248,10 +248,10 @@ next draft is captured with none of the previous one's picks.
 **Independent test**: someone who has never set the tap up succeeds from the page
 alone, without asking a question.
 
-- [ ] T056 [US6] Remove the pairing instructions from `web/src/pages/DraftTap.tsx`, leaving install / enable / state (FR-032)
-- [ ] T057 [US6] Keep a way to stop relaying, stating what stops — **including that ESPN is unaffected** (FR-033)
-- [ ] T058 [P] [US6] List enabled browsers and allow each to be revoked individually (FR-034)
-- [ ] T059 [US6] State that live relaying requires desktop Chrome (FR-035) — 010's permanent limitation, and the reason US1 matters
+- [X] T056 [US6] Remove the pairing instructions from `web/src/pages/DraftTap.tsx`, leaving install / enable / state (FR-032)
+- [X] T057 [US6] Keep a way to stop relaying, stating what stops — **including that ESPN is unaffected** (FR-033)
+- [X] T058 [P] [US6] List enabled browsers and allow each to be revoked individually (FR-034)
+- [X] T059 [US6] State that live relaying requires desktop Chrome (FR-035) — 010's permanent limitation, and the reason US1 matters
 
 ---
 
@@ -261,10 +261,10 @@ alone, without asking a question.
 
 **Independent test**: reconnect a league, then admit a draft captured beforehand.
 
-- [ ] T060 [US7] Scope frames by `account_id` rather than `connection_id` in `scripts/lab-admit.ts` (FR-036) — the column is already on `tap_batches`, so this is a change of predicate, not of schema
-- [ ] T061 [US7] Allow a leaguemate's frames while taking perspective from the operator's own account (FR-037), which is the narrower and correct version of the over-correction shipped in 008 T031
-- [ ] T062 [P] [US7] Record `relayedByAnotherManager` on the corpus entry (FR-038) per [data-model.md](data-model.md) §6
-- [ ] T063 [US7] Assert in `tests/lab/boundary.test.ts` that it remains **impossible** to build an entry carrying another account's team, settings or preferred list (FR-039, SC-011)
+- [X] T060 [US7] Scope frames by `account_id` rather than `connection_id` in `scripts/lab-admit.ts` (FR-036) — the column is already on `tap_batches`, so this is a change of predicate, not of schema
+- [X] T061 [US7] Allow a leaguemate's frames while taking perspective from the operator's own account (FR-037), which is the narrower and correct version of the over-correction shipped in 008 T031
+- [X] T062 [P] [US7] Record `relayedByAnotherManager` on the corpus entry (FR-038) per [data-model.md](data-model.md) §6
+- [X] T063 [US7] Assert in `tests/lab/boundary.test.ts` that it remains **impossible** to build an entry carrying another account's team, settings or preferred list (FR-039, SC-011)
 - [ ] T064 [US7] Re-admit the frames orphaned by the 2026-08-06 reconnect and confirm they load (SC-010)
 
 ---
