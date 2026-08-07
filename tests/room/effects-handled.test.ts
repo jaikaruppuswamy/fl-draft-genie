@@ -347,3 +347,99 @@ describe("the reset control describes what the ENDPOINT does", () => {
     expect(handler).not.toMatch(/resetLeagueSessions\(/);
   });
 });
+
+describe("the revision-bump path, which only became reachable in 013", () => {
+  // Promised during the draft and not delivered then: I hypothesised this path
+  // was dropping recommendations, the reported symptom turned out to be an
+  // unpicked player, and I stopped looking. The path is still worth pinning,
+  // because before the `payload` fix `event.revision` was always undefined —
+  // so this branch had NEVER executed, in any draft, ever.
+  //
+  // 005 bumps the revision on a CORRECTION and replays the affected turns, so a
+  // held board and the local pick list are both suspect.
+
+  const bump = (seq: number, revision: number) => ({
+    type: "event",
+    epoch: "e1",
+    seq,
+    revision,
+    kind: "pick_made",
+    payload: { kind: "pick_made", revision, overall: seq, teamId: 1, playerId: 1000 + seq },
+    picksUntilMyTurn: 6,
+  });
+
+  function seeded(): RoomState {
+    return reduce(
+      initialState(),
+      {
+        kind: "frame",
+        frame: { type: "snapshot", epoch: "e1", seq: 0, state: { revision: 0, picks: [] } } as never,
+      },
+      0,
+    ).state;
+  }
+
+  it("re-reads on a correction instead of trusting the local view", () => {
+    const { state, effects } = reduce(seeded(), { kind: "frame", frame: bump(1, 7) as never }, 0);
+    expect(state.revision).toBe(7);
+    expect(state.recommendation).toBeNull();
+    expect(effects.map((e) => e.kind)).toContain("fetchSnapshot");
+  });
+
+  it("keeps the turn countdown across the bump", () => {
+    // The branch returns early, so anything computed before it must survive.
+    // Getting this wrong would blank the indicator on every correction.
+    const { state } = reduce(seeded(), { kind: "frame", frame: bump(1, 7) as never }, 0);
+    expect(state.picksUntilMyTurn).toBe(6);
+  });
+
+  it("does NOT re-read when the revision is unchanged — PROVES it is conditional", () => {
+    // Without this, "re-reads on a correction" passes against a reducer that
+    // re-reads on every single frame, which at autodraft speed would be a
+    // snapshot fetch per pick.
+    const { effects } = reduce(seeded(), { kind: "frame", frame: bump(1, 0) as never }, 0);
+    expect(effects.map((e) => e.kind)).not.toContain("fetchSnapshot");
+  });
+
+  it("recovers: the snapshot that follows restores the board and asks for advice", () => {
+    // The half that matters. A correction that cleared the board and never
+    // recovered would look exactly like the freeze.
+    const bumped = reduce(seeded(), { kind: "frame", frame: bump(1, 7) as never }, 0).state;
+    const { state, effects } = reduce(
+      bumped,
+      {
+        kind: "frame",
+        frame: {
+          type: "snapshot",
+          epoch: "e1",
+          seq: 9,
+          state: { revision: 7, picks: [{ overall: 1, teamId: 1, playerId: 4262921, observedAt: "x" }] },
+        } as never,
+      },
+      0,
+    );
+    expect(state.picks).toHaveLength(1);
+    expect(state.cursor).toBe(9);
+    // Advice is REQUESTED OR QUEUED. A fetch was already in flight from the
+    // opening snapshot, so this one sets `dirty` and the trailing refresh fires
+    // when that response lands — deliberately, since a second concurrent fetch
+    // per correction is what FR-004 exists to avoid. Asserting only the effect
+    // would call a working design broken.
+    expect(effects.some((e) => e.kind === "fetchRecommendation") || state.dirty).toBe(true);
+  });
+
+  it("issues the fetch outright when nothing is in flight", () => {
+    // The other half, so "requested or queued" cannot be satisfied by `dirty`
+    // alone in every case.
+    const bumped = { ...reduce(seeded(), { kind: "frame", frame: bump(1, 7) as never }, 0).state, inFlight: false };
+    const { effects } = reduce(
+      bumped,
+      {
+        kind: "frame",
+        frame: { type: "snapshot", epoch: "e1", seq: 9, state: { revision: 7, picks: [] } } as never,
+      },
+      0,
+    );
+    expect(effects.map((e) => e.kind)).toContain("fetchRecommendation");
+  });
+});
