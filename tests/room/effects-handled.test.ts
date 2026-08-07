@@ -312,3 +312,38 @@ describe("014 — the turn countdown is always current", () => {
     expect(s.myTurnState).toBe("on_the_clock");
   });
 });
+
+describe("the reset control describes what the ENDPOINT does", () => {
+  // The copy said it cleared "everyone in this league"; `POST /:id/draft/reset`
+  // calls `resetOneSession` and clears one. FR-027 makes reset session-level,
+  // and the route's own comment says a leaguemate is left untouched. Both halves
+  // were written in the same commit, one against fan-out semantics and one
+  // against per-session — so a manager clearing a contaminated session before a
+  // draft was told the league was clean while every leaguemate's object still
+  // held the old picks.
+  //
+  // This is the pattern the whole sweep is about, in its most literal form: the
+  // words and the behaviour are two things that must change together.
+
+  it("does not claim to clear the league", () => {
+    const copy = page().replace(/\{\/\*[\s\S]*?\*\/\}/g, " ");
+    expect(copy).not.toMatch(/everyone in this league/i);
+  });
+
+  it("PROVES the check can fail", () => {
+    expect("Clears the picks for everyone in this league").toMatch(/everyone in this league/i);
+  });
+
+  it("the endpoint it calls really is per-session", () => {
+    // Asserted against the route, so if the endpoint is ever made league-wide
+    // this test is where someone is told to revisit the copy.
+    const route = readFileSync(
+      fileURLToPath(new URL("../../src/api/draft.ts", import.meta.url)),
+      "utf8",
+    );
+    const handler = /app\.post\("\/:id\/draft\/reset"[\s\S]{0,2000}/.exec(route)?.[0] ?? "";
+    expect(handler, "reset route not found").toBeTruthy();
+    expect(handler).toMatch(/resetOneSession\(/);
+    expect(handler).not.toMatch(/resetLeagueSessions\(/);
+  });
+});
