@@ -13,7 +13,14 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { evaluateGesture, REFUSAL_COPY, REDEEM_COPY, type GestureInput } from "../../tap/enable";
+import {
+  errorCodeOf,
+  evaluateGesture,
+  REDEEM_COPY,
+  REFUSAL_COPY,
+  shouldForgetCredential,
+  type GestureInput,
+} from "../../tap/enable";
 
 /** A click that should mint. Each test breaks exactly one thing. */
 const good = (over: Partial<GestureInput> = {}): GestureInput => ({
@@ -236,5 +243,58 @@ describe("the shipped userscript (T027, T031)", () => {
     const code = bundle();
     expect(code).not.toMatch(/setAttribute\([^)]*dg:token/);
     expect(code).toMatch(/data-dg-tap/);
+  });
+});
+
+describe("a revoked credential is FORGOTTEN, not merely reported", () => {
+  // The defect: a 401 rendered "not paired" and kept the token. `token()` still
+  // returned the string, `flush()` passed its guard, and every remaining pick of
+  // the draft was POSTed to a dead credential — after the owner had explicitly
+  // revoked it.
+
+  it("forgets on every reason the credential is actually dead", () => {
+    for (const reason of [
+      "pairing_revoked",
+      "pairing_expired",
+      "pairing_unknown",
+      "pairing_wrong_install",
+    ]) {
+      expect(shouldForgetCredential(reason), reason).toBe(true);
+    }
+  });
+
+  it("KEEPS it when the failure is our own missing header", () => {
+    // The exception that matters. `missing_install` means we failed to send
+    // `X-Tap-Install` — a bug on this side, not a dead credential. Forgetting
+    // here destroys a working enablement mid-draft over our own mistake.
+    expect(shouldForgetCredential("pairing_missing_install")).toBe(false);
+  });
+
+  it("forgets when the body cannot be read", () => {
+    // A 401 from our own ingest is always an auth failure. Since re-enabling is
+    // now one click, forgetting one working credential costs far less than
+    // relaying into a 401 for a whole draft.
+    expect(shouldForgetCredential("")).toBe(true);
+  });
+
+  it("reads the reason WITHOUT JSON.parse — the page owns JSON", () => {
+    // This runs on ESPN's page, where `JSON` is theirs to replace. Same reason
+    // the tap captures `prompt` and `alert` at document-start.
+    expect(errorCodeOf('{"error":"pairing_revoked","message":"..."}')).toBe("pairing_revoked");
+    expect(errorCodeOf('{ "error" : "pairing_expired" }')).toBe("pairing_expired");
+    expect(errorCodeOf("not json at all")).toBe("");
+    expect(errorCodeOf("")).toBe("");
+  });
+
+  it("is actually WIRED — the bundle clears the stored token on 401", () => {
+    // The pure function being right is worth nothing if `main.ts` never calls
+    // it. This is the half that was missing: `GM_deleteValue` was granted and
+    // wired and never used on `dg:token`.
+    // Asserted on the REAL call chain, not on `GM_deleteValue` — that was
+    // already in the bundle via `gmStorage.remove` before this fix, so an
+    // alternation on it would have passed against the bug it exists to catch.
+    const code = bundle().replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+    expect(code).toMatch(/status\s*===\s*401\)\s*return\s+onUnauthorised/);
+    expect(code).toMatch(/shouldForgetCredential\(\s*errorCodeOf\(/);
   });
 });

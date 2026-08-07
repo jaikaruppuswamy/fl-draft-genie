@@ -50,7 +50,13 @@ export default function DraftTap() {
     // enabled", and guessing between them is what sends someone to re-do setup
     // that was already working.
     scriptDetected: scriptVersion !== null,
-    enablements: pairings.map((p) => ({ lastUsedAt: p.last_used_at, revoked: p.revoked })),
+    enablements: pairings.map((p) => ({
+      lastUsedAt: p.last_used_at,
+      revoked: p.revoked,
+      // Passed through, not discarded: an enablement lasts 180 days and a season
+      // is longer, so expiry is the ordinary way one ends.
+      expiresAt: p.expires_at,
+    })),
     nowMs: Date.now(),
   });
   useEffect(() => {

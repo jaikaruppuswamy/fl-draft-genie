@@ -66,6 +66,12 @@
     if (!i.hasBox) return { mint: false, reason: "target_not_visible" };
     return { mint: true };
   }
+  function shouldForgetCredential(errorCode) {
+    return errorCode !== "pairing_missing_install";
+  }
+  function errorCodeOf(body) {
+    return /"error"\s*:\s*"([a-z_]+)"/.exec(body ?? "")?.[1] ?? "";
+  }
 
   // tap/classify.ts
   var KNOWN_NON_DRAFT = /* @__PURE__ */ new Set([
@@ -654,7 +660,7 @@
           }
           failures++;
           if (r.status === 409) return render("version-rejected");
-          if (r.status === 401) return render("not-paired");
+          if (r.status === 401) return onUnauthorised(r.responseText);
           if (r.status === 403) return render("incompatible", "this ESPN league is not connected to Draft Genie");
           if (r.status === 400) return render("incompatible", "Draft Genie rejected the message shape");
           render("buffering", `server said ${r.status}`);
@@ -691,6 +697,13 @@
     if (!decision.send) return;
     lastHeartbeatAt = clock.now();
     postStatus(status.state, status.detail, true);
+  }
+  function onUnauthorised(body) {
+    if (shouldForgetCredential(errorCodeOf(body))) {
+      gmStorage.remove("dg:token");
+      return render("not-paired", "this browser's relay was turned off \u2014 turn it on again in Draft Genie");
+    }
+    render("not-paired");
   }
   function postStatus(state, detail, isHeartbeat) {
     if (!token()) return;

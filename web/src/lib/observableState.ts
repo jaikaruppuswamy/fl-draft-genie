@@ -189,7 +189,12 @@ export interface TapInputs {
    */
   scriptDetected: boolean | null;
   /** Live enablements for this account, newest first. */
-  enablements: { lastUsedAt: string | null; revoked: boolean }[];
+  enablements: {
+    lastUsedAt: string | null;
+    revoked: boolean;
+    /** Optional so a caller that cannot know is not forced to guess a date. */
+    expiresAt?: string;
+  }[];
   nowMs: number;
 }
 
@@ -204,7 +209,17 @@ export interface TapInputs {
 export const RELAY_FRESH_MS = 150_000;
 
 export function tapStateOf(i: TapInputs): StateReport<TapState> {
-  const live = i.enablements.filter((e) => !e.revoked);
+  // EXPIRY COUNTS AS NOT ENABLED, exactly like revocation.
+  //
+  // An enablement lasts 180 days, which is shorter than the gap between one
+  // draft and the next. Filtering on `revoked` alone meant everyone who enabled
+  // last August read as "Enabled, idle" this August — a healthy-looking page
+  // over a credential the ingest was already rejecting, which is the precise
+  // shape of failure this module exists to prevent. `expires_at` was returned
+  // by the API and typed on the client the whole time, and thrown away.
+  const live = i.enablements.filter(
+    (e) => !e.revoked && !(e.expiresAt !== undefined && Date.parse(e.expiresAt) <= i.nowMs),
+  );
 
   if (live.length === 0) {
     // No enablement. Whether the script is present decides which of the two

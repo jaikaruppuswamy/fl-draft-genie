@@ -114,3 +114,41 @@ export const REDEEM_COPY: Record<RedeemFailure, string> = {
   unsupported_version: "This version of the draft tap is too old. Update it, then try again.",
   network: "Couldn't reach Draft Genie. Check your connection and try again.",
 };
+
+/**
+ * A 401 arrived. Should this browser forget the credential it holds?
+ *
+ * It used to keep it. The badge said "not paired", `token()` still returned the
+ * string, `flush()` passed its guard, and every remaining pick of the draft was
+ * POSTed to a dead credential — for the rest of the session, after the owner
+ * had explicitly revoked it.
+ *
+ * ONE EXCEPTION, and it is the one that matters: `pairing_missing_install`
+ * means WE failed to send the `X-Tap-Install` header. That is a bug on this
+ * side, not a dead credential, and forgetting on it would destroy a perfectly
+ * good enablement over our own mistake — mid-draft, with no way back except
+ * enabling again.
+ *
+ * Everything else — revoked, expired, unknown, wrong_install — means the token
+ * cannot work in this browser again, so holding it only produces 401s.
+ *
+ * An UNREADABLE body forgets. A 401 from our own ingest is always an auth
+ * failure, and since re-enabling is now a single click the cost of forgetting
+ * one working credential is far below the cost of relaying into a 401 for a
+ * whole draft. That trade only became the right way round when the paste flow
+ * went away.
+ */
+export function shouldForgetCredential(errorCode: string): boolean {
+  return errorCode !== "pairing_missing_install";
+}
+
+/**
+ * Pull the error code out of a response body WITHOUT `JSON.parse`.
+ *
+ * This runs on ESPN's page, where `JSON` is theirs to replace. The tap's
+ * standing posture is to depend on nothing the page can swap out — the same
+ * reasoning that made it capture `prompt` and `alert` at document-start.
+ */
+export function errorCodeOf(body: string): string {
+  return /"error"\s*:\s*"([a-z_]+)"/.exec(body ?? "")?.[1] ?? "";
+}

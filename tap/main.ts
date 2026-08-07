@@ -10,7 +10,7 @@
 // build asserts no ESPN request literal survives bundling.
 
 import { CONTRACT_VERSION, INGEST_ORIGIN, TAP_VERSION } from "./meta";
-import { evaluateGesture } from "./enable";
+import { errorCodeOf, evaluateGesture, shouldForgetCredential } from "./enable";
 import { classify, isDraftChannel } from "./classify";
 import { decodeInitFrame, filledPicks } from "./decode";
 import { assertTransmittable, filterLedgerPick, filterPickFields } from "./filter";
@@ -220,7 +220,7 @@ function flush(): void {
       }
       failures++;
       if (r.status === 409) return render("version-rejected");
-      if (r.status === 401) return render("not-paired");
+      if (r.status === 401) return onUnauthorised(r.responseText);
       if (r.status === 403) return render("incompatible", "this ESPN league is not connected to Draft Genie");
       if (r.status === 400) return render("incompatible", "Draft Genie rejected the message shape");
       render("buffering", `server said ${r.status}`);
@@ -271,6 +271,35 @@ function heartbeat(triggeredByEvent: boolean): void {
   if (!decision.send) return;
   lastHeartbeatAt = clock.now();
   postStatus(status.state, status.detail, true);
+}
+
+/**
+ * A 401 means this credential will never work again — so STOP USING IT.
+ *
+ * It used to render "not paired" and keep the token. `token()` still returned
+ * the string, so `flush()` passed its guard and every remaining pick of the
+ * draft was POSTed to a dead credential: the owner revoked it, the badge said
+ * something had gone wrong, and the tap went on relaying into a 401 for the
+ * rest of the session. `GM_deleteValue` was granted and wired and never used on
+ * `dg:token`.
+ *
+ * ONE EXCEPTION, and it is the important one. `missing_install` means WE failed
+ * to send the `X-Tap-Install` header — a bug on this side, not a dead
+ * credential. Deleting on it would destroy a perfectly good enablement because
+ * of our own mistake, mid-draft, with no way back except re-enabling. Every
+ * other reason (revoked, expired, unknown, wrong_install) means the token
+ * cannot work in this browser again.
+ *
+ * The reason is read with a regex rather than `JSON.parse`. This runs on ESPN's
+ * page, where `JSON` is theirs to replace, and the tap's standing posture is to
+ * depend on nothing the page can swap out.
+ */
+function onUnauthorised(body: string): void {
+  if (shouldForgetCredential(errorCodeOf(body))) {
+    gmStorage.remove("dg:token");
+    return render("not-paired", "this browser's relay was turned off — turn it on again in Draft Genie");
+  }
+  render("not-paired");
 }
 
 function postStatus(state: TapState, detail: string, isHeartbeat: boolean): void {
