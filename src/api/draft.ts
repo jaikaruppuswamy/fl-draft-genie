@@ -54,12 +54,7 @@ export function draftRoutes() {
     //
     // Falls back to the viewer's own row when the league has no heartbeat at
     // all, so a solo relayer is judged exactly as before.
-    const leagueBeat = await latestLeagueHeartbeat(
-      c.env.DB,
-      connection.id,
-      connection.espn_league_id,
-      connection.season,
-    );
+    const leagueBeat = await latestLeagueHeartbeat(c.env.DB, connection.id);
     const withhold = withholdReason({
       lastHeartbeatAt: leagueBeat ? Date.parse(leagueBeat.lastHeartbeatAt) : lastHeartbeatAt,
       hidden: leagueBeat ? leagueBeat.hidden : hidden,

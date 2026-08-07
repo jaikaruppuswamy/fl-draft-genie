@@ -400,27 +400,25 @@ export async function resetSession(db: D1Database, connectionId: string, now: Da
 export async function latestLeagueHeartbeat(
   db: D1Database,
   readerConnectionId: string,
-  espnLeagueId: string,
-  season: number,
 ): Promise<{ lastHeartbeatAt: string; hidden: boolean } | null> {
+  // The league and season are DERIVED from the reader's own connection rather
+  // than passed alongside it. Passing both invites them to disagree, which is
+  // the exact class of defect this codebase keeps producing — and a caller that
+  // has to look the league up first is a caller that can look up the wrong one.
   const row = await db
     .prepare(
       `SELECT s.last_heartbeat_at, s.heartbeat_hidden
          FROM draft_sessions s
          JOIN league_connections c ON c.id = s.connection_id
-        WHERE c.espn_league_id = ? AND c.season = ?
+         JOIN league_connections r ON r.id = ?
+        WHERE c.espn_league_id = r.espn_league_id
+          AND c.season = r.season
           AND s.last_heartbeat_at IS NOT NULL
-          AND EXISTS (
-                SELECT 1 FROM league_connections r
-                 WHERE r.id = ?
-                   AND r.espn_league_id = c.espn_league_id
-                   AND r.season = c.season
-                   AND (r.team_match_source = 'auto' OR r.account_id = c.account_id)
-              )
+          AND (r.team_match_source = 'auto' OR r.account_id = c.account_id)
         ORDER BY s.last_heartbeat_at DESC
         LIMIT 1`,
     )
-    .bind(espnLeagueId, season, readerConnectionId)
+    .bind(readerConnectionId)
     .first<{ last_heartbeat_at: string; heartbeat_hidden: number }>();
   return row ? { lastHeartbeatAt: row.last_heartbeat_at, hidden: row.heartbeat_hidden === 1 } : null;
 }

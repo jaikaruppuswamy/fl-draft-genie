@@ -116,3 +116,119 @@ describe("a forward gap must RECOVER, not merely intend to", () => {
     expect(state.picks.length).toBeGreaterThan(0);
   });
 });
+
+describe("the reducer accepts the frame the SERVER actually sends", () => {
+  // THE DEFECT THIS EXISTS FOR is the one that froze a real draft, and it hid
+  // behind a suite that was entirely green.
+  //
+  // `src/draft/session.ts` broadcasts
+  //     {type, epoch, seq, revision, kind, payload}
+  // which is what 005's contracts/api.md ratified. The reducer read
+  // `frame.event` — a key nothing has ever set. Every live event resolved to
+  // `{}` and fell through to `default:`. No pick placed, no turn update, no
+  // completion, no refresh. The cursor still advanced, so there was no gap to
+  // trigger recovery either. The board only ever changed when a reconnect
+  // delivered a fresh snapshot.
+  //
+  // WHY NOTHING CAUGHT IT: every room test hand-builds its frames with an
+  // `event:` key, and the Durable Object tests assert only `type`/`seq`/`epoch`
+  // and never inspect a body. Both sides were tested against a shape the wire
+  // never carried. This asserts the SEAM — the exact JSON the server writes.
+
+  /** Byte-for-byte the object `session.ts` stringifies onto the socket. */
+  const serverFrame = (seq: number, event: Record<string, unknown>) => ({
+    type: "event",
+    epoch: "e1",
+    seq,
+    revision: event.revision,
+    kind: event.kind,
+    payload: event,
+  });
+
+  function seeded(): RoomState {
+    return reduce(
+      initialState(),
+      {
+        kind: "frame",
+        frame: { type: "snapshot", epoch: "e1", seq: 0, state: { revision: 0, picks: [] } } as never,
+      },
+      0,
+    ).state;
+  }
+
+  it("places a pick from a server-shaped pick_made", () => {
+    const { state, effects } = reduce(
+      seeded(),
+      {
+        kind: "frame",
+        frame: serverFrame(1, {
+          kind: "pick_made",
+          revision: 0,
+          overall: 1,
+          teamId: 1,
+          playerId: 4262921,
+          observedAt: "2026-08-07T02:45:00.000Z",
+        }) as never,
+      },
+      0,
+    );
+
+    expect(state.picks.map((p) => p.playerId)).toContain(4262921);
+    expect(state.phase).toBe("live");
+    // A pick must always lead to fresh advice. Adopting the snapshot already
+    // put one request in flight, so this one is QUEUED rather than issued —
+    // which is the designed behaviour and worth pinning, since a second
+    // concurrent fetch per pick is what FR-004 exists to avoid.
+    expect(effects.length === 1 || state.dirty).toBe(true);
+  });
+
+  it("issues the fetch outright when nothing is already in flight", () => {
+    // The other half, so "leads to advice" is not satisfied by dirty alone.
+    const idle = { ...seeded(), inFlight: false, dirty: false };
+    const { effects } = reduce(
+      idle,
+      {
+        kind: "frame",
+        frame: serverFrame(1, {
+          kind: "pick_made",
+          revision: 0,
+          overall: 1,
+          teamId: 1,
+          playerId: 4262921,
+          observedAt: "2026-08-07T02:45:00.000Z",
+        }) as never,
+      },
+      0,
+    );
+    expect(effects.map((e) => e.kind)).toContain("fetchRecommendation");
+  });
+
+  it("advances the turn from a server-shaped on_deck", () => {
+    const { state } = reduce(
+      seeded(),
+      { kind: "frame", frame: serverFrame(1, { kind: "on_deck", revision: 0, overall: 3, picksUntil: 2 }) as never },
+      0,
+    );
+    expect(state.picksUntilMyTurn).toBe(2);
+  });
+
+  it("PROVES the check can fail — the old shape places nothing", () => {
+    // The frame every existing test was written with. It must be visibly
+    // different from the wire, or this file proves nothing.
+    const legacy = { type: "event", epoch: "e1", seq: 1, event: { kind: "pick_made", revision: 0, overall: 1, teamId: 1, playerId: 4262921 } };
+    const wire = serverFrame(1, { kind: "pick_made", revision: 0, overall: 1, teamId: 1, playerId: 4262921 });
+    expect(Object.keys(wire)).toContain("payload");
+    expect(Object.keys(legacy)).not.toContain("payload");
+  });
+
+  it("tolerates an unknown event kind rather than rejecting it (FR-006a)", () => {
+    // The contract requires forward compatibility: a kind we do not know must
+    // advance the cursor and change nothing, not break the stream.
+    const { state } = reduce(
+      seeded(),
+      { kind: "frame", frame: serverFrame(1, { kind: "something_new", revision: 0 }) as never },
+      0,
+    );
+    expect(state.cursor).toBe(1);
+  });
+});

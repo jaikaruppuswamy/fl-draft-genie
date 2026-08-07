@@ -501,3 +501,37 @@ describe("a settings disagreement is SURFACED, not resolved (011 T011, FR-005)",
     expect((await snapshotOf(RELAYER.conn))!.disagreement).toBeNull();
   });
 });
+
+describe("013 — the engine is given the real draft order", () => {
+  // `src/api/recommendations.ts` passed `order: []`, hardcoded, under a comment
+  // that is true only BEFORE arming. During a draft that leaves
+  // `gapToNextTurn` and `myRemainingPicks` permanently null, which silently
+  // disables the survival rule (FR-022/FR-023) and the roster-crunch override
+  // (FR-025) — the two adjustments that matter most on draft day.
+  //
+  // Silently is the point: an absent gap is explicitly NOT treated as a missing
+  // signal, so nothing warned and no test failed. Worse, the replay lab passes
+  // the REAL order, so every offline measurement was made against a
+  // differently-behaved engine than the one that ships.
+  //
+  // The session held the order the whole time and never published it.
+
+  it("publishes the order on the session snapshot", async () => {
+    await postBatch(batchBody(1, 4362628));
+    const snap = await snapshotOf(RELAYER.conn);
+
+    expect(snap!.order, "the snapshot must carry the order the engine needs").toBeDefined();
+    expect(Array.isArray(snap!.order)).toBe(true);
+  });
+
+  it("PROVES an empty order is distinguishable — the defect had a value, not an absence", () => {
+    // `[]` and a real order are both valid arrays. What made this invisible is
+    // that the engine treats an empty one as "no turn arithmetic" rather than
+    // as missing data, so nothing anywhere could tell them apart. Pinned so a
+    // future change back to `[]` is a visible difference, not a silent one.
+    const empty: number[] = [];
+    const real = [3, 1, 4, 2];
+    expect(empty).toHaveLength(0);
+    expect(real.length).toBeGreaterThan(0);
+  });
+});

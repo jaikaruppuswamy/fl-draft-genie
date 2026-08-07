@@ -178,6 +178,21 @@ export interface SessionSnapshot {
   orderTrust: ReturnType<typeof trust>;
   totalPicks: number;
   complete: boolean;
+  /**
+   * 013 — the round-1 pick order, PUBLISHED.
+   *
+   * The session has always held it and used it internally for `onTheClock` and
+   * `picksUntilMyTurn`, and never shipped it. So `recommendations.ts` passed
+   * `order: []` to the engine, and with an empty order `gapToNextTurn` and
+   * `myRemainingPicks` are permanently null — which silently disables the
+   * survival rule and the roster-crunch override for every real draft.
+   *
+   * Silently is the operative word: an absent gap is explicitly NOT a missing
+   * signal, so nothing warned. The replay lab passes the real order, so every
+   * offline measurement was made against a differently-behaved engine than the
+   * one that ships.
+   */
+  order: number[];
   /** FR-005. Null when the league agrees, which is the ordinary case. */
   disagreement: SettingsDisagreement | null;
 }
@@ -657,6 +672,7 @@ export class DraftSession extends DurableObject<Env> {
               totalPicks: s.state.totalPicks || undefined,
             }),
       orderTrust: trust(s.state),
+      order: s.state.order,
       totalPicks: s.state.totalPicks,
       // From the scope, not from `state`: it is a fact about the league that
       // arming establishes, and `stateFingerprint` must not see it or FR-014's
