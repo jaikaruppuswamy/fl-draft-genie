@@ -154,12 +154,33 @@ export default function LeagueBoard() {
           <tbody>
             {projected.map((p, i) => {
               const prev = i > 0 ? projected[i - 1] : null;
-              const tierBoundary =
-                grouped && p.tier !== null && (prev === null || prev.tier !== p.tier);
+              // A DIVIDER ON EVERY CHANGE, INCLUDING THE ONE INTO "UNTIERED".
+              //
+              // This fired only when `p.tier !== null`, so untiered players —
+              // which sort last, after the highest tier — rendered with no
+              // heading of their own and appeared to belong to the last tier
+              // shown. Reported as "Lamar is in tier 8": he is not in the tier
+              // feed at all, and tier 8 was simply the last divider above him.
+              //
+              // The distinction matters more than it looks. "Worst tier" is a
+              // ranking; "untiered" means the source has no opinion, which is
+              // the difference between advice and an absence of advice.
+              const tierBoundary = grouped && (prev === null || prev.tier !== p.tier);
               return [
                 tierBoundary ? (
-                  <tr key={`tier-${p.tier}-${p.espn_player_id}`} className="tier-divider">
-                    <td colSpan={7}>Tier {p.tier}</td>
+                  <tr key={`tier-${p.tier ?? "none"}-${p.espn_player_id}`} className="tier-divider">
+                    <td colSpan={7}>
+                      {p.tier !== null ? (
+                        `Tier ${p.tier}`
+                      ) : (
+                        <>
+                          Not tiered{" "}
+                          <span className="muted small">
+                            — the tier source does not rank these players. Ordered by projected points.
+                          </span>
+                        </>
+                      )}
+                    </td>
                   </tr>
                 ) : null,
                 <tr key={p.espn_player_id} onClick={() => setOpenPlayer(p.espn_player_id)} style={{ cursor: "pointer" }}>
