@@ -194,12 +194,29 @@ export default function DraftRoom() {
           )
           .catch(() => dispatch({ kind: "recommendation", board: null, forRevision }));
       } else {
+        // THE SNAPSHOT'S OWN SEQ, not zero.
+        //
+        // This said `seq: 0`, and `applySnapshot` adopts the frame's seq as the
+        // cursor wholesale — so the one path that recovers from a missed frame
+        // rewound the cursor to the beginning. The next live event was then a
+        // forward gap, which fetched a snapshot, which rewound to 0 again. An
+        // infinite resync loop: the board froze on whatever the last snapshot
+        // said, applied no further events, and re-fetched on every frame.
+        //
+        // It froze a real 72-pick draft in every browser on 2026-08-07, after
+        // the first few contiguous frames. The server has always sent `seq` and
+        // the client type has always declared it; only this line discarded it.
         apiClient
           .getDraftSnapshot(id)
           .then((snap) =>
             dispatch({
               kind: "frame",
-              frame: { type: "snapshot", epoch: state.epoch ?? "", seq: 0, state: snap } as DraftFrame,
+              frame: {
+                type: "snapshot",
+                epoch: state.epoch ?? "",
+                seq: (snap as { seq?: number }).seq ?? 0,
+                state: snap,
+              } as DraftFrame,
             }),
           )
           .catch(() => {});
