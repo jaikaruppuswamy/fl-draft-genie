@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Draft Genie draft tap
 // @namespace    https://draft.neelamjai.com/
-// @version      0.1.8
+// @version      0.1.9
 // @description  Passively relays your own ESPN draft-room picks to Draft Genie. Opens nothing to ESPN and sends nothing to ESPN.
 // @author       Draft Genie
 // @match        https://fantasy.espn.com/football/draft*
@@ -24,7 +24,7 @@
 "use strict";
 (() => {
   // tap/meta.ts
-  var TAP_VERSION = "0.1.8";
+  var TAP_VERSION = "0.1.9";
   var CONTRACT_VERSION = 1;
   var INGEST_ORIGIN = "https://draft.neelamjai.com";
   var DRAFT_HOST = "fantasydraft.espn.com";
@@ -324,8 +324,8 @@
 
   // tap/status.ts
   var EXPLANATIONS = {
-    "not-paired": "Not linked to Draft Genie yet. Open Draft Genie settings and pair this browser.",
-    paired: "Linked, waiting for a draft room.",
+    "not-paired": "Not enabled in this browser yet. Open Draft Genie, then click Enable.",
+    paired: "Enabled, waiting for a draft room.",
     "not-a-draft-page": "This is not an ESPN draft room, so nothing is being watched.",
     watching: "Draft room open, waiting for picks.",
     relaying: "Sending picks to Draft Genie.",
@@ -961,7 +961,12 @@ ${EXPLANATIONS[status.state]}
       // with no next step, which is the thing FR-016 forbids.
       (status.detail ? `${scrubDetail(status.detail)}
 
-` : "") + `paired: ${token() ? "yes" : 'NO \u2014 use "paste pairing token" below'}
+` : "") + // Pointed at a menu command that no longer exists. The note at the bottom
+      // of this function recorded US3 deleting that command — eight lines below
+      // the string still telling people to use it. This is the dialog someone
+      // opens BECAUSE the tap is not working, so sending them to a control that
+      // was removed is the worst possible place to be wrong.
+      `enabled: ${token() ? "yes" : "NO \u2014 open Draft Genie and click Enable"}
 buffered: ${status.buffered}
 unrecognised: ${status.unrecognisedCount}
 picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}
