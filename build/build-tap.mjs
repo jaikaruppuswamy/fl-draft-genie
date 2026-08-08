@@ -5,6 +5,26 @@
 // TAP_VERSION constant inlined into the code can silently diverge — and the tap
 // would then report a version it is not (FR-022). The assertion below is what
 // stops that.
+//
+// 017 — `npm run build` AND `npm test` both run this first. package.json cannot
+// carry a comment, so the reason lives here.
+//
+// The output is committed, and for a long time nothing regenerated it. That is
+// two separate hazards, and adding this to `build` alone would only have closed
+// the first:
+//
+//   * `build`/`deploy` shipped whatever bytes happened to be on disk, so an edit
+//     to tap/ reached users only if someone remembered this command;
+//   * worse, `tests/tap/passivity.test.ts` and `tests/tap/vocabulary.test.ts`
+//     assert against the BUILT artifact — deliberately, because it is what
+//     reaches a browser. Without a rebuild they pass against a stale file, so
+//     the suite goes green while proving nothing about the current source. A
+//     guard that cannot see your change is worse than no guard, because it
+//     reports success.
+//
+// Safe to run unconditionally: the output is deterministic — identical input
+// gives byte-identical output — so a no-op build leaves the tree clean and
+// never manufactures a diff.
 
 import { build } from "esbuild";
 import { mkdir, readFile, writeFile } from "node:fs/promises";

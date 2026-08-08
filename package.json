@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "dev:web": "vite --config web/vite.config.ts",
-    "build": "vite build --config web/vite.config.ts",
-    "test": "vitest run && vitest run --config vitest.draft.config.ts && npx tsx scripts/privacy-sweep.ts",
+    "build": "npm run build:tap && vite build --config web/vite.config.ts",
+    "test": "npm run build:tap && vitest run && vitest run --config vitest.draft.config.ts && npx tsx scripts/privacy-sweep.ts",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
