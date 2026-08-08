@@ -93,6 +93,15 @@ them.
 Draft Genie remains **read-only against ESPN** (Constitution VI), and nothing
 here changes a recommendation rule (Principle IV).
 
+## Clarifications
+
+### Session 2026-08-08
+
+- Q: An alert must name which league broke, but the scan is global and the constitution's isolation rule has no operator carve-out. How is that resolved? → A: **Ratify an explicit operator exemption.** Alerts may name any league by `espn_league_id`. Recorded as a named exemption in the constitution, not left implicit.
+- Q: SC-002 promises five minutes, but 150 s lapse + a 300 s cron grid is 7.5 minutes worst case. Which way? → A: **Add a 1-minute trigger that runs only the live-draft check.** SC-002 stands at five minutes.
+- Q: How long should picks stop arriving before an alert, given 005 measured 90 s+ between normal human picks? → A: **5 minutes** — roughly three missed pick slots, clear of the measured human gap.
+- Q: Should the single-environment assumption stand now that CI is being added? → A: **Yes, one environment.** CI catches breakage before merge; a second environment doubles the surface that must be kept in step.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Tell me when something has quietly stopped working (Priority: P1) 🎯 MVP
@@ -263,6 +272,21 @@ location and confirm the expected rows are present.
   cron runs every five minutes and a per-failure alert would be noise.
 - **FR-003**: The system MUST notify when a live draft session stops receiving
   picks, and MUST distinguish a tap-side cause from a server-side one.
+- **FR-003a**: "Stops receiving picks" MUST be detected as **picks not arriving
+  for 5 minutes** during a live draft — not by a lapsed relay heartbeat alone.
+  The two are different facts: the relay refreshes its heartbeat on every
+  accepted batch, so a tap that is alive and relaying nothing looks perfectly
+  healthy. That is exactly the 2026-08-06/07 failure, and a heartbeat-only
+  design does not see it.
+- **FR-003b**: The 5-minute window MUST NOT be tightened below the observed
+  human pick cadence. 005 measured 90 s+ between human picks and ~1 s under
+  autodraft; five minutes is roughly three missed pick slots. An alert that
+  fires on an ordinary slow round teaches the owner to ignore it, which costs
+  more than the alert is worth.
+- **FR-003c**: The live-draft check MUST run on a **1-minute** cadence,
+  separately from the 5-minute maintenance run, and MUST short-circuit when no
+  draft is armed. Without it SC-002 is arithmetically unreachable: a 150 s lapse
+  threshold on a 300 s grid is 7.5 minutes before anything even looks.
 - **FR-004**: The system MUST detect and report **absence of expected activity**
   — a job that should have produced output and produced none — not only errors.
 - **FR-005**: Every notification MUST be free of ESPN credentials, member
@@ -272,6 +296,17 @@ location and confirm the expected rows are present.
   least as long as it takes to notice a problem and investigate it.
 - **FR-008**: Where a notification concerns one league or one account, it MUST
   identify which — the service is multi-user.
+- **FR-008a**: A notification MAY name **any** league by its `espn_league_id`,
+  including a league belonging to another user, under the **operator exemption**
+  ratified in the constitution on 2026-08-08. The exemption is narrow and
+  deliberate: the operator can already read every row directly, so an alert
+  discloses nothing new to them — while scoping alerts to the operator's own
+  leagues would leave another user's failing sync unreported indefinitely, which
+  is the failure this feature exists to end.
+- **FR-008b**: The exemption extends to the league identifier and **nothing
+  else**. `connection_id`, `account_id`, any other UUID, the ESPN-authored league
+  name, and any email address remain forbidden in a notification (FR-005). The
+  exemption is a carve-out for operating the service, not a general relaxation.
 
 **Not shipping a break (US2)**
 
@@ -341,7 +376,11 @@ location and confirm the expected rows are present.
 - **SC-001**: A failure of a scheduled job is reported to the owner **within one
   hour**, without anyone inspecting logs or the database.
 - **SC-002**: A draft session that stops receiving picks during a live draft is
-  reported **within five minutes**.
+  reported **within five minutes** — measured from the moment picks stop, not
+  from the moment a check happens to run. Ratified 2026-08-08 as a five-minute
+  promise, which is why FR-003c requires a 1-minute cadence: on the 5-minute
+  maintenance grid the worst case is 7.5 minutes and the criterion would be
+  knowingly unmet.
 - **SC-003**: A job that produces no output when output was expected is reported
   **within 24 hours**. Today the equivalent took weeks.
 - **SC-004**: **100%** of pushes have an automated pass/fail result attributable
@@ -373,13 +412,19 @@ Informed defaults where the roadmap left the question open. Each is a decision
 - **Backups rely on the platform's point-in-time recovery**, verified and
   documented rather than replaced with an export pipeline. Building a second
   backup system for data that is largely reconstructible would be speculative.
-- **A single environment is retained.** A staging environment is the obvious
-  ask, but the product is deployed continuously by one person, the Worker bundle
-  is verified before deploy, and a second environment doubles the surface that
-  must be kept in step. This is the assumption most likely to be overturned in
-  clarify, and it is deliberately stated so it can be argued with.
-- **Alerting is threshold-based on state the system already records** — session
-  status, cron outcomes, row counts — rather than a new metrics pipeline.
+- **A single environment is retained — RATIFIED 2026-08-08**, no longer an
+  assumption. It was flagged here as the one most likely to be overturned, and
+  clarify considered it and kept it: CI now catches breakage before merge, which
+  is most of what a staging environment would buy, and a second environment
+  doubles the D1, secrets and Durable Object surface that must be kept in step.
+  Drift between two environments is itself a silent-failure mode, which is the
+  category this feature exists to reduce.
+- **Alerting is threshold-based on state the system already records** — but only
+  half of that assumption survived research. Freshness timestamps and heartbeats
+  are recorded; **per-stage cron outcomes are not**, `draft_sessions.status`
+  never carries the two values the alerting would key on, and row counts are the
+  wrong shape for every table involved. See research §6; the correction is one
+  small state table, not a metrics pipeline.
 - **The runbook lives in the repository**, beside the code it describes, so it
   is versioned with the behaviour it documents.
 

@@ -46,9 +46,11 @@ fan-out `listConnectionsForLeague()` deliberately returns other accounts' rows.
 Storing one, then rendering it, names a person indirectly.
 
 **No account column, deliberately.** This table is operator-scoped state about
-the *service*, not user data. That is also why it needs the explicit exemption
-carried to clarify: the constitution's isolation rule has no operator carve-out,
-and this table's whole purpose is to observe across accounts.
+the *service*, not user data — and it observes across accounts by design. That is
+permitted by the **operator exemption ratified into the constitution (1.2.0) on
+2026-08-08**, which covers the league identifier and nothing else. Without it
+this table would violate the isolation rule; with it, the scope of what may be
+stored and rendered is bounded in writing rather than by habit.
 
 ### State transitions
 
@@ -71,11 +73,17 @@ observation raises a suspicion, a second confirms, and any healthy observation
 clears it. It costs no extra reads because the cron already runs every five
 minutes.
 
-**One condition is exempt from the two-observation gate**, or SC-002 cannot be
-met even with a faster trigger: the live-draft lapse. Its 150 s threshold is
-already three missed 45 s beats — the debounce is in the threshold, and doubling
-it doubles the detection time on the one path that matters most. Whether this
-exemption is enough depends on the cron decision carried to clarify.
+**The live-draft conditions are exempt from the two-observation gate**, or SC-002
+cannot be met even with the faster trigger. Both already carry their debounce in
+the threshold: the relay lapse at 150 s is three missed 45 s beats, and the
+picks-stalled check at **5 minutes** (FR-003a, ratified 2026-08-08) is roughly
+three missed pick slots against the 90 s+ human cadence 005 measured. Doubling
+either doubles detection time on the one path that matters most.
+
+**These conditions are evaluated on a 1-minute trigger** (FR-003c), separate from
+the 5-minute maintenance run and short-circuiting when no draft is armed.
+Clarify ratified SC-002 at five minutes, and on the 5-minute grid the worst case
+is 7.5 minutes — the criterion would have been knowingly unmet.
 
 ---
 

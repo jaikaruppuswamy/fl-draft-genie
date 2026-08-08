@@ -110,3 +110,33 @@ had changed. **The same failure mode 009 exists to fix applies to 009.**
 `011-shared-draft-sessions` shipped after this spec was written and was added to
 Dependencies: fan-out means one tap serves managers who are not running it, so
 "the tap stopped" is no longer a fact about the person being alerted.
+
+### Clarified 2026-08-08 — 16/16 → 16/16, three items materially stronger
+
+Four questions asked and answered. Nothing regressed; three items that passed on
+a technicality now pass on their merits:
+
+- **"Requirements are testable and unambiguous"** — FR-003 said "stops receiving
+  picks" with no threshold, which is untestable as written. FR-003a/b now fix it
+  at **5 minutes**, chosen against 005's measured 90 s+ human pick cadence rather
+  than picked from the air.
+- **"Success criteria are measurable"** — SC-002 was measurable and **knowingly
+  unreachable**: 150 s lapse on a 300 s grid is 7.5 minutes against a five-minute
+  promise. FR-003c adds the 1-minute cadence that makes it real. A criterion
+  nobody had done the arithmetic on is the worst kind, because it reads as a
+  commitment and behaves as a wish.
+- **"Dependencies and assumptions identified"** — the single-environment
+  assumption is now **ratified**, not pending, and the "state the system already
+  records" assumption is corrected to name the half that was false.
+
+One item is worth flagging as *deliberately* still open rather than missed:
+**per-run history for FR-007**. It depends on which Workers plan this account is
+on — 3 days of log retention on Free, 7 on Paid — which is unverified. The
+default is to build nothing, and it is reversible.
+
+**One clarification left the spec.** The operator exemption for FR-008 could not
+be settled here: alerting is global across accounts and the constitution's
+isolation rule had no carve-out, so the feature was unimplementable without
+either violating it silently or going blind to other users' failures. It was
+ratified as a **constitution amendment (1.1.0 → 1.2.0)**, scoped to the league
+identifier alone.

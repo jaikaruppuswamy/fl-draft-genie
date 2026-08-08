@@ -28,6 +28,14 @@ recommendations.
 
 ## 2. What may never be said
 
+> **The operator exemption (constitution 1.2.0, ratified 2026-08-08).** An alert
+> may name **any** league by `espn_league_id`, including one belonging to another
+> user. It discloses nothing the operator cannot already read directly, and the
+> alternative — scoping alerts to the operator's own leagues — would leave
+> another user's failing sync unreported indefinitely. **The exemption covers the
+> league identifier and nothing else.** Everything in the table below stays
+> forbidden.
+
 | Forbidden | Why |
 |---|---|
 | `espn_s2`, `SWID`, any credential | Constitution — and it is why the outbound screen exists |
@@ -62,7 +70,9 @@ path.
 | Rule | Requirement |
 |---|---|
 | Two observations before notifying | FR-002 — one raises a suspicion, a second confirms; any healthy observation clears it |
-| **Exception**: live-draft relay lapse | its 150 s threshold is already three missed beats; doubling it doubles detection time on the draft-day path |
+| **Exception**: the live-draft checks | their thresholds are already the debounce (150 s lapse = three missed beats; 5 min of no picks ≈ three missed pick slots). Doubling them doubles detection time on the draft-day path |
+| Live-draft checks run every **1 minute** | FR-003c — on the 5-minute grid, SC-002's five-minute promise is arithmetically unreachable (150 s + 300 s = 7.5 min). The check short-circuits when no draft is armed |
+| Picks-stalled threshold is **5 minutes** | FR-003a/b — clear of the 90 s+ human pick cadence 005 measured. **This is the predicate that catches a frozen room; the heartbeat cannot, because it refreshes on every accepted batch** |
 | Bounded repetition | FR-006 — `notify_count` capped, with backoff, until `resolved_at` |
 | Recurrence may notify again | a cleared-then-returning condition is news |
 | Scope in the subject | FR-008 — which league, when a league is implicated |

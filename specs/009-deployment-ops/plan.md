@@ -78,7 +78,7 @@ ticks/day.
 
 | Principle | Assessment |
 |---|---|
-| **I. Spec-First** | ✅ spec written 2026-08-06, refreshed and re-verified 2026-08-08 before planning. One open question is carried to clarify rather than decided here. |
+| **I. Spec-First** | ✅ spec written 2026-08-06, refreshed and re-verified 2026-08-08, then clarified the same day — four questions answered, one of which amended the constitution. Implementation has not started. |
 | **II. Any-League** | ✅ unaffected. Alerts are scoped by `espn_league_id`; nothing is hardcoded. |
 | **III. League Currency** | ✅ untouched — no scoring or projection maths in this feature. |
 | **IV. Rules Are Code** | ✅ no rule, weight or threshold in the recommendation engine changes. FR-023 states it. **Alert thresholds are operational, not recommendation rules**, and are code with tests — not user settings. |
@@ -104,27 +104,40 @@ ticks/day.
 - **Stored error strings are bounded codes, never free text.** `redact()` does
   not strip bare UUIDs and the privacy sweep cannot see D1 rows.
 - Multi-user isolation: alert scans are global by necessity (one operator
-  watching the service). **This needs an explicit exemption** — carried to
-  clarify below rather than assumed.
+  watching the service). **The exemption was ratified in clarify and the
+  constitution amended to 1.2.0** — narrow, covering the `espn_league_id` only.
+  Every other identifier stays forbidden, and it licenses nothing in the product
+  itself. It is written down rather than assumed, which is the whole point: a
+  silent violation of the isolation rule is exactly the kind of thing this
+  project has found by accident before.
 
 **Technical Constraints**: hosting unchanged, one platform, one environment
 retained. No second browser artifact.
 
 **Result: PASS, no violations.** Complexity Tracking is empty.
 
-### Carried to `/speckit-clarify` — not decided here
+### Resolved in `/speckit-clarify`, 2026-08-08
 
-1. **SC-002 versus the cron grid.** Add a second `* * * * *` trigger running only
-   the live-draft scan, or relax SC-002 to ~7.5 minutes? The measurement is in
-   §2.1; the trade is one more trigger against a weaker promise on the one path
-   that is load-bearing on draft day.
-2. **The operator exemption for FR-008.** The constitution's isolation rule has
-   no carve-out, and an operator alert names a league that may not be theirs.
-   Digest it, scope it, or ratify the exemption.
-3. **Per-run history (FR-007).** The plan keeps current-state only. If history is
-   wanted, the case must first show that Workers Logs' 3–7 days is insufficient
-   — and the plan should record which Workers plan this account is on, which is
-   currently unverified.
+1. **SC-002 versus the cron grid** → **a second `* * * * *` trigger**, running
+   only the live-draft check and short-circuiting when no draft is armed. SC-002
+   stands at five minutes. FR-003c.
+2. **The operator exemption for FR-008** → **ratified**, and the constitution was
+   amended (1.1.0 → **1.2.0**). Narrow: the league identifier only. FR-008a/b.
+3. **The stall window** → **5 minutes** of no picks during a live draft. FR-003a/b.
+   This is the predicate that catches the 2026-08-06/07 freeze; a heartbeat-only
+   design never sees it.
+4. **A single environment** → **ratified**, no longer an assumption. CI before
+   merge buys most of what staging would, and two environments that drift are
+   themselves a silent-failure mode.
+
+### Still deferred — decide during implementation
+
+**Per-run history (FR-007).** The plan keeps current-state only, on the grounds
+that Workers Logs covers 3–7 days. **Which is unverified — this account's Workers
+plan is not established**, and it is 3 days on Free versus 7 on Paid. Establish
+the tier first; only if 3 days proves insufficient does a history table earn its
+place. Left open deliberately: it is reversible, and adding a table nobody needs
+is the machinery this project keeps having to remove.
 
 ## Project Structure
 
@@ -204,5 +217,11 @@ because an alert that cries wolf is worse than none.
 | Does removing the prior-season prune risk the database ceiling? | Replaced with a signal rather than a bound: ~16 MB/season measured, plus a `database_size` threshold check on the cron (§4.7). |
 
 **Result: PASS.** No violations, no justifications required, Complexity Tracking
-remains empty. Three questions are carried to clarify, named above, rather than
-resolved by assumption.
+remains empty.
+
+Four questions went to clarify and were answered on 2026-08-08; one of them
+amended the constitution to **1.2.0**. The single remaining open item —
+per-run history for FR-007 — is named above and is deliberately left to
+implementation, because it depends on a platform fact (this account's Workers
+plan) that has not been established, and because the reversible default is to
+build nothing.
