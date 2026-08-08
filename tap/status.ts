@@ -31,9 +31,28 @@ export interface TapStatus {
 }
 
 /** Plain-language, actionable — FR-016. Never a bare code. */
+//
+// THE STATE NAMES ARE STALE; THE COPY IS NOT. 011 US3 replaced the pairing
+// ritual with a single acknowledgement, and T057/T058 took the old vocabulary
+// out of the web UI — `DraftTap.tsx` says so in as many words. This file was
+// missed, so the badge went on naming a step the product no longer has: there
+// is no such control anywhere, only Enable. It was the FIRST thing a freshly
+// installed tap said (`main.ts` renders `not-paired` on startup when no
+// credential is held), so the one instruction that had to be right was the one
+// still describing the removed flow.
+//
+// The phrases themselves are not repeated here on purpose — `tests/tap/
+// vocabulary.test.ts` scans the shipped bundle for them, and a comment quoting
+// one would fail the guard that protects this very line.
+//
+// The KEYS keep the old names on purpose. They are a wire contract — the tap
+// posts them to `/api/tap/status`, the server stores them in
+// `draft_sessions.tap_state`, and `liveness.ts` reads them back. Renaming them
+// would strand the 0.1.8 taps already installed until every browser updated,
+// which is a migration, not a copy fix. Only the human-readable half moves.
 export const EXPLANATIONS: Record<TapState, string> = {
-  "not-paired": "Not linked to Draft Genie yet. Open Draft Genie settings and pair this browser.",
-  paired: "Linked, waiting for a draft room.",
+  "not-paired": "Not enabled in this browser yet. Open Draft Genie, then click Enable.",
+  paired: "Enabled, waiting for a draft room.",
   "not-a-draft-page": "This is not an ESPN draft room, so nothing is being watched.",
   watching: "Draft room open, waiting for picks.",
   relaying: "Sending picks to Draft Genie.",

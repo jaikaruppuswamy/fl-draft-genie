@@ -158,8 +158,23 @@ describe("diagnostics survive the failure they diagnose", () => {
     expect(badge).toBeLessThan(gate);
   });
 
-  it("still offers a way to paste a pairing token", () => {
-    expect(bundle).toMatch(/paste pairing token/);
+  // 016 — REPOINTED, and it is worth saying why rather than just deleting it.
+  //
+  // This asserted `/paste pairing token/` against the bundle. 011 US3 deleted
+  // that menu command on purpose — it accepted a secret typed into a page ESPN
+  // controls — but the test stayed GREEN, because the status dialog still
+  // carried a line telling the owner to use it. The assertion was satisfied by
+  // a dangling reference to a removed control, so instead of catching the
+  // half-finished change it held the misleading copy in place: anyone fixing
+  // the copy would have failed this test and put the copy back.
+  //
+  // The claim underneath is still true and still worth guarding — a tap whose
+  // preflight failed must leave the owner a NEXT STEP, not just a complaint.
+  // What changed is the step. So assert the capability, not the wording of the
+  // era: whatever the dialog says, it must tell someone holding no credential
+  // where to go. `tests/tap/vocabulary.test.ts` guards the other direction.
+  it("still tells an unenabled owner what to do about it", () => {
+    expect(bundle).toMatch(/open Draft Genie and click Enable/i);
   });
 
   it("says WHY, not just that something is wrong", () => {

@@ -261,8 +261,13 @@ export function tapRoutes() {
     const at = now(c.env);
     const verified = await verifyPairing(c.env.DB, token, installHeader, at);
     if (!verified.ok) {
+      // The CODE is a wire contract — `errorCodeOf` regex-reads it and
+      // `shouldForgetCredential` compares it against `pairing_missing_install`
+      // to decide whether to discard the token. It does not move. The MESSAGE
+      // is free text, and it used to say "re-pair this browser", naming a step
+      // 011 US3 deleted.
       return withCors(
-        jsonError(401, `pairing_${verified.reason}`, "Re-pair this browser in Draft Genie settings."),
+        jsonError(401, `pairing_${verified.reason}`, "This browser's relay is off. Turn it on again in Draft Genie."),
         cors,
       );
     }
@@ -430,7 +435,12 @@ export function tapRoutes() {
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
     if (!token) return withCors(jsonError(401, "unpaired", "This browser is not linked to Draft Genie."), cors);
     const verified = await verifyPairing(c.env.DB, token, c.req.header("X-Tap-Install") ?? null, now(c.env));
-    if (!verified.ok) return withCors(jsonError(401, `pairing_${verified.reason}`, "Re-pair this browser."), cors);
+    if (!verified.ok) {
+      return withCors(
+        jsonError(401, `pairing_${verified.reason}`, "This browser's relay is off. Turn it on again in Draft Genie."),
+        cors,
+      );
+    }
     const parsed = statusBody.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return withCors(jsonError(400, "invalid_status", "Malformed status report."), cors);
     const body = parsed.data;

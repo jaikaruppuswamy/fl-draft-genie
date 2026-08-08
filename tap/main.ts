@@ -686,8 +686,7 @@ function start(): void {
 
 /**
  * Registered UNCONDITIONALLY, including when the preflight has failed — see
- * `start()`. A tap that cannot observe must still be able to explain itself and
- * accept a pairing token.
+ * `start()`. A tap that cannot observe must still be able to explain itself.
  */
 function registerMenu(): void {
   GM_registerMenuCommand("Draft Genie: status", () => {
@@ -696,7 +695,12 @@ function registerMenu(): void {
       // The DETAIL is what says *why* — without it "incompatible" is a label
       // with no next step, which is the thing FR-016 forbids.
       (status.detail ? `${scrubDetail(status.detail)}\n\n` : "") +
-      `paired: ${token() ? "yes" : "NO — use \"paste pairing token\" below"}\n` +
+      // Pointed at a menu command that no longer exists. The note at the bottom
+      // of this function recorded US3 deleting that command — eight lines below
+      // the string still telling people to use it. This is the dialog someone
+      // opens BECAUSE the tap is not working, so sending them to a control that
+      // was removed is the worst possible place to be wrong.
+      `enabled: ${token() ? "yes" : "NO — open Draft Genie and click Enable"}\n` +
       `buffered: ${status.buffered}\nunrecognised: ${status.unrecognisedCount}\n` +
       `picks seen: ${draftEnd.seenCount}/${draftEnd.totalSlots || "?"}\nversion: ${TAP_VERSION}`;
     // Carries no secret, but the same reasoning applies: use the reference we
@@ -704,10 +708,11 @@ function registerMenu(): void {
     if (PAGE_ALERT) PAGE_ALERT.call(W, text);
     else render(status.state, "cannot display status — the page replaced alert()");
   });
-  // 011 US3 removed "paste pairing token". Enabling happens with one click on
-  // Draft Genie's own page and the credential never passes through a human, so
-  // there is nothing left to paste — and no reason to keep a code path whose
-  // whole job was accepting a secret typed into a page ESPN controls.
+  // 011 US3 removed the second menu command, the one that accepted a token
+  // typed in by hand. Enabling happens with one click on Draft Genie's own page
+  // and the credential never passes through a human, so there is nothing left
+  // to paste — and no reason to keep a code path whose whole job was accepting
+  // a secret typed into a page ESPN controls.
 }
 
 start();
