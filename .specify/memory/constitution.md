@@ -1,5 +1,21 @@
 <!--
-Sync Impact Report — 2026-08-03
+Sync Impact Report — 2026-08-08
+Version: 1.1.0 → 1.2.0 (MINOR: added a narrow, named exemption to an existing
+constraint; no principle removed, redefined or weakened)
+
+Modified sections:
+  - Security & Privacy Constraints — added an OPERATOR EXEMPTION permitting an
+    operational alert to name any league by espn_league_id, including another
+    user's. Motivated by 009: alerting is global by necessity (one operator
+    watching a multi-user service), and the isolation rule as written had no
+    carve-out, so the feature could not be implemented without either violating
+    it silently or going blind to other users' failures. Ratified in 009's
+    clarify session rather than assumed. Deliberately scoped to the league
+    identifier alone.
+
+Added sections: none. Removed sections: none. Deferred TODOs: none.
+
+Prior report — 2026-08-03
 Version: 1.0.1 → 1.1.0 (MINOR: materially expanded an existing principle and
 widened a technical constraint; no principle removed or redefined)
 
@@ -98,6 +114,22 @@ complexity), one hosting platform, no speculative configurability (YAGNI).
   cookies (with clear in-app instructions for retrieving them).
 - Per-user data isolation: one user can never see another user's leagues,
   credentials, or preferred lists.
+- **Operator exemption, for operational alerts only** (ratified 2026-08-08,
+  during 009). An operational notification sent to the service operator MAY name
+  **any** league by its `espn_league_id`, including a league belonging to another
+  user. Two reasons, and the second is the load-bearing one:
+  - it discloses nothing new — the operator can already read every row directly,
+    so withholding the identifier protects no one; and
+  - the alternative is worse. Scoping alerts to the operator's own leagues
+    leaves another user's failing sync unreported indefinitely, and a service
+    that cannot notice its own failures for other people is not safer for them.
+
+  **The exemption is narrow and covers the league identifier only.** Account
+  ids, connection ids, any other UUID, the ESPN-authored league name, manager
+  names and email addresses remain forbidden in a notification. It applies to
+  alerts to the operator and to nothing else — it is not a general relaxation of
+  isolation, and it never licenses one user seeing another user's data in the
+  product itself.
 - **A league's draft picks are shared among that league's managers** (ratified
   2026-08-06, during 011). Every manager in a draft is already watching the same
   ESPN room; the picks are the shared event, not one manager's private data. So
@@ -155,7 +187,7 @@ this file in its own commit with a version bump and rationale. All
 principles; violations require an explicit, documented justification or a
 constitution amendment.
 
-**Version**: 1.1.0 | **Ratified**: 2026-08-02 | **Last Amended**: 2026-08-03
+**Version**: 1.2.0 | **Ratified**: 2026-08-02 | **Last Amended**: 2026-08-08
 
 <!-- 1.0.1: cross-reference fix — replay lab renumbered 007→008 in the
      2026-08-02 roadmap renumbering. No principle changes. -->
@@ -163,3 +195,8 @@ constitution amendment.
      Constraints permit one optional passive browser companion and record the
      empirical finding that ESPN's read API cannot see a draft in progress.
      Security constraints extend the secrets rule to test fixtures. -->
+<!-- 1.2.0: a narrow OPERATOR EXEMPTION lets an operational alert name any
+     league by espn_league_id, including another user's. Ratified during 009's
+     clarify. Scoped to the league identifier alone — every other identifier
+     stays forbidden — and to operator alerts alone, never to the product. -->
+
