@@ -78,3 +78,35 @@ Deliberate defaults, recorded so they are not mistaken for settled decisions:
   retention decision is the one requirement here that changes another feature's
   shipped behaviour. Deliberate — the contradiction is recorded in ROADMAP and
   needs an owner — but worth flagging as a scope edge before planning.
+
+### Re-validated 2026-08-08
+
+Two real drafts and five shipped features later, every checklist item above
+still passes. The gap table was re-checked against the live configuration rather
+than assumed: still no `.github/workflows`, still one environment, still no
+logpush, still no notification code beyond the sign-in mailer.
+
+Three facts had gone stale and were corrected in `spec.md`:
+
+1. **`draft_archives` writes now** — two rows, one per real draft. US1's
+   headline example is no longer a live defect. The requirement is untouched:
+   nothing reported the silence and nothing reported the repair either, which is
+   the same argument with a better ending.
+2. **Test counts** — 993 + 80 became 1,132 + 182.
+3. **US3's iPad premise was wrong, and this is the one that mattered.** The spec
+   asked the runbook to record "desktop Chrome only; no live monitoring from an
+   iPad" as a documented limitation. The 2026-08-06/07 drafts disproved it — the
+   room's live-update path read a field the frames do not carry, and desktop
+   Chrome froze identically. Planning from that sentence would have written a
+   wrong diagnosis into the one document meant to be trusted under time
+   pressure. Replaced with FR-016a: a limitation must be demonstrated, and
+   scoped to the half of the product it constrains.
+
+The third is worth dwelling on, because it is this feature's own thesis turned
+on itself. A spec is a place a wrong belief can go unnoticed for months, and
+this one survived because nobody re-read it against reality until the reality
+had changed. **The same failure mode 009 exists to fix applies to 009.**
+
+`011-shared-draft-sessions` shipped after this spec was written and was added to
+Dependencies: fan-out means one tap serves managers who are not running it, so
+"the tap stopped" is no longer a fact about the person being alerted.

@@ -4,6 +4,14 @@
 
 **Created**: 2026-08-06
 
+**Refreshed**: 2026-08-08 — facts re-verified against production and the live
+configuration after two real drafts. The four user stories, the requirement set
+and the ratified Out-of-Scope boundaries are unchanged; what moved is evidence
+that had gone stale. Specifically: `draft_archives` now writes (US1's headline
+example), the test counts are current, the 2026-08-06/07 draft failures are
+recorded, and US3's "iPad cannot monitor" premise is corrected — it was a
+cross-platform defect, since fixed, not a platform limitation. See FR-016a.
+
 **Status**: Draft
 
 **Input**: ROADMAP 009 — "Production hardening on Cloudflare: environments, secret management, scheduled jobs, logging and alerting (especially 'draft session died mid-draft'), backups, and a draft-day runbook. Much is already exercised continuously… this feature closes the remaining gaps at the end."
@@ -23,8 +31,12 @@ evidence about what actually goes wrong.
 **And the evidence is unambiguous. Nothing in this project has failed loudly.
 Everything has failed silently, and been found by accident.**
 
-- `draft_archives` has **written zero rows in production** since 005 shipped.
-  Found weeks later, while planning a different feature.
+- `draft_archives` had **written zero rows in production** since 005 shipped.
+  Found weeks later, while planning a different feature. **It writes now** — two
+  rows, 2026-08-06 and 2026-08-07, one per real draft — but that is the point
+  rather than a retraction: nothing reported the silence, and nothing reported
+  the recovery either. The archive was repaired and no system mentioned it in
+  either direction.
 - `pruneSets()` deletes every prior season's projection sets on every
   maintenance run — directly contradicting a decision 002 ratified in writing.
   Found by reading the code during 008's clarify.
@@ -36,9 +48,25 @@ Everything has failed silently, and been found by accident.**
   accidental id collisions, and admitted another user's draft into a public
   repo. Both found by looking closely at output that appeared fine.
 
+**Two live drafts on 2026-08-06 and 2026-08-07 then tested every claim above,
+and the evidence got worse rather than better:**
+
+- The draft room's live-update path had **never executed in production** — it
+  read a field the frames do not carry. Picks stopped appearing after the first
+  few and the room froze, on desktop Chrome and on an iPad alike. It had passed
+  every test, because each side of the seam was tested against its own idea of
+  the other. Found mid-draft, by the owner, twice.
+- Behind that one bug sat three more it had been hiding: a resynchronisation
+  loop, a stuck turn countdown, and an empty draft order that silently disabled
+  two recommendation rules in **every production draft to date**.
+- A tap credential and a stale bundle went on serving old copy because
+  `build:tap` was in no build chain — the guarding tests asserted against an
+  artifact nothing regenerated, so they passed while proving nothing.
+
 Not one of those was caught by a system. Every one was caught by a person
-happening to look. **So the gap this feature closes is not incident response —
-it is NOTICING.**
+happening to look — and in the worst cases, by the owner looking during the one
+hour a year the product is load-bearing. **So the gap this feature closes is not
+incident response — it is NOTICING.**
 
 **Principle V is the organising constraint**: "A live draft cannot be paused or
 replayed." But the corollary that matters here is subtler than draft-day
@@ -54,7 +82,7 @@ them.
 
 | Gap | Current state |
 |---|---|
-| Continuous integration | **None.** 993 + 80 tests and the privacy sweep run only when someone remembers, on a **public** repo |
+| Continuous integration | **None.** 1,132 + 182 tests and the privacy sweep run only when someone remembers, on a **public** repo |
 | Alerting | **None.** Zero notification code. Failures reach `logError` and stop there |
 | Log retention | Observability enabled, **no logpush** — logs are ephemeral |
 | Environments | **One.** Every deploy goes straight to the domain serving real drafts |
@@ -156,9 +184,18 @@ alone.
    verify beforehand and by when.
 4. **Given** something fails that the runbook does not cover, **Then** it says
    what to capture so the failure can be understood afterwards.
-5. **Given** a documented limitation (desktop Chrome only; no live monitoring
-   from an iPad or the ESPN app), **Then** the runbook states it plainly rather
-   than leaving it to be discovered on the day.
+5. **Given** a documented limitation, **Then** the runbook states it plainly
+   rather than leaving it to be discovered on the day — and states it for the
+   RIGHT half of the product. **Relaying** needs a desktop browser with a
+   userscript manager; **watching** is an ordinary web page and works anywhere,
+   including an iPad.
+6. **Given** a symptom that resembles a platform limitation, **Then** the
+   runbook does not assert one without evidence. This scenario previously read
+   "desktop Chrome only; no live monitoring from an iPad", which the drafts of
+   2026-08-06/07 disproved: the iPad froze because the room's live-update path
+   read a field the frames do not carry, and desktop Chrome froze identically.
+   A runbook that had shipped that sentence would have told the owner to
+   abandon a device that works, and hidden the real defect behind a rule.
 
 ---
 
@@ -254,8 +291,14 @@ location and confirm the expected rows are present.
   reachability failure; and what to capture when something is not covered.
 - **FR-015**: The runbook MUST distinguish failures by remedy, not by cause —
   the owner needs to know what to do, not what broke.
-- **FR-016**: The runbook MUST state the product's documented limitations,
-  including that live monitoring requires desktop Chrome.
+- **FR-016**: The runbook MUST state the product's documented limitations, and
+  MUST scope each one to the half of the product it actually constrains:
+  **relaying** requires a desktop browser with a userscript manager;
+  **watching** is an ordinary web page with no such requirement.
+- **FR-016a**: The runbook MUST NOT record a limitation that has not been
+  demonstrated. A symptom reproduced on one device is evidence about the
+  product, not about the device — the 2026-08-06/07 freeze presented as an iPad
+  limitation and was a defect on every platform.
 - **FR-017**: The runbook MUST be usable by someone who has not read the source.
 
 **Recovery (US4)**
@@ -349,6 +392,16 @@ Informed defaults where the roadmap left the question open. Each is a decision
   itself a signal.
 - **010-draft-tap** — the documented limitations the runbook must state, and the
   privacy discipline every alert inherits.
+- **011-shared-draft-sessions** — shipped 2026-08-07, after this spec was first
+  written, and it changes what an alert has to say. A league's frames are now
+  delivered to every entitled manager, so one tap can serve managers who are not
+  running it: "the tap stopped" is no longer a fact about the person being
+  notified, and "the draft stopped" is meaningless without naming whose. FR-003
+  and FR-008 are the requirements this lands on, and FR-005 gets sharper — a
+  relayer's identity must not reach a leaguemate through an alert any more than
+  through a delivered frame. 011 also added the one reset path and the
+  observed-reset void, both of which can destroy a board and neither of which
+  reports that it did.
 - **002-projections-pipeline** — the prune whose contradiction with its own
   ratified retention decision FR-021 must resolve.
 - **008-draft-replay-lab** — the privacy sweep CI will enforce, and the corpus
